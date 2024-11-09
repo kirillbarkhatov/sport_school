@@ -8,17 +8,16 @@ class Person(models.Model):
     GENDER_CHOICES = [
         ("male", "Мужской"),
         ("female", "Женский"),
-        ("other", "Другой"),
     ]
 
     name = models.CharField(max_length=100, verbose_name="Имя")
     surname = models.CharField(max_length=100, verbose_name="Фамилия")
-    middlename = models.CharField(max_length=100, verbose_name="Отчество")
+    middlename = models.CharField(max_length=100, blank=True, null=True, verbose_name="Отчество")
     date_of_birth = models.DateField(verbose_name="Дата рождения")
-    email = models.EmailField(verbose_name="Электронная почта")
-    phone = models.CharField(max_length=15, verbose_name="Телефон")
-    telegram = models.CharField(max_length=100, verbose_name="Telegram")
-    comment = models.TextField(blank=True, verbose_name="Комментарий")
+    email = models.EmailField(blank=True, null=True, verbose_name="Электронная почта")
+    phone = models.CharField(max_length=15, blank=True, null=True, verbose_name="Телефон")
+    telegram = models.CharField(max_length=100, blank=True, null=True, verbose_name="Telegram")
+    comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
     gender = models.CharField(max_length=6, choices=GENDER_CHOICES, verbose_name="Пол")
 
     def __str__(self):
@@ -34,9 +33,9 @@ class Athlete(models.Model):
 
     person = models.OneToOneField(Person, on_delete=models.CASCADE, verbose_name="Человек")
     level = models.CharField(max_length=50, verbose_name="Уровень подготовки")
-    rank = models.CharField(max_length=50, verbose_name="Разряд")
-    medical_certificate = models.CharField(max_length=100, verbose_name="Справка-допуск")
-    comment = models.TextField(blank=True, verbose_name="Комментарий")
+    rank = models.CharField(max_length=50, blank=True, null=True, verbose_name="Разряд")
+    medical_certificate = models.CharField(max_length=100, blank=True, null=True, verbose_name="Справка-допуск")
+    comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
     def __str__(self):
         return f"{self.person.surname} - {self.level}"
@@ -50,7 +49,7 @@ class Coach(models.Model):
     """Модель «Тренер»"""
 
     person = models.OneToOneField(Person, on_delete=models.CASCADE, verbose_name="Человек")
-    specialization = models.CharField(max_length=100, verbose_name="Специализация")
+    specialization = models.CharField(max_length=100, blank=True, null=True, verbose_name="Специализация")
 
     def __str__(self):
         return f"{self.person.surname} - {self.specialization}"
@@ -68,7 +67,7 @@ class PotentialClient(models.Model):
     source = models.CharField(max_length=100, verbose_name="Откуда узнал")
     trial_lesson = models.BooleanField(default=False, verbose_name="Запись на пробное занятие")
     first_month_paid = models.BooleanField(default=False, verbose_name="Оплатил первый месяц")
-    comments = models.TextField(blank=True, verbose_name="Комментарий")
+    comments = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
     def __str__(self):
         return f"{self.person.surname} - Потенциальный клиент"
@@ -82,7 +81,7 @@ class Group(models.Model):
     """Модель «Группа»"""
 
     name = models.CharField(max_length=100, verbose_name="Название группы")
-    level = models.CharField(max_length=50, verbose_name="Уровень подготовки")
+    level = models.CharField(max_length=50, blank=True, null=True, verbose_name="Уровень подготовки")
     coaches = models.ManyToManyField(Coach, related_name="groups", verbose_name="Тренеры")
 
     def __str__(self):
@@ -93,8 +92,8 @@ class Group(models.Model):
         verbose_name_plural = "Группы"
 
 
-class GroupEnrollment(models.Model):
-    """Модель «Запись на группу»"""
+class GroupMembers(models.Model):
+    """Модель «Спортсмены группы»"""
 
     athlete = models.ForeignKey(Athlete, on_delete=models.CASCADE, related_name="group_enrollments",
                                 verbose_name="Спортсмен")
@@ -104,8 +103,8 @@ class GroupEnrollment(models.Model):
         return f"{self.athlete.person.surname} - {self.group.name}"
 
     class Meta:
-        verbose_name = "Запись на группу"
-        verbose_name_plural = "Записи на группы"
+        verbose_name = "Спортсмен группы"
+        verbose_name_plural = "Спортсмены группы"
 
 
 class Class(models.Model):
@@ -122,7 +121,6 @@ class Class(models.Model):
     location = models.CharField(max_length=100, verbose_name="Место проведения")
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="classes", verbose_name="Группа")
     type = models.CharField(max_length=10, choices=TYPE_CHOICES, verbose_name="Тип занятия")
-    is_during_camp = models.BooleanField(default=False, verbose_name="Проходит ли занятие в ходе сбора")
 
     def __str__(self):
         return f"{self.get_type_display()} - {self.date}"
@@ -154,7 +152,7 @@ class TrainingCamp(models.Model):
     start_date = models.DateField(verbose_name="Дата начала сбора")
     end_date = models.DateField(verbose_name="Дата окончания сбора")
     location = models.CharField(max_length=100, verbose_name="Место проведения")
-    description = models.TextField(blank=True, verbose_name="Описание сбора")
+    description = models.TextField(blank=True, null=True, verbose_name="Описание сбора")
     classes = models.ManyToManyField(Class, related_name="camps", verbose_name="Занятия")
 
     def __str__(self):
@@ -188,7 +186,7 @@ class Competition(models.Model):
     name = models.CharField(max_length=100, verbose_name="Название соревнования")
     date = models.DateField(verbose_name="Дата проведения")
     location = models.CharField(max_length=100, verbose_name="Место проведения")
-    description = models.TextField(blank=True, verbose_name="Описание соревнования")
+    description = models.TextField(blank=True, null=True, verbose_name="Описание соревнования")
 
     def __str__(self):
         return self.name
@@ -221,7 +219,7 @@ class Family(models.Model):
     family_name = models.CharField(max_length=100, verbose_name="Фамилия семьи")
     contact_person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name="families",
                                        verbose_name="Контактное лицо")
-    comment = models.TextField(blank=True, verbose_name="Комментарий")
+    comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
     def __str__(self):
         return self.family_name
