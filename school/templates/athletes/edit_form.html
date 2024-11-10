@@ -1,0 +1,22 @@
+<!-- athletes/edit_form.html -->
+<h3>Редактировать {{ athlete.person.surname }} {{ athlete.person.name }}</h3>
+
+<form method="post">
+    {% csrf_token %}
+
+    <div class="row">
+        <!-- Данные спортсмена -->
+        <div class="col-md-6">
+            <h4>Данные спортсмена</h4>
+            {{ person_form.as_p }}
+        </div>
+
+        <!-- Статус спортсмена -->
+        <div class="col-md-6">
+            <h4>Статус спортсмена</h4>
+            {{ athlete_form.as_p }}
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary mt-3">Сохранить</button>
+</form>
