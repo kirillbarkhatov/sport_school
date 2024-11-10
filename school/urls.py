@@ -9,7 +9,8 @@ from . import views
 app_name = SchoolConfig.name
 
 urlpatterns = [
-    path("", views.IndexView.as_view(), name="index")
+    path("", views.IndexView.as_view(), name="index"),
+    path("athlete", views.AthleteListView.as_view(), name="athlete_list"),
 ]
 
 if settings.DEBUG:

@@ -1,0 +1,55 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Спортсмены{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h2>Спортсмены</h2>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a class="btn btn-outline-primary" href="#">Добавить</a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-4">
+
+<div class="table-responsive small">
+    <table class="table table-striped table-sm">
+        <thead>
+        <tr>
+            <th scope="col">№</th>
+            <th scope="col">Фамилия, Имя</th>
+            <th scope="col">Группа</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for athlete in object_list %}
+        <tr>
+            <td>{{ forloop.counter }}</td>
+            <td>
+                <a title="Изменить" href="#">
+                    <svg class="bi text-primary">
+                        <use xlink:href="/static/svg/icons-button.svg#person-gear"/>
+                    </svg></a>
+                <a title="Исключить" href="#">
+                    <svg class="bi text-danger">
+                        <use xlink:href="/static/svg/icons-button.svg#person-x"/>
+                    </svg></a> {{ athlete.person.surname }} {{ athlete.person.name }}
+            </td>
+            <td>
+                {% for group in athlete.groups_athletes.all %}
+                {{ group.name }}
+                {% endfor %}
+            </td>
+            <td>{{ athlete.person.birth_date }}</td>
+
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+    </div>
+</div>
+{% endblock %}
