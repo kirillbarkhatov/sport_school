@@ -6,15 +6,39 @@
 
     <div class="row">
         <!-- Данные спортсмена -->
-        <div class="col-md-6">
+        <div class="col-md-7">
             <h4>Данные спортсмена</h4>
             {{ person_form.as_p }}
         </div>
 
         <!-- Статус спортсмена -->
-        <div class="col-md-6">
+        <div class="col-md-5">
             <h4>Статус спортсмена</h4>
             {{ athlete_form.as_p }}
+
+            <!-- Данные семьи -->
+
+            <h4>Семья</h4>
+            {{ family_form.as_p }}
+
+            <!-- Члены семьи -->
+
+            <h4>Члены семьи</h4>
+            <div class="row">
+            {% for family_member_form in family_member_forms %}
+                <div class="form-row">
+                    <!-- Поле "person" и "relation" в одном ряду -->
+                    <div class="col-auto">
+
+                        {{ family_member_form.person }}
+                        {{ family_member_form.relation }}
+                    </div>
+
+                </div>
+            {% endfor %}
+            </div>
+
+
         </div>
     </div>
 
