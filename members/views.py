@@ -39,5 +39,5 @@ class PersonDeleteView(DeleteView):
     """Контроллер для работы с БД членов клуба - удаление"""
 
     model = Person
-    success_url = reverse_lazy("members:members_list")
+    success_url = reverse_lazy("members:person_list")
     template_name = "members/person_confirm_delete.html"

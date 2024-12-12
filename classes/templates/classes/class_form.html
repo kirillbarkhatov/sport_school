@@ -1,0 +1,49 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Занятие{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    {% if object %}
+    <h2>Изменить занятие - {{ object.date }}</h2>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a class="btn btn-outline-primary m-1" href="#">Сохранить</a>
+        <a class="btn btn-outline-danger m-1" href="#">Удалить</a>
+    </div>
+    {% else %}
+    <h2>Добавить занятие</h2>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a class="btn btn-outline-primary m-1" href="#">Сохранить</a>
+        <a class="btn btn-outline-danger m-1" href="#">Удалить</a>
+    </div>
+    {% endif %}
+
+
+</div>
+
+<form method="POST" enctype="multipart/form-data">
+    {% csrf_token %}
+    <!-- Выводим каждое поле формы в отдельном параграфе -->
+    {{ form.as_p }}
+
+    {% if object %}
+    <button type="submit" class="btn btn-outline-primary">Изменить</button>
+    {% else %}
+    <button type="submit" class="btn btn-outline-primary">Добавить</button>
+    {% endif %}
+
+</form>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+
+    <h3>Выберите спортсменов для записи на занятие:</h3>
+    {{ athlete_form.as_p }}
+
+    <button type="submit">Сохранить</button>
+</form>
+
+
+{% endblock %}

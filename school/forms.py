@@ -1,7 +1,7 @@
 from django import forms
-from django.forms import BooleanField
+from django.forms import BooleanField, inlineformset_factory
 
-from .models import Athlete, Person, Family, FamilyMember
+from .models import Athlete, Person, Family, FamilyMember, Class, ClassEnrollment
 
 
 class StyleFormMixin:
@@ -40,6 +40,22 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Person
         fields = "__all__"  # Выберите нужные поля
+
+
+class ClassForm(StyleFormMixin, forms.ModelForm):
+    class Meta:
+        model = Class
+        fields = "__all__"  # Выберите нужные поля
+
+
+class AthleteSelectionForm(forms.Form):
+    """Форма для выбора спортсменов"""
+    athletes = forms.ModelMultipleChoiceField(
+        queryset=Athlete.objects.all(),
+        widget=forms.CheckboxSelectMultiple,  # Все спортсмены как один список чекбоксов
+        required=False,
+        label="Выберите спортсменов"
+    )
 
 
 class FamilyForm(StyleFormMixin, forms.ModelForm):

@@ -1,0 +1,37 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Информация о занятии{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h2>{{ object.date }}</h2>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <!--        <form method="post">-->
+        <!--            {% csrf_token %}-->
+        <!--            <button type="submit" class="btn btn-outline-primary m-1">Подтвердить выполнение-->
+        <!--                рассылки-->
+        <!--            </button>-->
+        <!--        </form>-->
+
+        <a class="btn btn-outline-primary m-1" href="#">Изменить</a>
+        <a class="btn btn-outline-danger m-1" href="#">Удалить</a>
+    </div>
+</div>
+
+<div class="container text-start">
+    <div class="row align-items-start">
+        <div class="col-12">
+            <div class="card mb-4 box-shadow">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-body-secondary">{{ object.date }}</h6>
+
+                </div>
+            </div>
+        </div>
+
+
+    </div>
+</div>
+
+{% endblock %}
