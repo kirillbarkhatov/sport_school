@@ -22,6 +22,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("school.urls", namespace="school")),
     path("", include("users.urls", namespace="users")),
+    path("api/", include("api.urls", namespace="api")),
     path("members/", include("members.urls", namespace="members")),
     path("classes/", include("classes.urls", namespace="classes")),
 ]
