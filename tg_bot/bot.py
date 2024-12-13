@@ -14,6 +14,7 @@
 import logging
 from uuid import uuid4
 
+from httpx import request
 from telegram import Update, InputTextMessageContent, InlineQueryResultArticle
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters, InlineQueryHandler
 
@@ -26,8 +27,16 @@ logging.basicConfig(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="I'm a bot, please talk to me!")
 
+
+async def person(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    person_from_api = request("GET", "http://localhost:8000/api/person/8/").json()
+    print(person_from_api)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"{person_from_api["name"]} {person_from_api["surname"]}")
+
+
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
+
 
 async def caps(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text_caps = ' '.join(context.args).upper()
@@ -57,11 +66,13 @@ if __name__ == '__main__':
     application = ApplicationBuilder().token('1436752844:AAHpTWM_yGsUmHFf3zA5JzlX47ectU6qU10').build()
 
     start_handler = CommandHandler('start', start)
+    person_handler = CommandHandler('person', person)
     caps_handler = CommandHandler('caps', caps)
     echo_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), echo)
     inline_caps_handler = InlineQueryHandler(inline_caps)
 
     application.add_handler(start_handler)
+    application.add_handler(person_handler)
     application.add_handler(echo_handler)
     application.add_handler(caps_handler)
     application.add_handler(inline_caps_handler)
