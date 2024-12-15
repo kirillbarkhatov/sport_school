@@ -156,3 +156,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "users.User"
+
+# Настройки для телеграмма
+BOT_NAME = os.getenv("BOT_NAME")
+BOT_TOKEN = os.getenv("BOT_TOKEN")

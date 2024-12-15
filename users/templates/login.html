@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Вход через Telegram</title>
+</head>
+<body>
+    <h1>Войти через Telegram</h1>
+    {% if user.is_authenticated %}
+        <p>Привет, {{ user.tg_first_name }}! Вы вошли как {{ user.tg_username }}</p>
+    {% else %}
+        <a href="{{ telegram_link }}"><button>Войти через Telegram</button></a>
+    {% endif %}
+</body>
+</html>
