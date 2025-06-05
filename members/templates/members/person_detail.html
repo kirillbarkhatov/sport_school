@@ -24,6 +24,9 @@
         <div class="col-12">
             <div class="card mb-4 box-shadow">
                 <div class="card-body">
+                    {% if object.photo %}
+                        <img src="{{ object.photo.url }}" class="img-thumbnail mb-2" style="max-width:200px;" />
+                    {% endif %}
                     <h6 class="card-subtitle mb-2 text-body-secondary">{{ object.surname }}</h6>
 
                 </div>

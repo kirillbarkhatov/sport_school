@@ -1,0 +1,13 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Группа{% endblock %}
+
+{% block content %}
+<div class="py-5">
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+    </form>
+</div>
+{% endblock %}

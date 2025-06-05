@@ -41,6 +41,14 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link d-flex align-items-center gap-2" href="{% url 'groups:group_list' %}">
+                        <svg class="bi">
+                            <use xlink:href="/static/svg/icons-menu.svg#collection"/>
+                        </svg>
+                        Группы
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link d-flex align-items-center gap-2" href="{% url 'classes:class_list' %}">
                         <svg class="bi">
                             <use xlink:href="/static/svg/icons-menu.svg#file-earmark-text"/>
@@ -62,6 +70,14 @@
                             <use xlink:href="/static/svg/icons-menu.svg#pencil-square"/>
                         </svg>
                         Информация о рассылках
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link d-flex align-items-center gap-2" href="{% url 'notifications:notification_list' %}">
+                        <svg class="bi">
+                            <use xlink:href="/static/svg/icons-menu.svg#chat"/>
+                        </svg>
+                        Уведомления
                     </a>
                 </li>
 

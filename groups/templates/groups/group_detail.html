@@ -1,0 +1,27 @@
+{% extends 'school/base.html' %}
+
+{% block title %}{{ object.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h2>{{ object.name }}</h2>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a class="btn btn-outline-primary" href="{% url 'groups:group_update' object.pk %}">Изменить</a>
+        <a class="btn btn-outline-danger" href="{% url 'groups:group_delete' object.pk %}">Удалить</a>
+    </div>
+</div>
+
+<div class="container text-start">
+    <div class="row align-items-start">
+        <div class="col-12">
+            <div class="card mb-4 box-shadow">
+                <div class="card-body">
+                    <h6 class="card-subtitle mb-2 text-body-secondary">Уровень: {{ object.level }}</h6>
+                    <p class="card-text">Тренеры: {{ object.coaches.all|join:", " }}</p>
+                    <p class="card-text">Спортсмены: {{ object.athletes.all|join:", " }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

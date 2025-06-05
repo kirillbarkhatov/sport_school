@@ -46,7 +46,9 @@ INSTALLED_APPS = [
     "school",
     "members",
     "classes",
+    "groups",
     "users",
+    "notifications",
 ]
 
 MIDDLEWARE = [

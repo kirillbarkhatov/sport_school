@@ -1,0 +1,26 @@
+{% extends 'school/base.html' %}
+{% block title %}Уведомления{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h2>Уведомления</h2>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a class="btn btn-outline-primary" href="{% url 'notifications:notification_create' %}">Создать</a>
+    </div>
+</div>
+<table class="table table-striped">
+    <thead>
+    <tr>
+        <th>Заголовок</th>
+        <th>Дата</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for n in object_list %}
+    <tr>
+        <td>{{ n.title }}</td>
+        <td>{{ n.created_at }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

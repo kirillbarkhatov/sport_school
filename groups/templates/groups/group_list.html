@@ -1,0 +1,37 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Группы{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h2>Группы</h2>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a class="btn btn-outline-primary" href="{% url 'groups:group_create' %}">Добавить</a>
+    </div>
+</div>
+
+<div class="table-responsive small">
+    <table class="table table-striped table-sm">
+        <thead>
+        <tr>
+            <th>#</th>
+            <th>Название группы</th>
+            <th>Уровень подготовки</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for group in object_list %}
+        <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><a href="{% url 'groups:group_detail' group.pk %}">{{ group.name }}</a></td>
+            <td>{{ group.level }}</td>
+            <td class="text-end" style="width: 20vh;">
+                <a class="btn btn-outline-primary" href="{% url 'groups:group_update' group.pk %}">Изменить</a>
+                <a class="btn btn-outline-danger" href="{% url 'groups:group_delete' group.pk %}">Удалить</a>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
