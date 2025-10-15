@@ -13,6 +13,7 @@ if str(BASE_DIR) not in sys.path:
 
 from config.settings import BOT_TOKEN, SITE_BASE_URL, TELEGRAM_LOG_CHAT_ID
 from telegram import Update, InputTextMessageContent, InlineQueryResultArticle
+from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder,
     ContextTypes,
@@ -142,9 +143,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=(
-                "Готово! Теперь откройте ссылку ниже, чтобы завершить вход на сайте:\n"
-                f"{callback_url}"
+                "Готово! Чтобы завершить вход, перейдите по ссылке: "
+                f"<a href=\"{callback_url}\">Подтвердить авторизацию</a>"
             ),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
         )
     except Exception as exc:
         logger.exception("Ошибка при выполнении /start для tg_id=%s", tg_id)
