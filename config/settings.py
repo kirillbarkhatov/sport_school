@@ -176,7 +176,53 @@ def require_setting(name: str) -> str:
 BOT_NAME = os.getenv("BOT_NAME")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SITE_BASE_URL = require_setting("SITE_BASE_URL").rstrip("/")
+TELEGRAM_LOG_CHAT_ID = os.getenv("TELEGRAM_LOG_CHAT_ID")
 
 LOGIN_URL = "users:login_page"
 LOGIN_REDIRECT_URL = "school:index"
 LOGOUT_REDIRECT_URL = "users:login_page"
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "auth.telegram": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "bot.telegram": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
+
+if BOT_TOKEN and TELEGRAM_LOG_CHAT_ID:
+    LOGGING["handlers"]["telegram"] = {
+        "level": "INFO",
+        "class": "config.logging_handlers.TelegramLogHandler",
+        "chat_id": TELEGRAM_LOG_CHAT_ID,
+        "formatter": "standard",
+    }
+    LOGGING["loggers"]["django"]["handlers"].append("telegram")
+    LOGGING["loggers"]["auth.telegram"]["handlers"].append("telegram")
+    LOGGING["loggers"]["bot.telegram"]["handlers"].append("telegram")

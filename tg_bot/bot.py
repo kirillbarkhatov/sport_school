@@ -27,6 +27,9 @@ django.setup()
 from users.models import User
 
 
+logger = logging.getLogger("bot.telegram")
+
+
 # Асинхронная команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -36,6 +39,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_first_name = tg_user.first_name or ""
     tg_last_name = tg_user.last_name or ""
     tg_username = tg_user.username or ""
+
+    logger.info(
+        "Получена команда /start от tg_id=%s (token=%s)",
+        tg_id,
+        token[-6:] if token else "нет",
+    )
 
     if not token:
         user, created = await sync_to_async(User.objects.get_or_create)(
@@ -53,6 +62,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user.tg_last_name = tg_last_name
             user.tg_username = tg_username
         await sync_to_async(user.save)(update_fields=["tg_first_name", "tg_last_name", "tg_username"])
+
+        logger.info("Пользователь tg_id=%s активировал бота без токена", tg_id)
 
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -84,6 +95,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     callback_url = f"{SITE_BASE_URL}/telegram-callback/{token}/"
 
+    logger.info(
+        "Пользователь tg_id=%s получил токен входа (окончание %s)",
+        tg_id,
+        token[-6:],
+    )
+
     # Сообщаем пользователю о завершении авторизации
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -98,6 +115,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def person(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Выполняем HTTP-запрос для получения данных
     api_url = f"{SITE_BASE_URL}/api/person/8/"
+    logger.info("Команда /person от tg_id=%s", update.message.from_user.id)
     person_from_api = request("GET", api_url).json()
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -138,6 +156,7 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text="Укажите id занятия"
         )
+        logger.warning("Команда /register без аргументов от tg_id=%s", update.message.from_user.id)
         return
 
     class_id = context.args[0]
@@ -151,6 +170,7 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text="Сначала выполните /start"
         )
+        logger.warning("Попытка /register без связанного пользователя tg_id=%s", tg_id)
         return
 
     person, _ = await sync_to_async(Person.objects.get_or_create)(
@@ -170,6 +190,7 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="Вы зарегистрированы"
     )
+    logger.info("Пользователь tg_id=%s зарегистрировался на занятие %s", tg_id, class_id)
 
 
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -177,6 +198,7 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text="Укажите id занятия"
         )
+        logger.warning("Команда /confirm без аргументов от tg_id=%s", update.message.from_user.id)
         return
 
     class_id = context.args[0]
@@ -188,6 +210,7 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=update.effective_chat.id, text="Сначала выполните /start"
         )
+        logger.warning("Попытка /confirm без связанного пользователя tg_id=%s", tg_id)
         return
 
     enrollments = ClassEnrollment.objects.filter(
@@ -198,6 +221,7 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id, text="Участие подтверждено"
     )
+    logger.info("Пользователь tg_id=%s подтвердил участие в занятии %s", tg_id, class_id)
 
 
 # Асинхронный инлайн-обработчик

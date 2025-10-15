@@ -1,3 +1,4 @@
+import logging
 import secrets
 
 from django.contrib import messages
@@ -13,6 +14,9 @@ from rest_framework.permissions import IsAuthenticated
 
 from .models import User
 from config.settings import BOT_NAME
+
+
+logger = logging.getLogger("auth.telegram")
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -78,6 +82,10 @@ class TelegramCallbackView(View):
             # Проверяем, существует ли пользователь с указанным токеном
             user = User.objects.get(token=token)
         except User.DoesNotExist:
+            logger.warning(
+                "Попытка входа с неверным токеном (окончание %s)",
+                token[-6:] if token else "unknown",
+            )
             return HttpResponse("Неверный токен или пользователь не найден", status=404)
 
         # Авторизуем пользователя
@@ -90,6 +98,12 @@ class TelegramCallbackView(View):
         request.session.pop("telegram_token", None)
 
         messages.success(request, "Вы успешно вошли в систему.")
+
+        logger.info(
+            "Пользователь %s (tg_id=%s) авторизовался через Telegram",
+            user.email or user.pk,
+            user.tg_id,
+        )
 
         next_url = request.session.pop("next_url", None)
         if next_url and url_has_allowed_host_and_scheme(
@@ -110,8 +124,13 @@ class LogoutView(RedirectView):
 
     def get_redirect_url(self, *args, **kwargs):
         request = self.request
+        user_identifier = None
+        if getattr(request, "user", None) and request.user.is_authenticated:
+            user_identifier = request.user.email or request.user.pk
         logout(request)
         messages.info(request, "Вы вышли из системы.")
+        if user_identifier:
+            logger.info("Пользователь %s вышел из системы", user_identifier)
         return super().get_redirect_url(*args, **kwargs)
 
     def post(self, request, *args, **kwargs):
