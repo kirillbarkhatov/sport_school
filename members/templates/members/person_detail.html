@@ -50,7 +50,7 @@
                 </dl>
             </div>
         </div>
-        {% with memberships=object.familymember_set.select_related('family') %}
+        {% with memberships=object.familymember_set.all %}
         <div class="card shadow-sm">
             <div class="card-header bg-body-tertiary">Родственные связи</div>
             <div class="card-body">

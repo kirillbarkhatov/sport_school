@@ -22,7 +22,7 @@
         <div class="card shadow-sm h-100">
             <div class="card-header bg-body-tertiary">Члены семьи</div>
             <ul class="list-group list-group-flush">
-                {% for membership in object.members.select_related('person') %}
+                {% for membership in object.members.all %}
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         <div>
                             <strong>{{ membership.person.surname }} {{ membership.person.name }}</strong>
