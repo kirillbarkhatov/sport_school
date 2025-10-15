@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 import os
+from urllib.parse import urlparse
 from pathlib import Path
 from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
@@ -44,6 +45,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "django_filters",
+    "corsheaders",
     "school",
     "members",
     "classes",
@@ -55,6 +57,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -181,6 +184,27 @@ TELEGRAM_LOG_CHAT_ID = os.getenv("TELEGRAM_LOG_CHAT_ID")
 LOGIN_URL = "users:login_page"
 LOGIN_REDIRECT_URL = "school:index"
 LOGOUT_REDIRECT_URL = "users:login_page"
+
+def _to_origin(url: str) -> str:
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        raise ImproperlyConfigured(f"Некорректный URL для origins: {url}")
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+raw_origins = os.getenv("CORS_ALLOWED_ORIGINS")
+if raw_origins:
+    CORS_ALLOWED_ORIGINS = [_to_origin(origin.strip()) for origin in raw_origins.split(",") if origin.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = [_to_origin(SITE_BASE_URL)]
+
+CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
+SESSION_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
 
 
 LOGGING = {
