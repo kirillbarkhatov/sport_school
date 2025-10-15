@@ -1,6 +1,13 @@
 <style>
-    .sidebar {
-        min-height: 100vh;
+    .sidebar { min-height: 100vh; }
+    .nav-section-title {
+        font-size: 0.75rem;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--bs-secondary);
+        margin-top: .5rem;
+        margin-bottom: .25rem;
+        padding-left: .5rem;
     }
 </style>
 
@@ -8,57 +15,61 @@
     <div class="offcanvas-md offcanvas-end bg-body-tertiary" tabindex="-1" id="sidebarMenu"
          aria-labelledby="sidebarMenuLabel">
         <div class="offcanvas-header">
-            <h5 class="offcanvas-title" id="sidebarMenuLabel">Сервис управления рассылками</h5>
+            <h5 class="offcanvas-title" id="sidebarMenuLabel">Управление спортивной школой</h5>
             <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebarMenu"
                     aria-label="Close"></button>
         </div>
         <div class="offcanvas-body d-md-flex flex-column p-0 pt-lg-3 overflow-y-auto">
-            <nav class="nav flex-column mb-auto">
+            {% with path=request.path %}
+            <nav class="nav flex-column mb-auto px-2">
+                <span class="nav-section-title">Обзор</span>
                 <a class="nav-link d-flex align-items-center gap-2 {% if request.resolver_match and request.resolver_match.url_name == 'index' %}active{% endif %}"
                    href="{% url 'school:index' %}">
-                    <svg class="bi">
-                        <use xlink:href="/static/svg/icons-menu.svg#house-fill"/>
-                    </svg>
-                    Главная
+                    <i class="bi bi-speedometer2"></i>
+                    Главная панель
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'members:members_list' %}">
-                    <svg class="bi">
-                        <use xlink:href="/static/svg/icons-menu.svg#people"/>
-                    </svg>
-                    Члены клуба
+
+                <span class="nav-section-title mt-3">Клуб</span>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/members/families') %}active{% endif %}" href="{% url 'members:family_list' %}">
+                    <i class="bi bi-people"></i>
+                    Семьи
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'school:athlete_list' %}">
-                    <svg class="bi">
-                        <use xlink:href="/static/svg/icons-menu.svg#people"/>
-                    </svg>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path == '/members/' %}active{% endif %}" href="{% url 'members:members_list' %}">
+                    <i class="bi bi-person-vcard"></i>
+                    Участники
+                </a>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/athlete') %}active{% endif %}" href="{% url 'school:athlete_list' %}">
+                    <i class="bi bi-person-running"></i>
                     Спортсмены
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'groups:group_list' %}">
-                    <svg class="bi">
-                        <use xlink:href="/static/svg/icons-menu.svg#collection"/>
-                    </svg>
-                    Группы
+                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/groups') %}active{% endif %}" href="{% url 'groups:group_list' %}">
+                    <i class="bi bi-diagram-3"></i>
+                    Тренировочные группы
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'classes:class_list' %}">
-                    <svg class="bi">
-                        <use xlink:href="/static/svg/icons-menu.svg#file-earmark-text"/>
-                    </svg>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/classes') %}active{% endif %}" href="{% url 'classes:class_list' %}">
+                    <i class="bi bi-calendar-event"></i>
                     Занятия
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'notifications:notification_list' %}">
-                    <svg class="bi">
-                        <use xlink:href="/static/svg/icons-menu.svg#chat"/>
-                    </svg>
+
+                <span class="nav-section-title mt-3">Коммуникации</span>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/notifications') %}active{% endif %}" href="{% url 'notifications:notification_list' %}">
+                    <i class="bi bi-chat-dots"></i>
                     Уведомления
                 </a>
             </nav>
+            {% endwith %}
 
             <hr class="my-3">
 
             <div class="px-3 pb-3">
                 {% if user.is_authenticated %}
+                    {% if not user.is_approved and not user.is_staff %}
+                        <div class="alert alert-warning small" role="alert">
+                            Доступ ограничен до подтверждения администратора.
+                        </div>
+                    {% endif %}
                     <p class="small text-muted mb-2">
-                        Вошли как {{ user.tg_first_name|default:user.email }}
+                        {{ user.get_full_name|default:user.email }}
                     </p>
                     <form method="post" action="{% url 'users:logout' %}">
                         {% csrf_token %}

@@ -11,7 +11,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from config.settings import BOT_TOKEN, SITE_BASE_URL, TELEGRAM_LOG_CHAT_ID
+from config.settings import (
+    BOT_TOKEN,
+    SITE_BASE_URL,
+    TELEGRAM_LOG_CHAT_ID,
+    TELEGRAM_ADMIN_IDS,
+)
 from telegram import Update, InputTextMessageContent, InlineQueryResultArticle
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -37,17 +42,24 @@ from users.models import User
 
 logger = logging.getLogger("bot.telegram")
 
-ADMIN_CHAT_ID = TELEGRAM_LOG_CHAT_ID
+ADMIN_CHAT_IDS = {
+    str(chat_id)
+    for chat_id in (TELEGRAM_ADMIN_IDS or [])
+    if str(chat_id).strip()
+}
+if not ADMIN_CHAT_IDS and TELEGRAM_LOG_CHAT_ID:
+    ADMIN_CHAT_IDS = {str(TELEGRAM_LOG_CHAT_ID)}
 
 
 async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str) -> None:
     """Helper to send debug notifications to admin chat."""
-    if not ADMIN_CHAT_ID:
+    if not ADMIN_CHAT_IDS:
         return
-    try:
-        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message)
-    except Exception as exc:
-        logger.exception("Не удалось отправить сообщение админу: %s", exc)
+    for chat_id in ADMIN_CHAT_IDS:
+        try:
+            await context.bot.send_message(chat_id=int(chat_id), text=message)
+        except Exception as exc:
+            logger.exception("Не удалось отправить сообщение админу %s: %s", chat_id, exc)
 
 
 # Асинхронная команда /start
@@ -277,6 +289,70 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Пользователь tg_id=%s подтвердил участие в занятии %s", tg_id, class_id)
 
 
+async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    caller_id = str(update.effective_user.id)
+    if caller_id not in ADMIN_CHAT_IDS:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="У вас нет прав для подтверждения пользователей.",
+        )
+        return
+
+    if not context.args:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Использование: /approve <tg_id|email> [family_id]",
+        )
+        return
+
+    identifier = context.args[0]
+    user = None
+    if identifier.isdigit():
+        user = await sync_to_async(User.objects.filter(tg_id=int(identifier)).first)()
+    if not user:
+        user = await sync_to_async(User.objects.filter(email=identifier).first)()
+
+    if not user:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Пользователь не найден",
+        )
+        return
+
+    update_fields = ["is_approved"]
+    user.is_approved = True
+
+    if len(context.args) > 1:
+        family_id = context.args[1]
+        from school.models import Family
+
+        family = await sync_to_async(Family.objects.filter(pk=family_id).first)()
+        if family:
+            user.family = family
+            update_fields.append("family")
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Семья не найдена, назначение пропущено",
+            )
+
+    await sync_to_async(user.save)(update_fields=update_fields)
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"Пользователь {user.display_name()} подтверждён",
+    )
+
+    if user.tg_id:
+        try:
+            await context.bot.send_message(
+                chat_id=user.tg_id,
+                text="Ваш доступ к системе спортивной школы подтверждён!",
+            )
+        except Exception as exc:
+            logger.warning("Не удалось отправить уведомление пользователю %s: %s", user.tg_id, exc)
+
+
 # Асинхронный инлайн-обработчик
 async def inline_caps(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query
@@ -313,6 +389,7 @@ if __name__ == "__main__":
     classes_handler = CommandHandler("classes", classes)
     register_handler = CommandHandler("register", register)
     confirm_handler = CommandHandler("confirm", confirm)
+    approve_handler = CommandHandler("approve", approve)
     echo_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), echo)
     inline_caps_handler = InlineQueryHandler(inline_caps)
 
@@ -323,6 +400,7 @@ if __name__ == "__main__":
     application.add_handler(classes_handler)
     application.add_handler(register_handler)
     application.add_handler(confirm_handler)
+    application.add_handler(approve_handler)
     application.add_handler(inline_caps_handler)
 
     # Обработчик неизвестных команд

@@ -1,56 +1,80 @@
 {% extends 'school/base.html' %}
 
+{% block title %}Обзор школы{% endblock %}
+
 {% block content %}
+<div class="pt-3 pb-2 mb-3 border-bottom">
+    <h2 class="mb-1">Обзор спортивной школы</h2>
+    <p class="text-muted mb-0">Следите за семьями, спортсменами и предстоящими тренировками.</p>
+</div>
 
-<div class="container-fluid text-center">
-    <div class="row mt-3">
-
-        <div class="col-3 d-flex">
-            <div class="card flex-fill">
-                <h5 class="card-header">Всего рассылок</h5>
-                <div class="card-body">
-                    <h1 class="card-title">{{ mailing_count }}</h1>
-                </div>
+<div class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-4">
+    <div class="col">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-muted text-uppercase small mb-1">Семьи</p>
+                <h3 class="mb-0">{{ family_count }}</h3>
             </div>
         </div>
-
-
-        <div class="col-3 d-flex">
-            <div class="card flex-fill">
-                <h5 class="card-header">Всего активных рассылок</h5>
-                <div class="card-body">
-                    <h1 class="card-title">{{ mailing_running_count }}</h1>
-                </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-muted text-uppercase small mb-1">Участники</p>
+                <h3 class="mb-0">{{ person_count }}</h3>
             </div>
         </div>
-
-        <div class="col-3 d-flex">
-            <div class="card flex-fill">
-                <h5 class="card-header">Всего попыток отправки</h5>
-                <div class="card-body">
-                    <h1 class="card-title">{{ attempt_count }}</h1>
-                </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-muted text-uppercase small mb-1">Спортсмены</p>
+                <h3 class="mb-0">{{ athlete_count }}</h3>
             </div>
         </div>
-
-        <div class="col-3 d-flex">
-            <div class="card flex-fill">
-                <h5 class="card-header">Количество получателей</h5>
-                <div class="card-body">
-                    <h1 class="card-title">{{ recipient_count }}</h1>
-                </div>
+    </div>
+    <div class="col">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <p class="text-muted text-uppercase small mb-1">Тренировочные группы</p>
+                <h3 class="mb-0">{{ group_count }}</h3>
             </div>
         </div>
-
     </div>
 </div>
 
-{% include 'school/includes/dashboard.html' %}
-
-{% endblock %}
-
-{% block content_2 %}
-
-{% include 'school/list.html' %}
-
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+                <span>Ближайшие занятия</span>
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'classes:class_list' %}">Все занятия</a>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for lesson in upcoming_classes %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ lesson.group.name }}</strong>
+                            <div class="text-muted small">{{ lesson.date|date:"d.m H:i" }} · {{ lesson.location }}</div>
+                        </div>
+                        <a class="btn btn-outline-secondary btn-sm" href="{% url 'classes:class_detail' lesson.pk %}">Открыть</a>
+                    </li>
+                {% empty %}
+                    <li class="list-group-item text-muted">Запланированных занятий нет.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-body-terтиary">Быстрые действия</div>
+            <div class="card-body d-grid gap-2">
+                <a class="btn btn-outline-primary" href="{% url 'members:family_list' %}">Управление семьями</a>
+                <a class="btn btn-outline-primary" href="{% url 'members:members_list' %}">Список участников</a>
+                <a class="btn btn-outline-primary" href="{% url 'classes:class_create' %}">Запланировать занятие</a>
+                <a class="btn btn-outline-primary" href="{% url 'notifications:notification_list' %}">История уведомлений</a>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

@@ -1,37 +1,60 @@
 {% extends 'school/base.html' %}
 
-{% block title %}Информация о занятии{% endblock %}
+{% block title %}Занятие {{ object.group.name }}{% endblock %}
 
 {% block content %}
-
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h2>{{ object.date }}</h2>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <!--        <form method="post">-->
-        <!--            {% csrf_token %}-->
-        <!--            <button type="submit" class="btn btn-outline-primary m-1">Подтвердить выполнение-->
-        <!--                рассылки-->
-        <!--            </button>-->
-        <!--        </form>-->
-
-        <a class="btn btn-outline-primary m-1" href="#">Изменить</a>
-        <a class="btn btn-outline-danger m-1" href="#">Удалить</a>
+    <div>
+        <h2 class="mb-0">{{ object.group.name }}</h2>
+        <p class="text-muted mb-0">{{ object.date|date:"d.m.Y, H:i" }} · {{ object.location }}</p>
+    </div>
+    <div class="btn-toolbar gap-2">
+        {% if user.is_staff %}
+            <a class="btn btn-outline-secondary" href="{% url 'classes:class_update' object.pk %}">Изменить</a>
+            <a class="btn btn-outline-primary" href="{% url 'classes:class_notify' object.pk %}">Отправить уведомление</a>
+            <a class="btn btn-outline-danger" href="{% url 'classes:class_delete' object.pk %}">Удалить</a>
+        {% endif %}
     </div>
 </div>
 
-<div class="container text-start">
-    <div class="row align-items-start">
-        <div class="col-12">
-            <div class="card mb-4 box-shadow">
-                <div class="card-body">
-                    <h6 class="card-subtitle mb-2 text-body-secondary">{{ object.date }}</h6>
-
-                </div>
+<div class="row g-4">
+    <div class="col-lg-5">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-body-tertiary">Информация</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-5">Тип</dt>
+                    <dd class="col-sm-7">{{ object.get_type_display }}</dd>
+                    <dt class="col-sm-5">Продолжительность</dt>
+                    <dd class="col-sm-7">{{ object.duration }} мин.</dd>
+                    <dt class="col-sm-5">Место</dt>
+                    <dd class="col-sm-7">{{ object.location }}</dd>
+                </dl>
             </div>
         </div>
-
-
+    </div>
+    <div class="col-lg-7">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+                <span>Записанные спортсмены</span>
+                <span class="badge text-bg-primary">{{ object.enrollments.count }}</span>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for enrollment in object.enrollments.order_by('athlete__person__surname') %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ enrollment.athlete.person.surname }} {{ enrollment.athlete.person.name }}</strong>
+                            <div class="text-muted small">{{ enrollment.athlete.get_level_display }}</div>
+                        </div>
+                        <span class="badge {% if enrollment.confirmed %}text-bg-success{% else %}text-bg-warning{% endif %}">
+                            {% if enrollment.confirmed %}подтвержден{% else %}ожидает{% endif %}
+                        </span>
+                    </li>
+                {% empty %}
+                    <li class="list-group-item text-muted">Пока никто не записан.</li>
+                {% endfor %}
+            </ul>
+        </div>
     </div>
 </div>
-
 {% endblock %}

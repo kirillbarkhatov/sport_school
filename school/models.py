@@ -1,4 +1,6 @@
 from django.db import models
+from django.urls import reverse
+from django.templatetags.static import static
 
 
 # всё из чат-гпт, проверить
@@ -31,6 +33,22 @@ class Person(models.Model):
 
     def __str__(self):
         return f"{self.surname} {self.name} - {self.date_of_birth}"
+
+    def get_absolute_url(self):
+        return reverse("members:members_detail", args=[self.pk])
+
+    def get_photo_url(self):
+        if self.photo and self.photo.name:
+            try:
+                if self.photo.storage.exists(self.photo.name):
+                    return self.photo.url
+            except Exception:
+                pass
+        return static("img/person-placeholder.svg")
+
+    @property
+    def is_athlete(self) -> bool:
+        return hasattr(self, "athlete")
 
     class Meta:
         verbose_name = "Человек"
@@ -304,7 +322,7 @@ class Family(models.Model):
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
     def __str__(self):
-        return self.family_name
+        return self.family_name or f"Семья #{self.pk}"
 
     def save(self, *args, **kwargs):
         # Если фамилия семьи не указана, берем её из фамилии контактного лица

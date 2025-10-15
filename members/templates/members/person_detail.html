@@ -1,39 +1,77 @@
 {% extends 'school/base.html' %}
 
-{% block title %}Информация о члене клуба{% endblock %}
+{% block title %}{{ object.surname }} {{ object.name }}{% endblock %}
 
 {% block content %}
 
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h2>{{ object.surname }} {{ object.name }}</h2>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <!--        <form method="post">-->
-        <!--            {% csrf_token %}-->
-        <!--            <button type="submit" class="btn btn-outline-primary m-1">Подтвердить выполнение-->
-        <!--                рассылки-->
-        <!--            </button>-->
-        <!--        </form>-->
-
-        <a class="btn btn-outline-primary m-1" href="#">Изменить</a>
-        <a class="btn btn-outline-danger m-1" href="#">Удалить</a>
+    <div>
+        <h2 class="mb-0">{{ object.surname }} {{ object.name }}</h2>
+        {% if object.middlename %}<p class="text-muted mb-0">{{ object.middlename }}</p>{% endif %}
+    </div>
+    <div class="btn-toolbar mb-2 mb-md-0 gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'members:members_update' object.pk %}">Изменить</a>
+        {% if user.is_staff %}
+            <a class="btn btn-outline-danger" href="{% url 'members:members_delete' object.pk %}">Удалить</a>
+        {% endif %}
     </div>
 </div>
 
-<div class="container text-start">
-    <div class="row align-items-start">
-        <div class="col-12">
-            <div class="card mb-4 box-shadow">
-                <div class="card-body">
-                    {% if object.photo %}
-                        <img src="{{ object.photo.url }}" class="img-thumbnail mb-2" style="max-width:200px;" />
-                    {% endif %}
-                    <h6 class="card-subtitle mb-2 text-body-secondary">{{ object.surname }}</h6>
-
-                </div>
+<div class="row g-4">
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <img src="{{ object.get_photo_url }}" class="card-img-top" alt="Фото {{ object }}" style="object-fit: cover; height: 260px;">
+            <div class="card-body">
+                <p class="mb-2"><strong>Пол:</strong> {{ object.get_gender_display }}</p>
+                <p class="mb-2"><strong>Дата рождения:</strong> {{ object.date_of_birth }}</p>
+                {% if object.comment %}
+                    <p class="small text-muted">{{ object.comment }}</p>
+                {% endif %}
             </div>
         </div>
-
-
+    </div>
+    <div class="col-lg-8">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-body-tertiary">Контакты</div>
+            <div class="card-body">
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Телефон</dt>
+                    <dd class="col-sm-8">{{ object.phone|default:'—' }}</dd>
+                    <dt class="col-sm-4">E-mail</dt>
+                    <dd class="col-sm-8">
+                        {% if object.email %}
+                            <a href="mailto:{{ object.email }}">{{ object.email }}</a>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </dd>
+                    <dt class="col-sm-4">Telegram</dt>
+                    <dd class="col-sm-8">{{ object.telegram|default:'—' }}</dd>
+                </dl>
+            </div>
+        </div>
+        {% with memberships=object.familymember_set.select_related('family') %}
+        <div class="card shadow-sm">
+            <div class="card-header bg-body-tertiary">Родственные связи</div>
+            <div class="card-body">
+                {% if memberships %}
+                    <ul class="list-group list-group-flush">
+                        {% for membership in memberships %}
+                            <li class="list-group-item d-flex justify-content-between align-items-start">
+                                <div>
+                                    <div class="fw-semibold">{{ membership.family.family_name }}</div>
+                                    <div class="text-muted small">{{ membership.get_relation_display }}</div>
+                                </div>
+                                <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_detail' membership.family.pk %}">Открыть</a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="text-muted mb-0">Связей пока нет.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endwith %}
     </div>
 </div>
 

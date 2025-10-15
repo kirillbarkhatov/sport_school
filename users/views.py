@@ -4,6 +4,7 @@ import secrets
 import httpx
 from django.contrib import messages
 from django.contrib.auth import login, logout
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -14,10 +15,31 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from .models import User
-from config.settings import BOT_NAME, BOT_TOKEN, TELEGRAM_LOG_CHAT_ID
+from config.settings import BOT_NAME, BOT_TOKEN, TELEGRAM_LOG_CHAT_ID, TELEGRAM_ADMIN_IDS
 
 
 logger = logging.getLogger("auth.telegram")
+
+
+def send_admin_message(text: str) -> None:
+    targets = [chat_id for chat_id in TELEGRAM_ADMIN_IDS if chat_id]
+    if not targets and TELEGRAM_LOG_CHAT_ID:
+        targets = [TELEGRAM_LOG_CHAT_ID]
+
+    if not BOT_TOKEN or not targets:
+        return
+    try:
+        for chat_id in targets:
+            httpx.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                },
+                timeout=5,
+            )
+    except Exception as exc:
+        logger.warning("Не удалось отправить служебное сообщение: %s", exc)
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -50,7 +72,10 @@ class LoginPageView(TemplateView):
 
         if self.request.user.is_authenticated:
             context["user"] = self.request.user
-            context["dashboard_url"] = reverse("school:index")
+            if self.request.user.is_staff or self.request.user.is_approved:
+                context["dashboard_url"] = reverse("school:index")
+            else:
+                context["dashboard_url"] = reverse("users:awaiting_approval")
             self._notify_debug({
                 "authenticated": True,
                 "user_id": self.request.user.pk,
@@ -87,25 +112,25 @@ class LoginPageView(TemplateView):
     def _notify_debug(self, info: dict) -> None:
         print(f"[LOGIN DEBUG] {info}")
 
-        if not BOT_TOKEN or not TELEGRAM_LOG_CHAT_ID:
-            return
+        message_lines = [
+            "🔍 Login page opened",
+            "",
+        ]
+        message_lines.extend(f"{key}: {value}" for key, value in info.items())
+        send_admin_message("\n".join(message_lines))
 
-        try:
-            message_lines = [
-                "🔍 Login page opened",
-                "",
-            ]
-            message_lines.extend(f"{key}: {value}" for key, value in info.items())
-            httpx.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={
-                    "chat_id": TELEGRAM_LOG_CHAT_ID,
-                    "text": "\n".join(message_lines),
-                },
-                timeout=5,
-            )
-        except Exception as exc:
-            print(f"[LOGIN DEBUG] Не удалось отправить сообщение в Telegram: {exc}")
+
+class AwaitingApprovalView(LoginRequiredMixin, TemplateView):
+    template_name = "users/awaiting_approval.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect("users:login_page")
+        if request.user.is_staff or request.user.is_superuser:
+            return redirect("school:index")
+        if request.user.is_approved:
+            return redirect("school:index")
+        return super().dispatch(request, *args, **kwargs)
 
 
 class TelegramCallbackView(View):
@@ -141,6 +166,15 @@ class TelegramCallbackView(View):
             user.email or user.pk,
             user.tg_id,
         )
+
+        if not user.is_approved and not (user.is_staff or user.is_superuser):
+            send_admin_message(
+                "🚦 Новый пользователь ожидает подтверждения:\n"
+                f"Email: {user.email}\n"
+                f"tg_id: {user.tg_id}\n"
+                f"Имя: {user.get_full_name() or '-'}"
+            )
+            return redirect("users:awaiting_approval")
 
         next_url = request.session.pop("next_url", None)
         if next_url and url_has_allowed_host_and_scheme(

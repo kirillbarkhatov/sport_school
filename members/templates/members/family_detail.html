@@ -1,0 +1,65 @@
+{% extends 'school/base.html' %}
+
+{% block title %}{{ object.family_name }} — семья{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <div>
+        <h2 class="mb-0">Семья {{ object.family_name }}</h2>
+        <p class="text-muted mb-0">Контактное лицо — {{ object.contact_person }}</p>
+        {% if object.comment %}
+            <p class="text-muted small mb-0 mt-1">{{ object.comment }}</p>
+        {% endif %}
+    </div>
+    <div class="btn-toolbar gap-2 mb-2 mb-md-0">
+        <a class="btn btn-outline-primary" href="{% url 'members:family_update' object.pk %}">Редактировать</a>
+        <a class="btn btn-outline-secondary" href="{% url 'members:family_list' %}">К списку семей</a>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-body-tertiary">Члены семьи</div>
+            <ul class="list-group list-group-flush">
+                {% for membership in object.members.select_related('person') %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ membership.person.surname }} {{ membership.person.name }}</strong>
+                            <div class="text-muted small">{{ membership.get_relation_display }}</div>
+                        </div>
+                        <div class="btn-group btn-group-sm">
+                            <a class="btn btn-outline-primary" href="{% url 'members:members_detail' membership.person.pk %}">Профиль</a>
+                            {% if user.is_staff %}
+                                <a class="btn btn-outline-secondary" href="{% url 'members:members_update' membership.person.pk %}">Изменить</a>
+                            {% endif %}
+                        </div>
+                    </li>
+                {% empty %}
+                    <li class="list-group-item text-muted">Члены семьи не добавлены.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-body-tertiary">Аккаунты доступа</div>
+            <ul class="list-group list-group-flush">
+                {% for user_link in object.users.all %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>{{ user_link.display_name }}</strong>
+                            <div class="small text-muted">email: {{ user_link.email|default:'—' }}</div>
+                        </div>
+                        <span class="badge rounded-pill {% if user_link.is_approved %}text-bg-success{% else %}text-bg-warning{% endif %}">
+                            {% if user_link.is_approved %}подтверждён{% else %}ожидает{% endif %}
+                        </span>
+                    </li>
+                {% empty %}
+                    <li class="list-group-item text-muted">Для этой семьи ещё нет привязанных аккаунтов.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

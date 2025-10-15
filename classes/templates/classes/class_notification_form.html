@@ -1,0 +1,42 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Рассылка по занятию{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm mt-4">
+            <div class="card-header">
+                <strong>Рассылка участникам занятия</strong>
+                <div class="small text-muted">{{ class_instance.group.name }} — {{ class_instance.date|date:"d.m H:i" }} ({{ class_instance.location }})</div>
+            </div>
+            <div class="card-body">
+                {% if not has_recipients %}
+                    <div class="alert alert-warning">
+                        Для этого занятия пока нет семей с подтверждёнными аккаунтами. После добавления свяжите учетные записи и обновите страницу.
+                    </div>
+                {% endif %}
+                <form method="post">
+                    {% csrf_token %}
+                    {% for field in form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                            {% endif %}
+                            {% for error in field.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                    <div class="d-flex justify-content-between">
+                        <a class="btn btn-outline-secondary" href="{% url 'classes:class_detail' class_instance.pk %}">Отмена</a>
+                        <button type="submit" class="btn btn-primary">Отправить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -5,9 +5,12 @@
 {% block content %}
 
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h2>Занятия</h2>
+    <div>
+        <h2 class="mb-0">Расписание занятий</h2>
+        <p class="text-muted mb-0">План тренировок и групповые занятия.</p>
+    </div>
     <div class="btn-toolbar mb-2 mb-md-0">
-        <a class="btn btn-outline-primary" href="{% url 'classes:class_create'%}">Добавить</a>
+        <a class="btn btn-primary" href="{% url 'classes:class_create'%}">Добавить занятие</a>
     </div>
 </div>
 
@@ -20,27 +23,30 @@
             <th scope="col">Продолжительность занятия (мин.)</th>
             <th scope="col">Место проведения</th>
             <th scope="col">Группа</th>
-            <th scope="col">Тип занятия</th>
-            <th scope="col">Статус</th>
+            <th scope="col">Тип</th>
+            <th scope="col">Участников</th>
+            <th scope="col" class="text-end">Действия</th>
         </tr>
         </thead>
         <tbody>
-        {% for class in object_list %}
+        {% for lesson in object_list %}
         <tr>
             <td>{{ forloop.counter }}</td>
-            <td><a href="{% url 'classes:class_detail' class.pk%}">{{ class.date }}</a></td>
-            <td>{{ class.duration }}</td>
-            <td>{{ class.location }}</td>
-            <td>{{ class.group }}</td>
-            <td>{{ class.type }}</td>
-            <td>СТАТУС - в разработке</td>
-
-            <td class="text-end" style="width: 20vh;">
-                <a class="btn btn-outline-primary" href="{% url 'classes:class_update' class.pk%}">Изменить</a>
-                <a class="btn btn-outline-danger" href="{% url 'classes:class_delete' class.pk%}">Удалить</a>
+            <td><a href="{% url 'classes:class_detail' lesson.pk%}" class="link-underline link-underline-opacity-0">{{ lesson.date|date:"d.m H:i" }}</a></td>
+            <td>{{ lesson.duration }}</td>
+            <td>{{ lesson.location }}</td>
+            <td>{{ lesson.group.name }}</td>
+            <td>{{ lesson.get_type_display }}</td>
+            <td>{{ lesson.enrollments.count }}</td>
+            <td class="text-end" style="width: 24vh;">
+                {% if user.is_staff %}
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'classes:class_update' lesson.pk%}">Изменить</a>
+                    <a class="btn btn-outline-primary btn-sm" href="{% url 'classes:class_notify' lesson.pk%}">Уведомить</a>
+                    <a class="btn btn-outline-danger btn-sm" href="{% url 'classes:class_delete' lesson.pk%}">Удалить</a>
+                {% else %}
+                    <a class="btn btn-outline-primary btn-sm" href="{% url 'classes:class_detail' lesson.pk%}">Подробнее</a>
+                {% endif %}
             </td>
-
-
         </tr>
         {% endfor %}
         </tbody>
@@ -48,4 +54,3 @@
 </div>
 
 {% endblock %}
-

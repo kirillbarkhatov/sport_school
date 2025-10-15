@@ -14,6 +14,7 @@ urlpatterns = [
     path("create/", views.ClassCreateView.as_view(), name="class_create"),
     path("<int:pk>/update/", views.ClassUpdateView.as_view(), name="class_update"),
     path("<int:pk>/delete/", views.ClassDeleteView.as_view(), name="class_delete"),
+    path("<int:pk>/notify/", views.ClassNotificationView.as_view(), name="class_notify"),
 ]
 
 if settings.DEBUG:

@@ -31,6 +31,11 @@
                         <p class="mb-4">
                             Вы уже авторизованы как <strong>{{ user.get_full_name|default:user.email }}</strong>.
                         </p>
+                        {% if not user.is_approved and not user.is_staff %}
+                            <div class="alert alert-warning small">
+                                Ваш доступ ожидает подтверждения администратора. Вы можете закрыть окно, мы сообщим о готовности.
+                            </div>
+                        {% endif %}
                         <div class="d-flex gap-2">
                             <a class="btn btn-primary flex-fill" href="{{ dashboard_url }}">Перейти в систему</a>
                             <form method="post" action="{% url 'users:logout' %}">

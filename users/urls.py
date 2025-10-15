@@ -3,7 +3,13 @@ from rest_framework.routers import SimpleRouter
 
 
 from .apps import UsersConfig
-from .views import UserViewSet, LoginPageView, TelegramCallbackView, LogoutView
+from .views import (
+    UserViewSet,
+    LoginPageView,
+    TelegramCallbackView,
+    LogoutView,
+    AwaitingApprovalView,
+)
 
 app_name = UsersConfig.name
 
@@ -15,6 +21,7 @@ urlpatterns = (
 
     + [
         path('login_page/', LoginPageView.as_view(), name='login_page'),
+        path('awaiting-approval/', AwaitingApprovalView.as_view(), name='awaiting_approval'),
         path('logout/', LogoutView.as_view(), name='logout'),
 
         path('telegram-callback/<str:token>/', TelegramCallbackView.as_view(), name='telegram_callback'),

@@ -1,5 +1,5 @@
 <header class="navbar sticky-top bg-dark flex-md-nowrap p-0 shadow" data-bs-theme="dark">
-    <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 text-white" href="{% url 'school:index' %}">Сервис управления рассылками</a>
+    <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 text-white" href="{% url 'school:index' %}">Центр управления школой</a>
 
     <!--    Адаптив для мобильных устройств-->
     <ul class="navbar-nav flex-row d-md-none">
@@ -23,7 +23,10 @@
         </li>
     </ul>
 
-    <div id="navbarSearch" class="navbar-search w-100 collapse">
-        <input class="form-control w-100 rounded-0 border-0" type="text" placeholder="Search" aria-label="Search">
+    <div class="d-none d-md-flex align-items-center text-white ms-auto me-3 small gap-3">
+        {% if user.is_authenticated %}
+            <span class="opacity-75">{% if user.is_staff %}Администратор{% elif user.is_approved %}Участник{% else %}Ожидание подтверждения{% endif %}</span>
+            <strong>{{ user.get_full_name|default:user.email }}</strong>
+        {% endif %}
     </div>
 </header>

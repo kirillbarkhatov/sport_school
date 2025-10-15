@@ -5,9 +5,14 @@
 {% block content %}
 
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h2>Члены клуба</h2>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <a class="btn btn-outline-primary" href="{% url 'members:members_create'%}">Добавить</a>
+    <div>
+        <h2 class="mb-0">Члены клуба</h2>
+        <p class="text-muted mb-0">Контактные данные и роли в спортивной школе.</p>
+    </div>
+    <div class="btn-toolbar mb-2 mb-md-0 gap-2">
+        {% if user.is_staff %}
+        <a class="btn btn-primary" href="{% url 'members:members_create'%}">Добавить участника</a>
+        {% endif %}
     </div>
 </div>
 
@@ -15,34 +20,43 @@
     <table class="table table-striped table-sm">
         <thead>
         <tr>
-            <th scope="col">#</th>
+            <th scope="col" class="text-muted">#</th>
             <th scope="col">Фото</th>
             <th scope="col">Фамилия, Имя</th>
-            <th scope="col">Почта</th>
-            <th scope="col">Телефон</th>
+            <th scope="col">Контакты</th>
             <th scope="col">Телеграм</th>
-            <th scope="col">Текущий статус в клубе</th>
-            <th scope="col">Признак спортсмена</th>
+            <th scope="col">Статус</th>
+            <th scope="col" class="text-end">Действия</th>
         </tr>
         </thead>
         <tbody>
         {% for person in object_list %}
         <tr>
             <td>{{ forloop.counter }}</td>
-            <td>{% if person.photo %}<img src="{{ person.photo.url }}" style="width:40px;">{% endif %}</td>
-            <td><a href="{% url 'members:members_detail' person.pk%}">{{ person.surname }} {{ person.name }}</a></td>
-            <td>{{ person.email }}</td>
-            <td>{{ person.phone }}</td>
-            <td>{{ person.telegram }}</td>
-            <td>СТАТУС - в разработке</td>
-            <td>ПРИЗНАК - в разработке</td>
-
-            <td class="text-end" style="width: 20vh;">
-                <a class="btn btn-outline-primary" href="{% url 'members:members_update' person.pk%}">Изменить</a>
-                <a class="btn btn-outline-danger" href="{% url 'members:members_delete' person.pk%}">Удалить</a>
+            <td><img src="{{ person.get_photo_url }}" alt="{{ person }}" class="rounded-circle" style="width:40px;height:40px;object-fit:cover;"></td>
+            <td><a href="{% url 'members:members_detail' person.pk%}" class="link-underline link-underline-opacity-0">{{ person.surname }} {{ person.name }}</a></td>
+            <td>
+                {% if person.email %}<div><a href="mailto:{{ person.email }}">{{ person.email }}</a></div>{% endif %}
+                {% if person.phone %}<div>{{ person.phone }}</div>{% endif %}
             </td>
-
-
+            <td>{{ person.telegram }}</td>
+            <td>
+                {% if person.is_athlete %}
+                    <span class="badge text-bg-success">Спортсмен</span>
+                {% else %}
+                    <span class="badge text-bg-secondary">Член семьи</span>
+                {% endif %}
+            </td>
+            <td class="text-end" style="width: 22vh;">
+                <a class="btn btn-outline-primary btn-sm" href="{% url 'members:members_update' person.pk%}">Изменить</a>
+                {% if user.is_staff %}
+                    <a class="btn btn-outline-danger btn-sm" href="{% url 'members:members_delete' person.pk%}">Удалить</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="7" class="text-center text-muted py-4">Нет доступных участников.</td>
         </tr>
         {% endfor %}
         </tbody>
@@ -50,4 +64,3 @@
 </div>
 
 {% endblock %}
-

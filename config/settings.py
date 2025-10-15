@@ -180,6 +180,11 @@ BOT_NAME = os.getenv("BOT_NAME")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SITE_BASE_URL = require_setting("SITE_BASE_URL").rstrip("/")
 TELEGRAM_LOG_CHAT_ID = os.getenv("TELEGRAM_LOG_CHAT_ID")
+TELEGRAM_ADMIN_IDS = [
+    admin_id.strip()
+    for admin_id in os.getenv("TELEGRAM_ADMIN_IDS", TELEGRAM_LOG_CHAT_ID or "").split(",")
+    if admin_id.strip()
+]
 
 LOGIN_URL = "users:login_page"
 LOGIN_REDIRECT_URL = "school:index"

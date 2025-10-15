@@ -67,19 +67,24 @@ class AthleteSelectionForm(forms.Form):
     """Форма для выбора спортсменов"""
 
     athletes = forms.ModelMultipleChoiceField(
-        queryset=Athlete.objects.all(),
-        widget=forms.CheckboxSelectMultiple,  # Все спортсмены как один список чекбоксов
+        queryset=Athlete.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
         required=False,
         label="Выберите спортсменов",
     )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        from users.utils import get_athlete_queryset_for_user
+
+        qs = get_athlete_queryset_for_user(user) if user else Athlete.objects.all()
+        self.fields["athletes"].queryset = qs.order_by("person__surname")
 
 
 class FamilyForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Family
-        fields = [
-            "contact_person",
-        ]
+        fields = ["contact_person", "comment"]
 
 
 class FamilyMemberForm(forms.ModelForm):
