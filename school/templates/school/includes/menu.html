@@ -20,7 +20,8 @@
                     aria-label="Close"></button>
         </div>
         <div class="offcanvas-body d-md-flex flex-column p-0 pt-lg-3 overflow-y-auto">
-            {% with path=request.path %}
+{% load nav_utils %}
+{% with path=request.path %}
             <nav class="nav flex-column mb-auto px-2">
                 <span class="nav-section-title">Обзор</span>
                 <a class="nav-link d-flex align-items-center gap-2 {% if request.resolver_match and request.resolver_match.url_name == 'index' %}active{% endif %}"
@@ -30,7 +31,7 @@
                 </a>
 
                 <span class="nav-section-title mt-3">Клуб</span>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/members/families') %}active{% endif %}" href="{% url 'members:family_list' %}">
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/members/families' %}active{% endif %}" href="{% url 'members:family_list' %}">
                     <i class="bi bi-people"></i>
                     Семьи
                 </a>
@@ -38,21 +39,21 @@
                     <i class="bi bi-person-vcard"></i>
                     Участники
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/athlete') %}active{% endif %}" href="{% url 'school:athlete_list' %}">
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete' %}active{% endif %}" href="{% url 'school:athlete_list' %}">
                     <i class="bi bi-person-running"></i>
                     Спортсмены
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/groups') %}active{% endif %}" href="{% url 'groups:group_list' %}">
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/groups' %}active{% endif %}" href="{% url 'groups:group_list' %}">
                     <i class="bi bi-diagram-3"></i>
                     Тренировочные группы
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/classes') %}active{% endif %}" href="{% url 'classes:class_list' %}">
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/classes' %}active{% endif %}" href="{% url 'classes:class_list' %}">
                     <i class="bi bi-calendar-event"></i>
                     Занятия
                 </a>
 
                 <span class="nav-section-title mt-3">Коммуникации</span>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path.startswith('/notifications') %}active{% endif %}" href="{% url 'notifications:notification_list' %}">
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/notifications' %}active{% endif %}" href="{% url 'notifications:notification_list' %}">
                     <i class="bi bi-chat-dots"></i>
                     Уведомления
                 </a>
