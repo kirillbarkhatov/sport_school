@@ -1,4 +1,5 @@
 from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from school.models import Person
 from users.models import User
@@ -11,6 +12,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     model = Person
     serializer_class = PersonSerializer
     queryset = Person.objects.all()
+    permission_classes = [IsAuthenticated]
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -19,3 +21,4 @@ class UserViewSet(viewsets.ModelViewSet):
     model = User
     serializer_class = UserSerializer
     queryset = User.objects.all()
+    permission_classes = [IsAuthenticated]

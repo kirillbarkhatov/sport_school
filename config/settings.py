@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 
 load_dotenv(override=True)
@@ -83,6 +84,9 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 
 REST_FRAMEWORK = {
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
     "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
 }
 
@@ -160,6 +164,19 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "users.User"
 
+def require_setting(name: str) -> str:
+    """Возвращает обязательную переменную окружения или поднимает исключение."""
+    value = os.getenv(name)
+    if not value:
+        raise ImproperlyConfigured(f"{name} environment variable must be set")
+    return value
+
+
 # Настройки для телеграмма
 BOT_NAME = os.getenv("BOT_NAME")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+SITE_BASE_URL = require_setting("SITE_BASE_URL").rstrip("/")
+
+LOGIN_URL = "users:login_page"
+LOGIN_REDIRECT_URL = "school:index"
+LOGOUT_REDIRECT_URL = "users:login_page"

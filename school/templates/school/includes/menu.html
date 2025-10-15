@@ -1,7 +1,6 @@
 <style>
-
     .sidebar {
-        min-height: 100vh; /* Минимальная высота боковой панели */
+        min-height: 100vh;
     }
 </style>
 
@@ -14,130 +13,65 @@
                     aria-label="Close"></button>
         </div>
         <div class="offcanvas-body d-md-flex flex-column p-0 pt-lg-3 overflow-y-auto">
-            <ul class="nav flex-column">
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2 active" aria-current="page"
-                       href="{% url 'school:index' %}">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#house-fill"/>
-                        </svg>
-                        Главная
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="{% url 'members:members_list' %}">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#people"/>
-                        </svg>
-                        Члены клуба
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="{% url 'school:athlete_list' %}">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#people"/>
-                        </svg>
-                        Спортсмены
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="{% url 'groups:group_list' %}">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#collection"/>
-                        </svg>
-                        Группы
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="{% url 'classes:class_list' %}">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#file-earmark-text"/>
-                        </svg>
-                        Занятия
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="#">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#play"/>
-                        </svg>
-                        Управление рассылками
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="#">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#pencil-square"/>
-                        </svg>
-                        Информация о рассылках
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="{% url 'notifications:notification_list' %}">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#chat"/>
-                        </svg>
-                        Уведомления
-                    </a>
-                </li>
+            <nav class="nav flex-column mb-auto">
+                <a class="nav-link d-flex align-items-center gap-2 {% if request.resolver_match and request.resolver_match.url_name == 'index' %}active{% endif %}"
+                   href="{% url 'school:index' %}">
+                    <svg class="bi">
+                        <use xlink:href="/static/svg/icons-menu.svg#house-fill"/>
+                    </svg>
+                    Главная
+                </a>
+                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'members:members_list' %}">
+                    <svg class="bi">
+                        <use xlink:href="/static/svg/icons-menu.svg#people"/>
+                    </svg>
+                    Члены клуба
+                </a>
+                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'school:athlete_list' %}">
+                    <svg class="bi">
+                        <use xlink:href="/static/svg/icons-menu.svg#people"/>
+                    </svg>
+                    Спортсмены
+                </a>
+                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'groups:group_list' %}">
+                    <svg class="bi">
+                        <use xlink:href="/static/svg/icons-menu.svg#collection"/>
+                    </svg>
+                    Группы
+                </a>
+                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'classes:class_list' %}">
+                    <svg class="bi">
+                        <use xlink:href="/static/svg/icons-menu.svg#file-earmark-text"/>
+                    </svg>
+                    Занятия
+                </a>
+                <a class="nav-link d-flex align-items-center gap-2" href="{% url 'notifications:notification_list' %}">
+                    <svg class="bi">
+                        <use xlink:href="/static/svg/icons-menu.svg#chat"/>
+                    </svg>
+                    Уведомления
+                </a>
+            </nav>
 
+            <hr class="my-3">
 
-                <hr class="my-3">
-
-                <ul class="nav flex-column mb-auto">
-                    <li class="nav-item">
-                        <a class="nav-link d-flex align-items-center gap-2" href="#">
-                            <svg class="bi">
-                                <use xlink:href="/static/svg/icons-menu.svg#gear-wide-connected"/>
-                            </svg>
-                            Settings
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link d-flex align-items-center gap-2" href="#">
-                            <svg class="bi">
-                                <use xlink:href="/static/svg/icons-menu.svg#door-closed"/>
-                            </svg>
-                            Sign out
-                        </a>
-                    </li>
-                </ul>
-
-
+            <div class="px-3 pb-3">
                 {% if user.is_authenticated %}
-                <li class="nav-item">
-                    <form method="post" action="#">
+                    <p class="small text-muted mb-2">
+                        Вошли как {{ user.tg_first_name|default:user.email }}
+                    </p>
+                    <form method="post" action="{% url 'users:logout' %}">
                         {% csrf_token %}
-                        <button type="submit" class="nav-link d-flex align-items-center gap-2">
-                            <svg class="bi">
-                                <use xlink:href="/static/svg/icons-menu.svg#door-closed"/>
-                            </svg>
-                            Выход
+                        <button type="submit" class="btn btn-outline-secondary w-100">
+                            Выйти
                         </button>
                     </form>
-                </li>
-
                 {% else %}
-
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="{% url 'users:login_page' %}">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#door-open"/>
-                        </svg>
-                        Войти
+                    <a class="btn btn-primary w-100" href="{% url 'users:login_page' %}">
+                        Войти через Telegram
                     </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2" href="#">
-                        <svg class="bi">
-                            <use xlink:href="/static/svg/icons-menu.svg#person-plus"/>
-                        </svg>
-                        Регистрация
-                    </a>
-                </li>
-
                 {% endif %}
-
+            </div>
         </div>
     </div>
 </div>

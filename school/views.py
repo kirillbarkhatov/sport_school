@@ -1,3 +1,5 @@
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import render, get_object_or_404
 from django.views.generic import TemplateView, ListView
 
@@ -8,12 +10,12 @@ from school.models import Athlete, Family, FamilyMember
 # Create your views here.
 
 
-class IndexView(TemplateView):
+class IndexView(LoginRequiredMixin, TemplateView):
     """Стартовая страница"""
     template_name = "school/index.html"
 
 
-class AthleteListView(ListView):
+class AthleteListView(LoginRequiredMixin, ListView):
     model = Athlete
 
     def get_queryset(self):
@@ -43,6 +45,7 @@ class AthleteListView(ListView):
 #     })
 
 
+@login_required
 def edit_athlete(request, athlete_id):
     athlete = get_object_or_404(Athlete, id=athlete_id)
     person = athlete.person

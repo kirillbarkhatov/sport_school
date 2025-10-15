@@ -1,4 +1,4 @@
-from django.forms import formset_factory
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponseRedirect
 from django.urls import reverse_lazy
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
@@ -8,21 +8,21 @@ from school.models import Class, Athlete, ClassEnrollment
 
 
 # CRUD для модели "Class"
-class ClassListView(ListView):
+class ClassListView(LoginRequiredMixin, ListView):
     """Контроллер для работы с БД членов клуба - список"""
 
     model = Class
     template_name = "classes/class_list.html"
 
 
-class ClassDetailView(DetailView):
+class ClassDetailView(LoginRequiredMixin, DetailView):
     """Контроллер для работы с БД членов клуба - инфо о персоне"""
 
     model = Class
     template_name = "classes/class_detail.html"
 
 
-class ClassCreateView(CreateView):
+class ClassCreateView(LoginRequiredMixin, CreateView):
     """Контроллер для работы с БД членов клуба - создание"""
 
     model = Class
@@ -69,7 +69,7 @@ class ClassCreateView(CreateView):
         return self.form_invalid(form)
 
 
-class ClassUpdateView(UpdateView):
+class ClassUpdateView(LoginRequiredMixin, UpdateView):
     """Контроллер для работы с БД членов клуба - изменение"""
 
     model = Class
@@ -116,7 +116,7 @@ class ClassUpdateView(UpdateView):
         return self.form_invalid(form)
 
 
-class ClassDeleteView(DeleteView):
+class ClassDeleteView(LoginRequiredMixin, DeleteView):
     """Контроллер для работы с БД членов клуба - удаление"""
 
     model = Class

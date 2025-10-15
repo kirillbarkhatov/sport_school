@@ -1,3 +1,4 @@
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView
 
@@ -9,12 +10,12 @@ from django.core.mail import send_mail
 from config.settings import BOT_TOKEN, DEFAULT_FROM_EMAIL
 
 
-class NotificationListView(ListView):
+class NotificationListView(LoginRequiredMixin, ListView):
     model = Notification
     template_name = "notifications/notification_list.html"
 
 
-class NotificationCreateView(CreateView):
+class NotificationCreateView(LoginRequiredMixin, CreateView):
     model = Notification
     form_class = NotificationForm
     template_name = "notifications/notification_form.html"

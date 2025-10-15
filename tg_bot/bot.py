@@ -4,7 +4,7 @@ import django
 from uuid import uuid4
 from asgiref.sync import sync_to_async
 from httpx import request
-from config.settings import BOT_TOKEN
+from config.settings import BOT_TOKEN, SITE_BASE_URL
 from telegram import Update, InputTextMessageContent, InlineQueryResultArticle
 from telegram.ext import (
     ApplicationBuilder,
@@ -31,66 +31,74 @@ from users.models import User
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     token = context.args[0] if context.args else None
-    tg_id = update.message.from_user.id
-    tg_first_name = update.message.from_user.first_name
-    # Генерация ссылки на `TelegramCallbackView`
-    callback_url = f"http://localhost:8000/telegram-callback/{token}/"
+    tg_user = update.message.from_user
+    tg_id = tg_user.id
+    tg_first_name = tg_user.first_name or ""
+    tg_last_name = tg_user.last_name or ""
+    tg_username = tg_user.username or ""
 
     if not token:
-        # Используем sync_to_async для работы с ORM
+        user, created = await sync_to_async(User.objects.get_or_create)(
+            tg_id=tg_id,
+            defaults={
+                "email": f"{tg_id}@test.test",
+                "tg_first_name": tg_first_name,
+                "tg_last_name": tg_last_name,
+                "tg_username": tg_username,
+            },
+        )
 
-        try:
-            user = await sync_to_async(User.objects.get)(tg_id=tg_id)
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id, text=f"Привет, {tg_first_name}!"
-            )
-        except User.DoesNotExist:
-            user = await sync_to_async(User.objects.create)(
-                email=f"{tg_id}@test.test", tg_id=tg_id, tg_first_name=tg_first_name
-            )
-            await sync_to_async(user.save)()  # Сохранение в базе данных
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=f"Привет, {tg_first_name}! Пользователь создан",
-            )
+        if not created:
+            user.tg_first_name = tg_first_name
+            user.tg_last_name = tg_last_name
+            user.tg_username = tg_username
+        await sync_to_async(user.save)(update_fields=["tg_first_name", "tg_last_name", "tg_username"])
+
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=(
+                f"Привет, {tg_first_name or 'друг'}!\n"
+                "Чтобы войти на сайт, откройте страницу авторизации и нажмите «Войти через Telegram»."
+            ),
+        )
         return
 
-    try:
-        # Используем sync_to_async для работы с ORM
-        user = await sync_to_async(User.objects.get)(tg_id=tg_id)
+    user, _ = await sync_to_async(User.objects.get_or_create)(
+        tg_id=tg_id,
+        defaults={
+            "email": f"{tg_id}@test.test",
+            "tg_first_name": tg_first_name,
+            "tg_last_name": tg_last_name,
+            "tg_username": tg_username,
+            "token": token,
+        },
+    )
 
-        # Обновляем данные пользователя из Telegram
-        user.token = token
+    user.tg_first_name = tg_first_name
+    user.tg_last_name = tg_last_name
+    user.tg_username = tg_username
+    user.token = token
+    await sync_to_async(user.save)(
+        update_fields=["tg_first_name", "tg_last_name", "tg_username", "token"]
+    )
 
-        await sync_to_async(user.save)()  # Сохраняем данные пользователя
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id, text="Токен добавлен"
-        )
-
-    except User.DoesNotExist:
-        user = await sync_to_async(User.objects.create)(
-            email=f"{tg_id}@test.test",
-            tg_id=tg_id,
-            tg_first_name=tg_first_name,
-            token=token,
-        )
-        await sync_to_async(user.save)()  # Сохранение в базе данных
-
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id, text="Пользователь создан"
-        )
+    callback_url = f"{SITE_BASE_URL}/telegram-callback/{token}/"
 
     # Сообщаем пользователю о завершении авторизации
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text=f"Для авторизации на сайте перейдите по ссылке: {callback_url}",
+        text=(
+            "Готово! Теперь откройте ссылку ниже, чтобы завершить вход на сайте:\n"
+            f"{callback_url}"
+        ),
     )
 
 
 # Асинхронная команда /person
 async def person(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Выполняем HTTP-запрос для получения данных
-    person_from_api = request("GET", "http://localhost:8000/api/person/8/").json()
+    api_url = f"{SITE_BASE_URL}/api/person/8/"
+    person_from_api = request("GET", api_url).json()
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=f"{person_from_api['name']} {person_from_api['surname']}",
@@ -297,7 +305,8 @@ if __name__ == "__main__":
 #
 #
 # async def person(update: Update, context: ContextTypes.DEFAULT_TYPE):
-#     person_from_api = request("GET", "http://localhost:8000/api/person/8/").json()
+#     api_url = f"{SITE_BASE_URL}/api/person/8/"
+#     person_from_api = request("GET", api_url).json()
 #     print(person_from_api)
 #     await context.bot.send_message(chat_id=update.effective_chat.id, text=f"{person_from_api["name"]} {person_from_api["surname"]}")
 #

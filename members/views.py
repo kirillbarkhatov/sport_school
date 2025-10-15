@@ -1,3 +1,4 @@
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 
@@ -5,21 +6,21 @@ from school.forms import PersonForm
 from school.models import Person
 
 # CRUD для модели "Person"
-class PersonListView(ListView):
+class PersonListView(LoginRequiredMixin, ListView):
     """Контроллер для работы с БД членов клуба - список"""
 
     model = Person
     template_name = "members/person_list.html"
 
 
-class PersonDetailView(DetailView):
+class PersonDetailView(LoginRequiredMixin, DetailView):
     """Контроллер для работы с БД членов клуба - инфо о персоне"""
 
     model = Person
     template_name = "members/person_detail.html"
 
 
-class PersonCreateView(CreateView):
+class PersonCreateView(LoginRequiredMixin, CreateView):
     """Контроллер для работы с БД членов клуба - создание"""
 
     model = Person
@@ -27,7 +28,7 @@ class PersonCreateView(CreateView):
     form_class = PersonForm
 
 
-class PersonUpdateView(UpdateView):
+class PersonUpdateView(LoginRequiredMixin, UpdateView):
     """Контроллер для работы с БД членов клуба - изменение"""
 
     model = Person
@@ -35,7 +36,7 @@ class PersonUpdateView(UpdateView):
     form_class = PersonForm
 
 
-class PersonDeleteView(DeleteView):
+class PersonDeleteView(LoginRequiredMixin, DeleteView):
     """Контроллер для работы с БД членов клуба - удаление"""
 
     model = Person
