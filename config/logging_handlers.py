@@ -1,7 +1,7 @@
 import logging
 
+import httpx
 from django.conf import settings
-from telegram import Bot
 
 
 class TelegramLogHandler(logging.Handler):
@@ -9,17 +9,14 @@ class TelegramLogHandler(logging.Handler):
 
     max_message_length = 4096
 
-    def __init__(self, chat_id: str, level=logging.NOTSET):
+    def __init__(self, chat_id: str, *, timeout: float = 5.0, level=logging.NOTSET):
         super().__init__(level)
         self.chat_id = str(chat_id)
-        self._bot: Bot | None = None
+        self.timeout = timeout
 
     def emit(self, record: logging.LogRecord) -> None:
         if not settings.BOT_TOKEN or not self.chat_id:
             return
-
-        if self._bot is None:
-            self._bot = Bot(token=settings.BOT_TOKEN)
 
         try:
             message = self.format(record)
@@ -29,6 +26,11 @@ class TelegramLogHandler(logging.Handler):
             if len(message) > self.max_message_length:
                 message = f"{message[: self.max_message_length - 3]}..."
 
-            self._bot.send_message(chat_id=self.chat_id, text=message)
+            response = httpx.post(
+                f"https://api.telegram.org/bot{settings.BOT_TOKEN}/sendMessage",
+                json={"chat_id": self.chat_id, "text": message},
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
         except Exception:
             self.handleError(record)

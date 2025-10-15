@@ -1,10 +1,17 @@
 import logging
 import os
+import sys
+from pathlib import Path
 import django
 from uuid import uuid4
 from asgiref.sync import sync_to_async
 from httpx import request
-from config.settings import BOT_TOKEN, SITE_BASE_URL
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+from config.settings import BOT_TOKEN, SITE_BASE_URL, TELEGRAM_LOG_CHAT_ID
 from telegram import Update, InputTextMessageContent, InlineQueryResultArticle
 from telegram.ext import (
     ApplicationBuilder,
@@ -29,6 +36,18 @@ from users.models import User
 
 logger = logging.getLogger("bot.telegram")
 
+ADMIN_CHAT_ID = TELEGRAM_LOG_CHAT_ID
+
+
+async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str) -> None:
+    """Helper to send debug notifications to admin chat."""
+    if not ADMIN_CHAT_ID:
+        return
+    try:
+        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=message)
+    except Exception as exc:
+        logger.exception("Не удалось отправить сообщение админу: %s", exc)
+
 
 # Асинхронная команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -45,8 +64,49 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tg_id,
         token[-6:] if token else "нет",
     )
+    await notify_admin(
+        context,
+        f"🔔 /start от {tg_id}\n"
+        f"token: {token}\n"
+        f"username: @{tg_username or '-'}\n"
+        f"name: {tg_first_name} {tg_last_name}",
+    )
 
-    if not token:
+    try:
+        if not token:
+            user, created = await sync_to_async(User.objects.get_or_create)(
+                tg_id=tg_id,
+                defaults={
+                    "email": f"{tg_id}@test.test",
+                    "tg_first_name": tg_first_name,
+                    "tg_last_name": tg_last_name,
+                    "tg_username": tg_username,
+                },
+            )
+
+            if not created:
+                user.tg_first_name = tg_first_name
+                user.tg_last_name = tg_last_name
+                user.tg_username = tg_username
+                await sync_to_async(user.save)(
+                    update_fields=["tg_first_name", "tg_last_name", "tg_username"]
+                )
+
+            logger.info("Пользователь tg_id=%s активировал бота без токена", tg_id)
+            await notify_admin(
+                context,
+                f"ℹ️ /start без токена для {tg_id}. created={created}",
+            )
+
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=(
+                    f"Привет, {tg_first_name or 'друг'}!\n"
+                    "Чтобы войти на сайт, откройте страницу авторизации и нажмите «Войти через Telegram»."
+                ),
+            )
+            return
+
         user, created = await sync_to_async(User.objects.get_or_create)(
             tg_id=tg_id,
             defaults={
@@ -54,61 +114,51 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "tg_first_name": tg_first_name,
                 "tg_last_name": tg_last_name,
                 "tg_username": tg_username,
+                "token": token,
             },
         )
 
-        if not created:
-            user.tg_first_name = tg_first_name
-            user.tg_last_name = tg_last_name
-            user.tg_username = tg_username
-        await sync_to_async(user.save)(update_fields=["tg_first_name", "tg_last_name", "tg_username"])
+        user.tg_first_name = tg_first_name
+        user.tg_last_name = tg_last_name
+        user.tg_username = tg_username
+        user.token = token
+        await sync_to_async(user.save)(
+            update_fields=["tg_first_name", "tg_last_name", "tg_username", "token"]
+        )
 
-        logger.info("Пользователь tg_id=%s активировал бота без токена", tg_id)
+        callback_url = f"{SITE_BASE_URL}/telegram-callback/{token}/"
 
+        logger.info(
+            "Пользователь tg_id=%s получил токен входа (окончание %s)",
+            tg_id,
+            token[-6:],
+        )
+        await notify_admin(
+            context,
+            f"✅ Токен сохранён для {tg_id}\ncreated={created}\ncallback={callback_url}",
+        )
+
+        # Сообщаем пользователю о завершении авторизации
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=(
-                f"Привет, {tg_first_name or 'друг'}!\n"
-                "Чтобы войти на сайт, откройте страницу авторизации и нажмите «Войти через Telegram»."
+                "Готово! Теперь откройте ссылку ниже, чтобы завершить вход на сайте:\n"
+                f"{callback_url}"
             ),
         )
-        return
-
-    user, _ = await sync_to_async(User.objects.get_or_create)(
-        tg_id=tg_id,
-        defaults={
-            "email": f"{tg_id}@test.test",
-            "tg_first_name": tg_first_name,
-            "tg_last_name": tg_last_name,
-            "tg_username": tg_username,
-            "token": token,
-        },
-    )
-
-    user.tg_first_name = tg_first_name
-    user.tg_last_name = tg_last_name
-    user.tg_username = tg_username
-    user.token = token
-    await sync_to_async(user.save)(
-        update_fields=["tg_first_name", "tg_last_name", "tg_username", "token"]
-    )
-
-    callback_url = f"{SITE_BASE_URL}/telegram-callback/{token}/"
-
-    logger.info(
-        "Пользователь tg_id=%s получил токен входа (окончание %s)",
-        tg_id,
-        token[-6:],
-    )
-
-    # Сообщаем пользователю о завершении авторизации
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=(
-            "Готово! Теперь откройте ссылку ниже, чтобы завершить вход на сайте:\n"
-            f"{callback_url}"
-        ),
-    )
+    except Exception as exc:
+        logger.exception("Ошибка при выполнении /start для tg_id=%s", tg_id)
+        await notify_admin(
+            context,
+            f"❗️ Ошибка /start для {tg_id}: {exc}",
+        )
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=(
+                "Произошла ошибка при обработке запроса. Сообщите администратору.\n"
+                f"Текст ошибки: {exc}"
+            ),
+        )
 
 
 # Асинхронная команда /person

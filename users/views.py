@@ -1,6 +1,7 @@
 import logging
 import secrets
 
+import httpx
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.http import HttpResponse, HttpResponseBadRequest
@@ -13,7 +14,7 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from .models import User
-from config.settings import BOT_NAME
+from config.settings import BOT_NAME, BOT_TOKEN, TELEGRAM_LOG_CHAT_ID
 
 
 logger = logging.getLogger("auth.telegram")
@@ -50,6 +51,12 @@ class LoginPageView(TemplateView):
         if self.request.user.is_authenticated:
             context["user"] = self.request.user
             context["dashboard_url"] = reverse("school:index")
+            self._notify_debug({
+                "authenticated": True,
+                "user_id": self.request.user.pk,
+                "tg_id": getattr(self.request.user, "tg_id", None),
+                "next_url": self.request.session.get("next_url"),
+            })
             return context
 
         token = self._issue_session_token()
@@ -57,6 +64,13 @@ class LoginPageView(TemplateView):
 
         context["telegram_link"] = f"https://t.me/{bot_name}?start={token}"
         context["telegram_bot_name"] = bot_name
+        self._notify_debug({
+            "authenticated": False,
+            "generated_token": token,
+            "session_token": self.request.session.get("telegram_token"),
+            "next_url": self.request.session.get("next_url"),
+            "telegram_link": context["telegram_link"],
+        })
         return context
 
     def _issue_session_token(self) -> str:
@@ -69,6 +83,29 @@ class LoginPageView(TemplateView):
         self.request.session["telegram_token"] = token
         self.request.session.modified = True
         return token
+
+    def _notify_debug(self, info: dict) -> None:
+        print(f"[LOGIN DEBUG] {info}")
+
+        if not BOT_TOKEN or not TELEGRAM_LOG_CHAT_ID:
+            return
+
+        try:
+            message_lines = [
+                "🔍 Login page opened",
+                "",
+            ]
+            message_lines.extend(f"{key}: {value}" for key, value in info.items())
+            httpx.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={
+                    "chat_id": TELEGRAM_LOG_CHAT_ID,
+                    "text": "\n".join(message_lines),
+                },
+                timeout=5,
+            )
+        except Exception as exc:
+            print(f"[LOGIN DEBUG] Не удалось отправить сообщение в Telegram: {exc}")
 
 
 class TelegramCallbackView(View):
