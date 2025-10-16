@@ -17,7 +17,7 @@
                     {% for field in form %}
                         <div class="mb-3">
                             <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                            {% if field.name in "issue_date start_date end_date".split %}
+                            {% if field.name in ('issue_date', 'start_date', 'end_date') %}
                                 <div class="input-group">
                                     {{ field }}
                                     <button type="button" class="btn btn-outline-secondary" data-set-date="today">Сегодня</button>
