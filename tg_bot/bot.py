@@ -32,6 +32,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 from tg_bot.handlers.admin import approve, admin_panel, handle_admin_callback  # noqa: E402
+from tg_bot.handlers.coach import coach_panel, handle_coach_callback  # noqa: E402
 from tg_bot.handlers.auth import confirm, register, start  # noqa: E402
 from tg_bot.handlers.general import (  # noqa: E402
     caps,
@@ -76,8 +77,10 @@ def build_application():
     application.add_handler(CommandHandler("confirm", confirm))
     application.add_handler(CommandHandler("approve", approve))
     application.add_handler(CommandHandler("adminpanel", admin_panel))
+    application.add_handler(CommandHandler("coach", coach_panel))
 
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern=r"^admin:"))
+    application.add_handler(CallbackQueryHandler(handle_coach_callback, pattern=r"^coach:"))
 
     application.add_handler(InlineQueryHandler(inline_caps))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))

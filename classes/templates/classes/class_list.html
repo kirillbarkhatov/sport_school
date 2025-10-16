@@ -22,6 +22,7 @@
             <th scope="col">Занятие</th>
             <th scope="col">Группа</th>
             <th scope="col">Формат</th>
+            <th scope="col">Статус</th>
             <th scope="col">Снаряжение</th>
             <th scope="col">Участников</th>
             <th scope="col" class="text-end">Действия</th>
@@ -33,14 +34,20 @@
             <td>{{ forloop.counter }}</td>
             <td>
                 <a href="{% url 'classes:class_detail' lesson.pk%}" class="link-underline link-underline-opacity-0 fw-medium">
-                    {{ lesson.date|date:"d.m H:i" }} · {{ lesson.training_type }}
+                    {{ lesson.date|date:"d.m H:i" }} · {{ lesson.get_training_type_display }}
                 </a>
                 <div class="text-muted small">
-                    {{ lesson.location }} · {{ lesson.duration }} мин.
+                    {{ lesson.get_location_display }} · {{ lesson.duration }} мин.
                 </div>
             </td>
             <td>{{ lesson.group.name }}</td>
             <td>{{ lesson.get_type_display }}</td>
+            <td>
+                {{ lesson.get_coach_status_display }}
+                {% if lesson.creation_source == "template" %}
+                    <div class="text-muted small">авто</div>
+                {% endif %}
+            </td>
             <td>
                 {% if lesson.equipment %}
                     <span class="text-muted small">{{ lesson.get_equipment_display }}</span>

@@ -54,8 +54,8 @@
                 {% for lesson in upcoming_classes %}
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>{{ lesson.training_type }}</strong>
-                            <div class="text-muted small">{{ lesson.date|date:"d.m H:i" }} · {{ lesson.location }}</div>
+                            <strong>{{ lesson.get_training_type_display }}</strong>
+                            <div class="text-muted small">{{ lesson.date|date:"d.m H:i" }} · {{ lesson.get_location_display }}</div>
                             <div class="text-muted small">{{ lesson.group.name }} · {{ lesson.duration }} мин.</div>
                             {% if lesson.equipment %}
                                 <div class="text-muted small">Снаряжение: {{ lesson.get_equipment_display }}</div>

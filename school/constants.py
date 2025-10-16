@@ -1,31 +1,6 @@
-DEFAULT_TRAINING_TYPES = [
-    "ОФП",
-    "Ролики",
-    "Коньки",
-    "Лыжи",
-    "Упражнения (лыжи)",
-    "Слалом",
-    "Гигантский слалом",
-    "Велотренировка",
-    "Тренажер SkiTech",
-    "уточняется",
-]
+from .choices import TrainingEquipment, TrainingKind, TrainingLocation
 
-DEFAULT_EQUIPMENT = [
-    "Спортивная одежда, кроссовки",
-    "Ролики, защита",
-    "Коньки, защита",
-    "Велосипед, защита",
-    "Слаломные лыжи, защита",
-    "Лыжи для гигантского слалома, защита",
-    "уточняется",
-]
 
-DEFAULT_LOCATIONS = [
-    "Муринский парк",
-    "УТЦ Кавголово",
-    "Юкки",
-    "Снежный",
-    "Серверный склон",
-    "Локация уточняется",
-]
+DEFAULT_TRAINING_TYPES = [choice.label for choice in TrainingKind]
+DEFAULT_EQUIPMENT = [choice.label for choice in TrainingEquipment]
+DEFAULT_LOCATIONS = [choice.label for choice in TrainingLocation]

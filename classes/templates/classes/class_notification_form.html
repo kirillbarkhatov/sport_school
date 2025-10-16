@@ -9,8 +9,8 @@
             <div class="card-header">
                 <strong>Рассылка участникам занятия</strong>
                 <div class="small text-muted">
-                    {{ class_instance.training_type }} — {{ class_instance.group.name }}
-                    · {{ class_instance.date|date:"d.m H:i" }} ({{ class_instance.location }})
+                    {{ class_instance.get_training_type_display }} — {{ class_instance.group.name }}
+                    · {{ class_instance.date|date:"d.m H:i" }} ({{ class_instance.get_location_display }})
                 </div>
                 {% if class_instance.equipment %}
                     <div class="small text-muted">Экипировка: {{ class_instance.get_equipment_display }}</div>

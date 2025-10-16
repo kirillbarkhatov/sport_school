@@ -190,6 +190,12 @@ TELEGRAM_ADMIN_IDS = [
     if admin_id.strip()
 ]
 
+TELEGRAM_COACH_IDS = [
+    coach_id.strip()
+    for coach_id in os.getenv("TELEGRAM_COACH_IDS", "").split(",")
+    if coach_id.strip()
+]
+
 LOGIN_URL = "users:login_page"
 LOGIN_REDIRECT_URL = "school:index"
 LOGOUT_REDIRECT_URL = "users:login_page"
@@ -269,5 +275,17 @@ CELERY_BEAT_SCHEDULE = {
     "ensure-monthly-contract-services": {
         "task": "school.tasks.ensure_monthly_contract_services",
         "schedule": crontab(hour=3, minute=0),
-    }
+    },
+    "notify-coach-today-trainings": {
+        "task": "classes.tasks.notify_today_trainings_task",
+        "schedule": crontab(hour=10, minute=0),
+    },
+    "notify-coach-tomorrow-trainings": {
+        "task": "classes.tasks.notify_tomorrow_trainings_task",
+        "schedule": crontab(hour=10, minute=5),
+    },
+    "ensure-weekly-template-schedule": {
+        "task": "classes.tasks.ensure_weekly_schedule_task",
+        "schedule": crontab(hour=10, minute=10),
+    },
 }

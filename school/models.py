@@ -5,7 +5,13 @@ from django.db import models
 from django.urls import reverse
 from django.templatetags.static import static
 from django.utils import timezone
-from .constants import DEFAULT_EQUIPMENT, DEFAULT_LOCATIONS, DEFAULT_TRAINING_TYPES
+from .choices import (
+    ClassCoachStatus,
+    ClassCreationSource,
+    TrainingEquipment,
+    TrainingKind,
+    TrainingLocation,
+)
 
 
 class DiscountType(models.TextChoices):
@@ -207,19 +213,21 @@ class Class(models.Model):
     date = models.DateTimeField(verbose_name="Дата и время занятия")
     duration = models.IntegerField(verbose_name="Продолжительность занятия (мин.)")
     location = models.CharField(
-        max_length=100,
+        max_length=32,
+        choices=TrainingLocation.choices,
+        default=TrainingLocation.OTHER,
         verbose_name="Место проведения",
-        default=DEFAULT_LOCATIONS[-1],
         help_text="Ключевое место тренировки, например из предложенного списка",
     )
     training_type = models.CharField(
-        max_length=100,
+        max_length=32,
+        choices=TrainingKind.choices,
+        default=TrainingKind.OTHER,
         verbose_name="Вид тренировки",
-        default=DEFAULT_TRAINING_TYPES[-1],
         help_text="Например ОФП, ролики или другое направление из списка",
     )
     equipment = ArrayField(
-        models.CharField(max_length=100),
+        models.CharField(max_length=32, choices=TrainingEquipment.choices),
         default=list,
         blank=True,
         verbose_name="Необходимое снаряжение",
@@ -232,15 +240,47 @@ class Class(models.Model):
         max_length=10, choices=TYPE_CHOICES, verbose_name="Тип занятия"
     )
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
+    creation_source = models.CharField(
+        max_length=16,
+        choices=ClassCreationSource.choices,
+        default=ClassCreationSource.MANUAL,
+        verbose_name="Источник создания",
+    )
+    coach_status = models.CharField(
+        max_length=16,
+        choices=ClassCoachStatus.choices,
+        default=ClassCoachStatus.PENDING,
+        verbose_name="Статус у тренера",
+    )
+    coach_status_set_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Обработано тренером",
+    )
+    coach_comment = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Комментарий тренера",
+    )
 
     def __str__(self):
         local_dt = timezone.localtime(self.date)
-        main_part = f"{self.training_type} · {local_dt:%d.%m %H:%M}"
+        main_part = f"{self.get_training_type_display()} · {local_dt:%d.%m %H:%M}"
         return f"{self.group.name}: {main_part}"
 
     class Meta:
         verbose_name = "Занятие"
         verbose_name_plural = "Занятия"
+
+    def save(self, *args, **kwargs):
+        if (
+            self.pk is None
+            and self.creation_source == ClassCreationSource.MANUAL
+            and self.coach_status == ClassCoachStatus.PENDING
+        ):
+            self.coach_status = ClassCoachStatus.PLANNED
+            self.coach_status_set_at = timezone.now()
+        super().save(*args, **kwargs)
 
     @property
     def start_date(self):
@@ -254,7 +294,15 @@ class Class(models.Model):
 
     def get_equipment_display(self) -> str:
         """Экипировка в виде строки, удобно для шаблонов и уведомлений."""
-        return ", ".join(self.equipment or [])
+        labels = []
+        choice_map = dict(TrainingEquipment.choices)
+        for code in self.equipment or []:
+            labels.append(choice_map.get(code, code))
+        return ", ".join(labels)
+
+    @property
+    def is_coach_processed(self) -> bool:
+        return self.coach_status != ClassCoachStatus.PENDING
 
 
 class ClassEnrollment(models.Model):

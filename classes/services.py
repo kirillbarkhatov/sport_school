@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from datetime import datetime, timedelta
 from typing import Sequence
 
+from django.db import transaction
 from django.utils import timezone
 
+from school.choices import ClassCoachStatus, ClassCreationSource
 from school.models import Class
 from users.utils import get_class_queryset_for_user
+from .models import TrainingTemplate
 
 
 def _format_full_name(person) -> str:
@@ -91,11 +95,18 @@ def get_assistant_schedule_payload(user, limit: int | None = None) -> tuple[list
                 "start_datetime": local_dt,
                 "duration_minutes": class_instance.duration,
                 "location": class_instance.location,
+                "location_display": class_instance.get_location_display(),
                 "training_type": class_instance.training_type,
+                "training_type_display": class_instance.get_training_type_display(),
                 "format": class_instance.type,
                 "format_display": class_instance.get_type_display(),
                 "equipment": list(class_instance.equipment or []),
+                "equipment_display": class_instance.get_equipment_display(),
                 "comment": class_instance.comment,
+                "coach_comment": class_instance.coach_comment,
+                "coach_status": class_instance.coach_status,
+                "coach_status_display": class_instance.get_coach_status_display(),
+                "creation_source": class_instance.creation_source,
                 "group": {
                     "id": class_instance.group_id,
                     "name": class_instance.group.name,
@@ -108,3 +119,51 @@ def get_assistant_schedule_payload(user, limit: int | None = None) -> tuple[list
             athletes_map.setdefault(athlete_id, athlete_payload)
 
     return trainings_payload, list(athletes_map.values())
+
+
+def ensure_week_ahead_schedule(reference_date=None) -> list[Class]:
+    """Генерирует занятия по активным шаблонам на неделю вперёд."""
+
+    tz = timezone.get_current_timezone()
+    today = timezone.localdate()
+    start_date = reference_date or today
+    end_date = start_date + timedelta(days=6)
+
+    created_classes: list[Class] = []
+
+    templates = (
+        TrainingTemplate.objects.filter(is_active=True)
+        .select_related("group")
+        .order_by("day_of_week", "start_time")
+    )
+
+    for template in templates:
+        target_date = template.next_occurrence(start_date)
+        if target_date > end_date:
+            continue
+        if not template.applies_to_date(target_date):
+            continue
+
+        naive_start = datetime.combine(target_date, template.start_time)
+        aware_start = timezone.make_aware(naive_start, tz)
+
+        exists = Class.objects.filter(group=template.group, date=aware_start).exists()
+        if exists:
+            continue
+
+        with transaction.atomic():
+            new_class = Class.objects.create(
+                date=aware_start,
+                duration=template.duration_minutes,
+                location=template.location,
+                training_type=template.training_type,
+                equipment=template.default_equipment(),
+                group=template.group,
+                type=template.class_type,
+                comment=template.comment or "Автоматически создано по шаблону",
+                creation_source=ClassCreationSource.TEMPLATE,
+                coach_status=ClassCoachStatus.PENDING,
+            )
+        created_classes.append(new_class)
+
+    return created_classes

@@ -3,7 +3,7 @@ from django.forms import BooleanField, BaseFormSet, formset_factory, inlineforms
 
 from django.utils import timezone
 
-from .constants import DEFAULT_EQUIPMENT, DEFAULT_LOCATIONS, DEFAULT_TRAINING_TYPES
+from .choices import TrainingEquipment, TrainingKind, TrainingLocation
 from .models import (
     Athlete,
     Person,
@@ -63,8 +63,8 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
     equipment = forms.MultipleChoiceField(
         label="Необходимое снаряжение",
         required=False,
-        choices=[(item, item) for item in DEFAULT_EQUIPMENT],
-        widget=forms.SelectMultiple(attrs={"size": 7}),
+        choices=TrainingEquipment.choices,
+        widget=forms.SelectMultiple(attrs={"size": 7, "class": "form-select"}),
         help_text="Выберите всё, что спортсменам нужно взять с собой",
     )
 
@@ -91,23 +91,24 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         equipment_field = self.fields["equipment"]
-        equipment_field.widget.attrs["class"] = "form-select"
 
         # Add dynamic equipment options so existing custom values pass validation.
         current_equipment = list(self.instance.equipment or [])
-        known_values = list(DEFAULT_EQUIPMENT)
+        known_choices = list(TrainingEquipment.choices)
+        known_values = {value for value, _ in known_choices}
+        dynamic_choices = list(known_choices)
         for value in current_equipment:
             if value not in known_values:
-                known_values.append(value)
-        equipment_field.choices = [(item, item) for item in known_values]
+                dynamic_choices.append((value, value))
+        equipment_field.choices = dynamic_choices
         if not self.is_bound:
             equipment_field.initial = current_equipment
 
-        # Suggest common values via datalists while allowing custom input.
-        self.fields["location"].widget.attrs.setdefault("list", "location-options")
-        self.fields["training_type"].widget.attrs.setdefault(
-            "list", "training-type-options"
-        )
+        self.fields["location"].choices = TrainingLocation.choices
+        self.fields["training_type"].choices = TrainingKind.choices
+        for field_name in ("location", "training_type", "type", "group"):
+            if field_name in self.fields:
+                self.fields[field_name].widget.attrs["class"] = "form-select"
 
         if not self.is_bound and self.instance.pk and self.instance.date:
             localized = timezone.localtime(self.instance.date)

@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from school.models import Person
 from users.models import User
 from classes.services import get_assistant_schedule_payload
-from school.constants import DEFAULT_EQUIPMENT, DEFAULT_LOCATIONS, DEFAULT_TRAINING_TYPES
+from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from .serializers import (
     AssistantAthleteSerializer,
     AssistantTrainingSerializer,
@@ -94,9 +94,18 @@ class AssistantUpcomingTrainingsView(APIView):
                 "trainings": trainings,
                 "athletes": athletes,
                 "defaults": {
-                    "training_types": DEFAULT_TRAINING_TYPES,
-                    "equipment": DEFAULT_EQUIPMENT,
-                    "locations": DEFAULT_LOCATIONS,
+                    "training_types": [
+                        {"value": value, "label": label}
+                        for value, label in TrainingKind.choices
+                    ],
+                    "equipment": [
+                        {"value": value, "label": label}
+                        for value, label in TrainingEquipment.choices
+                    ],
+                    "locations": [
+                        {"value": value, "label": label}
+                        for value, label in TrainingLocation.choices
+                    ],
                 },
             },
             status=status.HTTP_200_OK,
