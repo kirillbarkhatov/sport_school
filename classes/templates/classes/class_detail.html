@@ -40,7 +40,7 @@
                 <span class="badge text-bg-primary">{{ object.enrollments.count }}</span>
             </div>
             <ul class="list-group list-group-flush">
-                {% for enrollment in object.enrollments.order_by('athlete__person__surname') %}
+                {% for enrollment in object.enrollments.all %}
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         <div>
                             <strong>{{ enrollment.athlete.person.surname }} {{ enrollment.athlete.person.name }}</strong>
