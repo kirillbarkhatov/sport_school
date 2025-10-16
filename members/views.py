@@ -1,15 +1,15 @@
 from datetime import date
 from decimal import Decimal
 
-from django.urls import reverse_lazy, reverse
-from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
+from django.contrib import messages
+from django.db import transaction
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse, reverse_lazy
+from django.utils import timezone
+from django.views.generic import CreateView, DetailView, ListView, UpdateView, DeleteView
 
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import get_person_queryset_for_user
-from django.contrib import messages
-from django.db import transaction
-from django.shortcuts import redirect, get_object_or_404
-
 from school.forms import (
     PersonForm,
     FamilyForm,
@@ -18,9 +18,15 @@ from school.forms import (
     FamilyAthleteProfileFormSet,
     FamilyServiceForm,
     FamilyPaymentForm,
+    AthleteContractForm,
 )
 from school.models import Person, Family, FamilyMember, Athlete, FamilyAthleteProfile, FamilyService, FamilyPayment
-from school.models import DiscountType, ServiceType
+from school.models import DiscountType, ServiceType, AthleteContract
+from school.services import (
+    compute_season_label,
+    ensure_monthly_service_for_contract,
+    get_month_range,
+)
 
 # CRUD для модели "Person"
 class PersonListView(ApprovedUserRequiredMixin, ListView):
@@ -172,17 +178,6 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
                         "discount_value": family.discount_value,
                     },
                 )
-                if created:
-                    FamilyService.objects.create(
-                        family=family,
-                        profile=profile,
-                        name=f"Ежемесячный платеж {athlete.person}",
-                        service_type=ServiceType.MONTHLY,
-                        amount=profile.monthly_fee,
-                        discount_type=profile.discount_type,
-                        discount_value=profile.discount_value,
-                        is_recurring=True,
-                    )
 
 
 class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
@@ -198,11 +193,11 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         family: Family = self.object
-        # ensure profiles exist for семейные спортсмены
+        # ensure profiles exist для семейных спортсменов
         for membership in family.members.select_related("person"):
             person = membership.person
             if hasattr(person, "athlete"):
-                profile, created = FamilyAthleteProfile.objects.get_or_create(
+                profile, _ = FamilyAthleteProfile.objects.get_or_create(
                     family=family,
                     athlete=person.athlete,
                     defaults={
@@ -211,42 +206,70 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
                         "discount_value": family.discount_value,
                     },
                 )
-                if created or not profile.services.filter(service_type=ServiceType.MONTHLY).exists():
-                    FamilyService.objects.create(
-                        family=family,
-                        profile=profile,
-                        name=f"Ежемесячный платеж {profile.athlete.person}",
-                        service_type=ServiceType.MONTHLY,
-                        amount=profile.monthly_fee,
-                        discount_type=profile.discount_type,
-                        discount_value=profile.discount_value,
-                        is_recurring=True,
-                    )
         profiles = (
             FamilyAthleteProfile.objects.filter(family=family)
             .select_related("athlete__person")
-            .prefetch_related("services__payments")
+            .prefetch_related("services__payments", "contracts")
         )
+
+        today = timezone.now().date()
+        month_start, _, next_month = get_month_range(today)
 
         athlete_rows = []
         for profile in profiles:
-            monthly_services = [s for s in profile.services.all() if s.service_type == ServiceType.MONTHLY and not s.is_closed]
-            amount_due = Decimal("0.00")
+            contracts = list(profile.contracts.all())
+            active_contract = next((contract for contract in contracts if contract.status == "active"), None)
+            if active_contract:
+                ensure_monthly_service_for_contract(active_contract, today)
+
+            target_contract = active_contract or (contracts[0] if contracts else None)
+
+            month_services_qs = profile.services.filter(
+                service_type=ServiceType.MONTHLY,
+                created_at__date__gte=month_start,
+                created_at__date__lt=next_month,
+            )
+            if target_contract:
+                month_services_qs = month_services_qs.filter(contract=target_contract)
+
+            month_services = list(month_services_qs)
+            amount_due = sum((service.amount - service.discount_value for service in month_services if not service.is_closed), Decimal("0.00"))
             amount_paid = Decimal("0.00")
-            for service in monthly_services:
-                net_amount = service.amount - service.discount_value
-                amount_due += net_amount
-                amount_paid += sum((payment.amount for payment in service.payments.all()), Decimal("0.00"))
+            for service in month_services:
+                amount_paid += sum(
+                    (
+                        payment.amount
+                        for payment in service.payments.filter(
+                            paid_at__gte=month_start,
+                            paid_at__lt=next_month,
+                        )
+                    ),
+                    Decimal("0.00"),
+                )
             balance = amount_due - amount_paid
+
+            if target_contract:
+                contract_status = target_contract.status
+                contract_fee = target_contract.base_fee
+                contract_discount = target_contract.discount_value
+            else:
+                contract_status = "missing"
+                contract_fee = Decimal("0.00")
+                contract_discount = Decimal("0.00")
+
             athlete_rows.append(
                 {
                     "athlete": profile.athlete,
-                    "monthly_fee": profile.monthly_fee,
-                    "discount_type": profile.get_discount_type_display(),
-                    "discount_value": profile.discount_value,
-                    "contract_active": profile.contract_active,
-                    "current_month_paid": profile.current_month_paid,
+                    "profile": profile,
+                    "contract": target_contract,
+                    "contract_status": contract_status,
+                    "contract_fee": contract_fee,
+                    "contract_discount": contract_discount,
+                    "amount_due": amount_due,
+                    "amount_paid": amount_paid,
                     "balance": balance,
+                    "contract_create_url": reverse("members:contract_create", args=[family.pk, profile.pk]),
+                    "contract_edit_url": reverse("members:contract_update", args=[family.pk, target_contract.pk]) if target_contract else None,
                 }
             )
 
@@ -426,3 +449,65 @@ class FamilyServiceUpdateView(ApprovedUserRequiredMixin, UpdateView):
         self.object = form.save()
         messages.success(self.request, "Услуга обновлена")
         return redirect("members:family_finance", pk=self.family.pk)
+
+
+class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
+    form_class = AthleteContractForm
+    template_name = "members/family_contract_form.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+        self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
+        self.profile = get_object_or_404(FamilyAthleteProfile, pk=self.kwargs["profile_pk"], family=self.family)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["profile"] = self.profile
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({"family": self.family, "profile": self.profile})
+        return context
+
+    def form_valid(self, form):
+        contract = form.save(commit=False)
+        contract.profile = self.profile
+        contract.save()
+        ensure_monthly_service_for_contract(contract)
+        messages.success(self.request, "Договор создан")
+        return redirect("members:family_detail", pk=self.family.pk)
+
+
+class AthleteContractUpdateView(ApprovedUserRequiredMixin, UpdateView):
+    model = AthleteContract
+    form_class = AthleteContractForm
+    template_name = "members/family_contract_form.html"
+    pk_url_kwarg = "contract_pk"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+        self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return AthleteContract.objects.filter(profile__family=self.family).select_related("profile__athlete__person")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["profile"] = self.object.profile
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({"family": self.family, "profile": self.object.profile})
+        return context
+
+    def form_valid(self, form):
+        contract = form.save()
+        ensure_monthly_service_for_contract(contract)
+        messages.success(self.request, "Договор обновлён")
+        return redirect("members:family_detail", pk=self.family.pk)

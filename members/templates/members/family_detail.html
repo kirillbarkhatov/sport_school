@@ -72,27 +72,38 @@
         <div class="card shadow-sm">
             <div class="card-header bg-body-tertiary">Спортсмены семьи</div>
             <div class="table-responsive">
-                <table class="table table-sm mb-0">
+                <table class="table table-sm mb-0 align-middle">
                     <thead>
                         <tr>
                             <th>Спортсмен</th>
-                            <th>Платеж в месяц</th>
-                            <th>Тип скидки</th>
+                            <th>Договор</th>
+                            <th>Абонемент</th>
                             <th>Скидка</th>
-                            <th>Оплата за месяц</th>
-                            <th>Статус договора</th>
+                            <th>Начислено (месяц)</th>
+                            <th>Оплачено (месяц)</th>
                             <th>Баланс</th>
+                            {% if user.is_staff %}<th class="text-end">Действия</th>{% endif %}
                         </tr>
                     </thead>
                     <tbody>
                         {% for row in athlete_rows %}
                             <tr>
                                 <td>{{ row.athlete.person.surname }} {{ row.athlete.person.name }}</td>
-                                <td>{{ row.monthly_fee|floatformat:2 }}</td>
-                                <td>{{ row.discount_type }}</td>
-                                <td>{{ row.discount_value|floatformat:2 }}</td>
-                                <td>{% if row.current_month_paid %}Оплачено{% else %}Ожидает{% endif %}</td>
-                                <td>{% if row.contract_active %}Активен{% else %}Приостановлен{% endif %}</td>
+                                <td>
+                                    {% if row.contract %}
+                                        № {{ row.contract.number }}<br>
+                                        <span class="text-muted small">{{ row.contract.start_date }}—{{ row.contract.end_date }}</span><br>
+                                        <span class="badge rounded-pill {% if row.contract_status == 'active' %}text-bg-success{% elif row.contract_status == 'pending' %}text-bg-info{% else %}text-bg-secondary{% endif %}">
+                                            {% if row.contract_status == 'active' %}Активен{% elif row.contract_status == 'pending' %}Ожидает{% else %}Истёк{% endif %}
+                                        </span>
+                                    {% else %}
+                                        <span class="text-muted">Договор отсутствует</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ row.contract_fee|floatformat:2 }}</td>
+                                <td>{{ row.contract_discount|floatformat:2 }}</td>
+                                <td>{{ row.amount_due|floatformat:2 }}</td>
+                                <td>{{ row.amount_paid|floatformat:2 }}</td>
                                 <td>
                                     {% if row.balance > 0 %}
                                         <span class="text-danger">Задолженность {{ row.balance|floatformat:2 }}</span>
@@ -102,10 +113,19 @@
                                         0
                                     {% endif %}
                                 </td>
+                                {% if user.is_staff %}
+                                    <td class="text-end">
+                                        {% if row.contract %}
+                                            <a class="btn btn-outline-secondary btn-sm mb-1" href="{{ row.contract_edit_url }}">Изменить договор</a>
+                                        {% else %}
+                                            <a class="btn btn-outline-primary btn-sm mb-1" href="{{ row.contract_create_url }}">Создать договор</a>
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
                             </tr>
                         {% empty %}
                             <tr>
-                                <td colspan="7" class="text-muted text-center">Нет спортсменов, связанных с семьёй.</td>
+                                <td colspan="{% if user.is_staff %}8{% else %}7{% endif %}" class="text-muted text-center">Нет спортсменов, связанных с семьёй.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 from django import forms
 from django.forms import BooleanField, BaseFormSet, formset_factory, inlineformset_factory
+from django.utils import timezone
 
 from .models import (
     Athlete,
@@ -9,10 +12,12 @@ from .models import (
     FamilyAthleteProfile,
     FamilyService,
     FamilyPayment,
+    AthleteContract,
     Class,
     ClassEnrollment,
     Group,
 )
+from .services import get_season_bounds
 
 
 class StyleFormMixin:
@@ -227,3 +232,51 @@ class FamilyPaymentForm(StyleFormMixin, forms.ModelForm):
         widgets = {
             "note": forms.Textarea(attrs={"rows": 2}),
         }
+
+
+class AthleteContractForm(StyleFormMixin, forms.ModelForm):
+    def __init__(self, *args, profile=None, **kwargs):
+        self.profile = profile or kwargs.get("instance", None)
+        if self.profile and not isinstance(self.profile, FamilyAthleteProfile):
+            self.profile = self.profile.profile
+        super().__init__(*args, **kwargs)
+        if not self.instance.pk and self.profile:
+            today = timezone.now().date()
+            season_start, season_end = get_season_bounds(today)
+            defaults = {
+                "issue_date": today,
+                "start_date": season_start,
+                "end_date": season_end,
+                "base_fee": Decimal("12000.00"),
+                "discount_value": Decimal("0.00"),
+            }
+            for field, value in defaults.items():
+                if not self.initial.get(field):
+                    self.initial[field] = value
+            if not self.initial.get("number"):
+                last = athlete_contract_number_seed(self.profile.family)
+                if last:
+                    self.initial["number"] = last
+
+        self.fields["number"].widget.attrs["placeholder"] = "Авто"
+
+    class Meta:
+        model = AthleteContract
+        fields = [
+            "number",
+            "issue_date",
+            "start_date",
+            "end_date",
+            "base_fee",
+            "discount_value",
+        ]
+        widgets = {
+            "issue_date": forms.DateInput(attrs={"type": "date"}),
+            "start_date": forms.DateInput(attrs={"type": "date"}),
+            "end_date": forms.DateInput(attrs={"type": "date"}),
+        }
+def athlete_contract_number_seed(family):
+    last = AthleteContract.objects.filter(profile__family=family).order_by("-created_at").first()
+    if last and last.number.isdigit():
+        return str(int(last.number) + 1)
+    return ""

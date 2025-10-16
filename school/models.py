@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.db import models
 from django.urls import reverse
 from django.templatetags.static import static
+from django.utils import timezone
 
 
 class DiscountType(models.TextChoices):
@@ -481,6 +482,59 @@ class FamilyAthleteProfile(models.Model):
         return f"{self.family}: {self.athlete.person}"
 
 
+class AthleteContract(models.Model):
+    profile = models.ForeignKey(
+        FamilyAthleteProfile,
+        on_delete=models.CASCADE,
+        related_name="contracts",
+        verbose_name="Профиль спортсмена",
+    )
+    number = models.CharField(max_length=50, blank=True, verbose_name="Номер договора")
+    issue_date = models.DateField(verbose_name="Дата оформления")
+    start_date = models.DateField(verbose_name="Дата начала")
+    end_date = models.DateField(verbose_name="Дата окончания")
+    base_fee = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("12000.00"), verbose_name="Базовый платёж")
+    discount_value = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal("0.00"), verbose_name="Скидка")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-start_date"]
+        verbose_name = "Договор"
+        verbose_name_plural = "Договоры"
+
+    def save(self, *args, **kwargs):
+        if not self.number:
+            self.number = self._generate_number()
+        super().save(*args, **kwargs)
+
+    def _generate_number(self) -> str:
+        family = self.profile.family
+        last_contract = AthleteContract.objects.filter(profile__family=family).order_by("-created_at").first()
+        if not last_contract or not last_contract.number or not last_contract.number.isdigit():
+            return "1"
+        try:
+            return str(int(last_contract.number) + 1)
+        except ValueError:
+            return f"{last_contract.number}-2"
+
+    @property
+    def amount_due(self) -> Decimal:
+        return max(Decimal("0.00"), self.base_fee - self.discount_value)
+
+    @property
+    def status(self) -> str:
+        today = timezone.now().date()
+        if self.start_date <= today <= self.end_date:
+            return "active"
+        if today < self.start_date:
+            return "pending"
+        return "expired"
+
+    def __str__(self):
+        return f"Договор {self.number} ({self.profile.athlete.person})"
+
+
 class FamilyService(models.Model):
     """Услуги и начисления для семьи."""
 
@@ -492,6 +546,13 @@ class FamilyService(models.Model):
     profile = models.ForeignKey(
         FamilyAthleteProfile,
         on_delete=models.CASCADE,
+        related_name="services",
+        blank=True,
+        null=True,
+    )
+    contract = models.ForeignKey(
+        AthleteContract,
+        on_delete=models.SET_NULL,
         related_name="services",
         blank=True,
         null=True,

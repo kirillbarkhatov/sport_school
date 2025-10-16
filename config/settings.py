@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
+from celery.schedules import crontab
 
 
 load_dotenv(override=True)
@@ -255,3 +256,15 @@ if BOT_TOKEN and TELEGRAM_LOG_CHAT_ID:
     LOGGING["loggers"]["django"]["handlers"].append("telegram")
     LOGGING["loggers"]["auth.telegram"]["handlers"].append("telegram")
     LOGGING["loggers"]["bot.telegram"]["handlers"].append("telegram")
+
+
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_BEAT_SCHEDULE = {
+    "ensure-monthly-contract-services": {
+        "task": "school.tasks.ensure_monthly_contract_services",
+        "schedule": crontab(hour=3, minute=0),
+    }
+}

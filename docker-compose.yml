@@ -20,6 +20,35 @@ services:
       - ./.env
     depends_on:
       - web
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+  celery_worker:
+    build: .
+    command: poetry run celery -A config worker --loglevel=info
+    volumes:
+      - .:/app
+    env_file:
+      - ./.env
+    depends_on:
+      - redis
+      - web
+  celery_beat:
+    build: .
+    command: poetry run celery -A config beat --loglevel=info
+    volumes:
+      - .:/app
+    env_file:
+      - ./.env
+    depends_on:
+      - redis
+      - web
+
+volumes:
+  redis_data:
 
 volumes:
   static_volume:
