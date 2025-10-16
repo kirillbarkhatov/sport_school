@@ -45,20 +45,27 @@ def _coalesce(value: Optional[str]) -> str:
 def _chat_extra(chat: Chat) -> dict:
     """Collect additional chat metadata."""
     extra: dict = {}
-    if chat.permissions:
-        extra["permissions"] = chat.permissions.to_dict()
-    if chat.location:
-        extra["location"] = chat.location.to_dict()
-    if chat.has_protected_content is not None:
-        extra["has_protected_content"] = chat.has_protected_content
-    if chat.linked_chat_id is not None:
-        extra["linked_chat_id"] = chat.linked_chat_id
-    if chat.bio:
-        extra["bio"] = chat.bio
-    if chat.photo:
-        extra["photo"] = chat.photo.to_dict()
-    if chat.active_usernames:
-        extra["active_usernames"] = chat.active_usernames
+    permissions = getattr(chat, "permissions", None)
+    if permissions:
+        extra["permissions"] = permissions.to_dict()
+    location = getattr(chat, "location", None)
+    if location:
+        extra["location"] = location.to_dict()
+    has_protected_content = getattr(chat, "has_protected_content", None)
+    if has_protected_content is not None:
+        extra["has_protected_content"] = has_protected_content
+    linked_chat_id = getattr(chat, "linked_chat_id", None)
+    if linked_chat_id is not None:
+        extra["linked_chat_id"] = linked_chat_id
+    bio = getattr(chat, "bio", None)
+    if bio:
+        extra["bio"] = bio
+    photo = getattr(chat, "photo", None)
+    if photo:
+        extra["photo"] = photo.to_dict()
+    active_usernames = getattr(chat, "active_usernames", None)
+    if active_usernames:
+        extra["active_usernames"] = active_usernames
     return extra
 
 
