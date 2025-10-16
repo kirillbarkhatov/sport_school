@@ -234,7 +234,7 @@ class FamilyPaymentForm(StyleFormMixin, forms.ModelForm):
         }
 
 
-class AthleteContractForm(StyleFormMixin, forms.ModelForm):
+class AthleteContractBaseForm(StyleFormMixin, forms.ModelForm):
     def __init__(self, *args, profile=None, **kwargs):
         self.profile = profile or kwargs.get("instance", None)
         if self.profile and not isinstance(self.profile, FamilyAthleteProfile):
@@ -285,6 +285,23 @@ class AthleteContractForm(StyleFormMixin, forms.ModelForm):
             "start_date": forms.DateInput(attrs={"type": "date"}),
             "end_date": forms.DateInput(attrs={"type": "date"}),
         }
+
+
+class AthleteContractCreateForm(AthleteContractBaseForm):
+    pass
+
+
+class AthleteContractUpdateForm(AthleteContractBaseForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # при редактировании используем данные из instance, поэтому сбрасываем initial
+        if self.instance and self.instance.pk:
+            self.initial.setdefault("number", self.instance.number)
+            self.initial.setdefault("issue_date", self.instance.issue_date)
+            self.initial.setdefault("start_date", self.instance.start_date)
+            self.initial.setdefault("end_date", self.instance.end_date)
+            self.initial.setdefault("base_fee", self.instance.base_fee)
+            self.initial.setdefault("discount_value", self.instance.discount_value)
 def athlete_contract_number_seed(family):
     last = AthleteContract.objects.filter(profile__family=family).order_by("-created_at").first()
     if last and last.number.isdigit():

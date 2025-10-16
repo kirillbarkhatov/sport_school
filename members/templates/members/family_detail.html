@@ -115,11 +115,12 @@
                                 </td>
                                 {% if user.is_staff %}
                                     <td class="text-end">
-                                        {% if row.contract %}
-                                            <a class="btn btn-outline-secondary btn-sm mb-1" href="{{ row.contract_edit_url }}">Изменить договор</a>
-                                        {% else %}
-                                            <a class="btn btn-outline-primary btn-sm mb-1" href="{{ row.contract_create_url }}">Создать договор</a>
-                                        {% endif %}
+                                        <div class="d-flex flex-column gap-1 align-items-end">
+                                            {% if row.contract_edit_url %}
+                                                <a class="btn btn-outline-secondary btn-sm" href="{{ row.contract_edit_url }}">Изменить договор</a>
+                                            {% endif %}
+                                            <a class="btn btn-outline-primary btn-sm" href="{{ row.contract_create_url }}">{{ row.create_label }}</a>
+                                        </div>
                                     </td>
                                 {% endif %}
                             </tr>

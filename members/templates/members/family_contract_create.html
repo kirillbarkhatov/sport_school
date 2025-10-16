@@ -1,18 +1,13 @@
 {% extends 'school/base.html' %}
-{% load static %}
 
-{% block title %}{% if form.instance.pk %}Редактирование договора{% else %}Создание договора{% endif %}{% endblock %}
+{% block title %}Создание договора{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-lg-6">
         <div class="card shadow-sm mt-4">
             <div class="card-header">
-                {% if form.instance.pk %}
-                    Редактировать договор для {{ profile.athlete.person.surname }} {{ profile.athlete.person.name }}
-                {% else %}
-                    Создать договор для {{ profile.athlete.person.surname }} {{ profile.athlete.person.name }}
-                {% endif %}
+                Создать договор для {{ profile.athlete.person.surname }} {{ profile.athlete.person.name }}
             </div>
             <div class="card-body">
                 <form method="post">

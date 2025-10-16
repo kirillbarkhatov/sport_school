@@ -18,7 +18,8 @@ from school.forms import (
     FamilyAthleteProfileFormSet,
     FamilyServiceForm,
     FamilyPaymentForm,
-    AthleteContractForm,
+    AthleteContractCreateForm,
+    AthleteContractUpdateForm,
 )
 from school.models import Person, Family, FamilyMember, Athlete, FamilyAthleteProfile, FamilyService, FamilyPayment
 from school.models import DiscountType, ServiceType, AthleteContract
@@ -269,7 +270,8 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
                     "amount_paid": amount_paid,
                     "balance": balance,
                     "contract_create_url": reverse("members:contract_create", args=[family.pk, profile.pk]),
-                    "contract_edit_url": reverse("members:contract_update", args=[family.pk, target_contract.pk]) if target_contract else None,
+                    "contract_edit_url": reverse("members:contract_update", args=[family.pk, target_contract.pk]) if active_contract else None,
+                    "create_label": "Создать договор на следующий сезон" if active_contract else "Создать договор",
                 }
             )
 
@@ -452,8 +454,8 @@ class FamilyServiceUpdateView(ApprovedUserRequiredMixin, UpdateView):
 
 
 class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
-    form_class = AthleteContractForm
-    template_name = "members/family_contract_form.html"
+    form_class = AthleteContractCreateForm
+    template_name = "members/family_contract_create.html"
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_staff and not request.user.is_superuser:
@@ -483,8 +485,8 @@ class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
 
 class AthleteContractUpdateView(ApprovedUserRequiredMixin, UpdateView):
     model = AthleteContract
-    form_class = AthleteContractForm
-    template_name = "members/family_contract_form.html"
+    form_class = AthleteContractUpdateForm
+    template_name = "members/family_contract_update.html"
     pk_url_kwarg = "contract_pk"
 
     def dispatch(self, request, *args, **kwargs):
