@@ -21,9 +21,10 @@ async def person(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, text=update.message.text
-    )
+    message = update.effective_message
+    text = message.text or ""
+    print(f"echo: {text}", flush=True)
+    await message.reply_text(text)
 
 
 async def caps(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

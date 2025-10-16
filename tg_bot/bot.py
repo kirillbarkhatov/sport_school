@@ -41,27 +41,31 @@ from tg_bot.handlers.general import (  # noqa: E402
     person,
     unknown,
 )
-from tg_bot.services.audience import (  # noqa: E402
-    handle_chat_member_update,
-    track_audience,
-)
+from tg_bot.services.audience import chat_member_entry, track_audience_entry  # noqa: E402
+
+
+AUDIENCE_TRACKING_GROUP = -2
+CHAT_MEMBER_TRACKING_GROUP = -1
 
 
 def build_application():
     application = ApplicationBuilder().token(BOT_TOKEN).build()
+    application.add_handler(
+        TypeHandler(Update, track_audience_entry, block=False),
+        group=AUDIENCE_TRACKING_GROUP,
+    )
 
-    application.add_handler(TypeHandler(Update, track_audience), group=0)
     application.add_handler(
         ChatMemberHandler(
-            handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER
+            chat_member_entry, ChatMemberHandler.CHAT_MEMBER, block=False
         ),
-        group=0,
+        group=CHAT_MEMBER_TRACKING_GROUP,
     )
     application.add_handler(
         ChatMemberHandler(
-            handle_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER
+            chat_member_entry, ChatMemberHandler.MY_CHAT_MEMBER, block=False
         ),
-        group=0,
+        group=CHAT_MEMBER_TRACKING_GROUP,
     )
 
     application.add_handler(CommandHandler("start", start))
@@ -79,10 +83,12 @@ def build_application():
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
 
+
     return application
 
 
 if __name__ == "__main__":
+    print("запуск бота")
     build_application().run_polling()
 
 

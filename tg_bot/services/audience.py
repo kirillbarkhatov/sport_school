@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Iterable, Optional
 
@@ -13,6 +14,8 @@ from tg_bot.services.notifications import notify_admins_bot
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "track_audience_entry",
+    "chat_member_entry",
     "track_audience",
     "handle_chat_member_update",
     "sync_chat_snapshot",
@@ -326,3 +329,25 @@ async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
         bot, f"✅ Синхронизация завершена для чата {chat_id} (БД id={chat_obj.pk})"
     )
     return chat_obj
+
+
+async def track_audience_entry(update: Update, context) -> None:
+    async def runner() -> None:
+        await track_audience(update, context)
+
+    app = getattr(context, "application", None)
+    if app:
+        app.create_task(runner(), name="track_audience")
+    else:
+        asyncio.create_task(runner(), name="track_audience")
+
+
+async def chat_member_entry(update: Update, context) -> None:
+    async def runner() -> None:
+        await handle_chat_member_update(update, context)
+
+    app = getattr(context, "application", None)
+    if app:
+        app.create_task(runner(), name="chat_member_update")
+    else:
+        asyncio.create_task(runner(), name="chat_member_update")

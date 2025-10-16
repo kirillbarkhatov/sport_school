@@ -47,6 +47,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"token={token or '-'}",
     )
 
+    response = [
+        f"Привет, {tg_user.first_name or 'друг'}!",
+        _format_login_instructions(token),
+    ]
+    await update.effective_message.reply_html(
+        "\n".join(response),
+        disable_web_page_preview=True,
+    )
+    logger.info("Приветственное сообщение отправлено пользователю %s", tg_user.id)
+
     try:
         defaults = {
             "email": f"{tg_user.id}@autogen.local",
@@ -74,17 +84,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await notify_admins_context(
             context,
             f"✅ Пользователь tg_id={tg_user.id} сохранён. created={created}",
-        )
-
-        response = [
-            f"Привет, {tg_user.first_name or 'друг'}!",
-            _format_login_instructions(token),
-        ]
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="\n".join(response),
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Ошибка при выполнении /start для tg_id=%s", tg_user.id)
