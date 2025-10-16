@@ -8,7 +8,7 @@ from users.mixins import ApprovedUserRequiredMixin
 from users.utils import get_person_queryset_for_user
 from django.contrib import messages
 from django.db import transaction
-from django.shortcuts import redirect
+from django.shortcuts import redirect, get_object_or_404
 
 from school.forms import (
     PersonForm,
@@ -390,3 +390,39 @@ class FamilyFinanceView(ApprovedUserRequiredMixin, DetailView):
         context["service_form"] = service_form
         context["payment_form"] = payment_form
         return self.render_to_response(context)
+
+
+class FamilyServiceUpdateView(ApprovedUserRequiredMixin, UpdateView):
+    model = FamilyService
+    form_class = FamilyServiceForm
+    template_name = "members/family_service_form.html"
+    pk_url_kwarg = "service_pk"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+        self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return FamilyService.objects.filter(family=self.family).select_related("profile__athlete__person")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["family"] = self.family
+        return kwargs
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        form.fields["name"].widget.attrs.pop("readonly", None)
+        return form
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["family"] = self.family
+        return context
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, "Услуга обновлена")
+        return redirect("members:family_finance", pk=self.family.pk)

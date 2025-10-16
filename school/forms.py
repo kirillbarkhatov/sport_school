@@ -183,6 +183,11 @@ class FamilyServiceForm(StyleFormMixin, forms.ModelForm):
         else:
             self.fields["profile"].queryset = FamilyAthleteProfile.objects.none()
         self.fields["profile"].empty_label = "—"
+        self.fields["profile"].label_from_instance = lambda obj: f"{obj.athlete.person.surname} {obj.athlete.person.name}"
+        self.fields["profile"].widget.attrs.update({"data-profile-select": "true"})
+        self.fields["service_type"].widget.attrs.update({"data-service-type": "true"})
+        name_widget = self.fields["name"].widget
+        name_widget.attrs.update({"data-service-name": "true", "readonly": "readonly"})
 
     class Meta:
         model = FamilyService
