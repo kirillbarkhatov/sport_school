@@ -34,7 +34,7 @@ class IndexView(ApprovedUserRequiredMixin, TemplateView):
             person_count=person_qs.count(),
             athlete_count=athlete_qs.count(),
             group_count=group_qs.count(),
-            upcoming_classes=classes_qs.order_by("date")[:5],
+            upcoming_classes=classes_qs.select_related("group").order_by("date")[:5],
         )
         return context
 

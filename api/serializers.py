@@ -100,3 +100,50 @@ class WhatsAppChatSyncSerializer(serializers.Serializer):
         )
 
         return chat
+
+
+class AssistantGroupSummarySerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+
+
+class AssistantEnrollmentSerializer(serializers.Serializer):
+    athlete_id = serializers.IntegerField()
+    confirmed = serializers.BooleanField()
+    status = serializers.CharField()
+
+
+class AssistantTrainingSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    start_date = serializers.DateField()
+    start_time = serializers.TimeField()
+    start_datetime = serializers.DateTimeField()
+    duration_minutes = serializers.IntegerField()
+    location = serializers.CharField()
+    training_type = serializers.CharField()
+    format = serializers.CharField()
+    format_display = serializers.CharField()
+    equipment = serializers.ListField(child=serializers.CharField(), allow_empty=True)
+    comment = serializers.CharField(allow_null=True, allow_blank=True)
+    group = AssistantGroupSummarySerializer()
+    athletes = AssistantEnrollmentSerializer(many=True)
+
+
+class AssistantPersonSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField(allow_null=True, allow_blank=True)
+    surname = serializers.CharField(allow_null=True, allow_blank=True)
+    middlename = serializers.CharField(allow_null=True, allow_blank=True)
+    phone = serializers.CharField(allow_null=True, allow_blank=True)
+    email = serializers.EmailField(allow_null=True, allow_blank=True)
+    telegram = serializers.CharField(allow_null=True, allow_blank=True)
+
+
+class AssistantAthleteSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    full_name = serializers.CharField()
+    level = serializers.CharField(allow_null=True, allow_blank=True)
+    rank = serializers.CharField(allow_null=True, allow_blank=True)
+    comment = serializers.CharField(allow_null=True, allow_blank=True)
+    groups = AssistantGroupSummarySerializer(many=True)
+    person = AssistantPersonSerializer()

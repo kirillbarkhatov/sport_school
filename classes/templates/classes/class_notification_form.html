@@ -8,7 +8,13 @@
         <div class="card shadow-sm mt-4">
             <div class="card-header">
                 <strong>Рассылка участникам занятия</strong>
-                <div class="small text-muted">{{ class_instance.group.name }} — {{ class_instance.date|date:"d.m H:i" }} ({{ class_instance.location }})</div>
+                <div class="small text-muted">
+                    {{ class_instance.training_type }} — {{ class_instance.group.name }}
+                    · {{ class_instance.date|date:"d.m H:i" }} ({{ class_instance.location }})
+                </div>
+                {% if class_instance.equipment %}
+                    <div class="small text-muted">Экипировка: {{ class_instance.get_equipment_display }}</div>
+                {% endif %}
             </div>
             <div class="card-body">
                 {% if not has_recipients %}

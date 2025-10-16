@@ -1,6 +1,9 @@
 from django import forms
 from django.forms import BooleanField, BaseFormSet, formset_factory, inlineformset_factory
 
+from django.utils import timezone
+
+from .constants import DEFAULT_EQUIPMENT, DEFAULT_LOCATIONS, DEFAULT_TRAINING_TYPES
 from .models import (
     Athlete,
     Person,
@@ -57,9 +60,58 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
 
 
 class ClassForm(StyleFormMixin, forms.ModelForm):
+    equipment = forms.MultipleChoiceField(
+        label="Необходимое снаряжение",
+        required=False,
+        choices=[(item, item) for item in DEFAULT_EQUIPMENT],
+        widget=forms.SelectMultiple(attrs={"size": 7}),
+        help_text="Выберите всё, что спортсменам нужно взять с собой",
+    )
+
     class Meta:
         model = Class
-        fields = "__all__"  # Выберите нужные поля
+        fields = [
+            "date",
+            "duration",
+            "location",
+            "training_type",
+            "equipment",
+            "group",
+            "type",
+            "comment",
+        ]
+        widgets = {
+            "date": forms.DateTimeInput(
+                attrs={"type": "datetime-local", "placeholder": "2024-11-07T17:30"}
+            ),
+            "duration": forms.NumberInput(attrs={"min": 0, "step": 5}),
+            "comment": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        equipment_field = self.fields["equipment"]
+        equipment_field.widget.attrs["class"] = "form-select"
+
+        # Add dynamic equipment options so existing custom values pass validation.
+        current_equipment = list(self.instance.equipment or [])
+        known_values = list(DEFAULT_EQUIPMENT)
+        for value in current_equipment:
+            if value not in known_values:
+                known_values.append(value)
+        equipment_field.choices = [(item, item) for item in known_values]
+        if not self.is_bound:
+            equipment_field.initial = current_equipment
+
+        # Suggest common values via datalists while allowing custom input.
+        self.fields["location"].widget.attrs.setdefault("list", "location-options")
+        self.fields["training_type"].widget.attrs.setdefault(
+            "list", "training-type-options"
+        )
+
+        if not self.is_bound and self.instance.pk and self.instance.date:
+            localized = timezone.localtime(self.instance.date)
+            self.initial["date"] = localized.strftime("%Y-%m-%dT%H:%M")
 
 
 class GroupForm(StyleFormMixin, forms.ModelForm):

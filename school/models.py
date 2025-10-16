@@ -1,9 +1,11 @@
 from decimal import Decimal
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.urls import reverse
 from django.templatetags.static import static
 from django.utils import timezone
+from .constants import DEFAULT_EQUIPMENT, DEFAULT_LOCATIONS, DEFAULT_TRAINING_TYPES
 
 
 class DiscountType(models.TextChoices):
@@ -204,20 +206,55 @@ class Class(models.Model):
 
     date = models.DateTimeField(verbose_name="Дата и время занятия")
     duration = models.IntegerField(verbose_name="Продолжительность занятия (мин.)")
-    location = models.CharField(max_length=100, verbose_name="Место проведения")
+    location = models.CharField(
+        max_length=100,
+        verbose_name="Место проведения",
+        default=DEFAULT_LOCATIONS[-1],
+        help_text="Ключевое место тренировки, например из предложенного списка",
+    )
+    training_type = models.CharField(
+        max_length=100,
+        verbose_name="Вид тренировки",
+        default=DEFAULT_TRAINING_TYPES[-1],
+        help_text="Например ОФП, ролики или другое направление из списка",
+    )
+    equipment = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        blank=True,
+        verbose_name="Необходимое снаряжение",
+        help_text="Список экипировки, можно выбрать несколько вариантов",
+    )
     group = models.ForeignKey(
         Group, on_delete=models.CASCADE, related_name="classes", verbose_name="Группа"
     )
     type = models.CharField(
         max_length=10, choices=TYPE_CHOICES, verbose_name="Тип занятия"
     )
+    comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
     def __str__(self):
-        return f"{self.get_type_display()} - {self.date}"
+        local_dt = timezone.localtime(self.date)
+        main_part = f"{self.training_type} · {local_dt:%d.%m %H:%M}"
+        return f"{self.group.name}: {main_part}"
 
     class Meta:
         verbose_name = "Занятие"
         verbose_name_plural = "Занятия"
+
+    @property
+    def start_date(self):
+        """Дата старта занятия в локальной таймзоне."""
+        return timezone.localdate(self.date)
+
+    @property
+    def start_time(self):
+        """Время старта занятия в локальной таймзоне."""
+        return timezone.localtime(self.date).time().replace(microsecond=0)
+
+    def get_equipment_display(self) -> str:
+        """Экипировка в виде строки, удобно для шаблонов и уведомлений."""
+        return ", ".join(self.equipment or [])
 
 
 class ClassEnrollment(models.Model):

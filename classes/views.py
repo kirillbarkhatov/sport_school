@@ -8,6 +8,11 @@ from django.views.generic import ListView, DetailView, CreateView, UpdateView, D
 from classes.forms import ClassNotificationForm
 from notifications.models import Notification
 from notifications.services import deliver_notification
+from school.constants import (
+    DEFAULT_EQUIPMENT,
+    DEFAULT_LOCATIONS,
+    DEFAULT_TRAINING_TYPES,
+)
 from school.forms import ClassForm, AthleteSelectionForm
 from school.models import Class, Athlete, ClassEnrollment, FamilyMember
 from users.mixins import ApprovedUserRequiredMixin
@@ -56,6 +61,12 @@ class ClassCreateView(ApprovedUserRequiredMixin, CreateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
+        context.update(
+            training_type_options=DEFAULT_TRAINING_TYPES,
+            location_options=DEFAULT_LOCATIONS,
+            equipment_options=DEFAULT_EQUIPMENT,
+        )
 
         athlete_qs = get_athlete_queryset_for_user(self.request.user)
 
@@ -110,6 +121,12 @@ class ClassUpdateView(ApprovedUserRequiredMixin, UpdateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
+        context.update(
+            training_type_options=DEFAULT_TRAINING_TYPES,
+            location_options=DEFAULT_LOCATIONS,
+            equipment_options=DEFAULT_EQUIPMENT,
+        )
 
         athlete_qs = get_athlete_queryset_for_user(self.request.user)
 
@@ -191,10 +208,16 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
         class_instance = self.get_class_instance()
         group_name = class_instance.group.name
         start_time = class_instance.date.strftime("%d.%m %H:%M")
+        equipment_hint = ""
+        if class_instance.equipment:
+            equipment_hint = (
+                "\nЭкипировка: " + ", ".join(class_instance.equipment)
+            )
         return {
-            "title": f"Тренировка {group_name} {start_time}",
+            "title": f"{class_instance.training_type} — {group_name} {start_time}",
             "message": (
-                f"Здравствуйте! Напоминаем о тренировке группы {group_name} {start_time} в {class_instance.location}. "
+                f"Здравствуйте! Напоминаем о тренировке {class_instance.training_type.lower()} группы {group_name} "
+                f"{start_time} в {class_instance.location}.{equipment_hint}\n"
                 "Пожалуйста, подтвердите участие спортсмена."
             ),
             "recipients": list(self.get_recipients_queryset().values_list("pk", flat=True)),

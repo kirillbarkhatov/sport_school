@@ -5,7 +5,11 @@ from rest_framework.views import APIView
 
 from school.models import Person
 from users.models import User
+from classes.services import get_assistant_schedule_payload
+from school.constants import DEFAULT_EQUIPMENT, DEFAULT_LOCATIONS, DEFAULT_TRAINING_TYPES
 from .serializers import (
+    AssistantAthleteSerializer,
+    AssistantTrainingSerializer,
     PersonSerializer,
     UserSerializer,
     WhatsAppChatSyncSerializer,
@@ -48,6 +52,52 @@ class WhatsAppChatSyncView(APIView):
                 "synced_at": data["synced_at"],
                 "processed_members": len(data["members"]),
                 "active_member_count": active_members,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AssistantUpcomingTrainingsView(APIView):
+    """Возвращает ближайшие тренировки и список спортсменов для AI-ассистента."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        limit_param = request.query_params.get("limit")
+        limit: int | None = 5
+
+        if limit_param is not None:
+            try:
+                limit_value = int(limit_param)
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "Параметр limit должен быть целым числом."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if limit_value <= 0:
+                return Response(
+                    {"detail": "Параметр limit должен быть положительным."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            limit = limit_value
+
+        trainings_payload, athletes_payload = get_assistant_schedule_payload(
+            request.user,
+            limit=limit,
+        )
+
+        trainings = AssistantTrainingSerializer(trainings_payload, many=True).data
+        athletes = AssistantAthleteSerializer(athletes_payload, many=True).data
+
+        return Response(
+            {
+                "trainings": trainings,
+                "athletes": athletes,
+                "defaults": {
+                    "training_types": DEFAULT_TRAINING_TYPES,
+                    "equipment": DEFAULT_EQUIPMENT,
+                    "locations": DEFAULT_LOCATIONS,
+                },
             },
             status=status.HTTP_200_OK,
         )

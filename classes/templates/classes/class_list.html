@@ -19,11 +19,10 @@
         <thead>
         <tr>
             <th scope="col">#</th>
-            <th scope="col">Дата и время занятия</th>
-            <th scope="col">Продолжительность занятия (мин.)</th>
-            <th scope="col">Место проведения</th>
+            <th scope="col">Занятие</th>
             <th scope="col">Группа</th>
-            <th scope="col">Тип</th>
+            <th scope="col">Формат</th>
+            <th scope="col">Снаряжение</th>
             <th scope="col">Участников</th>
             <th scope="col" class="text-end">Действия</th>
         </tr>
@@ -32,11 +31,23 @@
         {% for lesson in object_list %}
         <tr>
             <td>{{ forloop.counter }}</td>
-            <td><a href="{% url 'classes:class_detail' lesson.pk%}" class="link-underline link-underline-opacity-0">{{ lesson.date|date:"d.m H:i" }}</a></td>
-            <td>{{ lesson.duration }}</td>
-            <td>{{ lesson.location }}</td>
+            <td>
+                <a href="{% url 'classes:class_detail' lesson.pk%}" class="link-underline link-underline-opacity-0 fw-medium">
+                    {{ lesson.date|date:"d.m H:i" }} · {{ lesson.training_type }}
+                </a>
+                <div class="text-muted small">
+                    {{ lesson.location }} · {{ lesson.duration }} мин.
+                </div>
+            </td>
             <td>{{ lesson.group.name }}</td>
             <td>{{ lesson.get_type_display }}</td>
+            <td>
+                {% if lesson.equipment %}
+                    <span class="text-muted small">{{ lesson.get_equipment_display }}</span>
+                {% else %}
+                    <span class="text-muted small">—</span>
+                {% endif %}
+            </td>
             <td>{{ lesson.enrollments.count }}</td>
             <td class="text-end" style="width: 24vh;">
                 {% if user.is_staff %}
