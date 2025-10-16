@@ -1,8 +1,5 @@
-from decimal import Decimal
-
 from django import forms
 from django.forms import BooleanField, BaseFormSet, formset_factory, inlineformset_factory
-from django.utils import timezone
 
 from .models import (
     Athlete,
@@ -17,7 +14,6 @@ from .models import (
     ClassEnrollment,
     Group,
 )
-from .services import get_season_bounds
 
 
 class StyleFormMixin:
@@ -234,41 +230,15 @@ class FamilyPaymentForm(StyleFormMixin, forms.ModelForm):
         }
 
 
-class AthleteContractBaseForm(StyleFormMixin, forms.ModelForm):
+class AthleteContractForm(StyleFormMixin, forms.ModelForm):
     def __init__(self, *args, profile=None, **kwargs):
         instance = kwargs.get("instance")
         if instance is not None and profile is None:
-            self.profile = instance.profile
-        else:
-            self.profile = profile
-        if self.profile and not isinstance(self.profile, FamilyAthleteProfile):
-            self.profile = self.profile.profile
+            profile = instance.profile
+        if profile is not None and not isinstance(profile, FamilyAthleteProfile):
+            profile = getattr(profile, "profile", profile)
+        self.profile = profile
         super().__init__(*args, **kwargs)
-        if not self.instance or not self.instance.pk:
-            today = timezone.now().date()
-            july_first = today.replace(month=7, day=1)
-            if today < july_first:
-                issue_default = today
-                start_default = today
-            else:
-                issue_default = today.replace(month=9, day=1)
-                start_default = issue_default
-            if today.month in (7, 8):
-                end_default = start_default.replace(year=start_default.year + 1, month=8, day=31)
-            else:
-                _, end_default = get_season_bounds(today)
-
-            if self.profile:
-                self.initial.setdefault("issue_date", issue_default)
-                self.initial.setdefault("start_date", start_default)
-                self.initial.setdefault("end_date", end_default)
-                self.initial.setdefault("base_fee", Decimal("12000.00"))
-                self.initial.setdefault("discount_value", Decimal("0.00"))
-                if not self.initial.get("number"):
-                    last = athlete_contract_number_seed(self.profile.family)
-                    if last:
-                        self.initial["number"] = last
-
         self.fields["number"].widget.attrs["placeholder"] = "Авто"
 
     class Meta:
@@ -286,24 +256,3 @@ class AthleteContractBaseForm(StyleFormMixin, forms.ModelForm):
             "start_date": forms.DateInput(attrs={"type": "date"}),
             "end_date": forms.DateInput(attrs={"type": "date"}),
         }
-
-
-class AthleteContractCreateForm(AthleteContractBaseForm):
-    pass
-
-
-class AthleteContractUpdateForm(AthleteContractBaseForm):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if self.instance and self.instance.pk:
-            for field in ["number", "issue_date", "start_date", "end_date", "base_fee", "discount_value"]:
-                self.initial[field] = getattr(self.instance, field)
-                if field in self.fields:
-                    self.fields[field].initial = getattr(self.instance, field)
-
-
-def athlete_contract_number_seed(family):
-    last = AthleteContract.objects.filter(profile__family=family).order_by("-created_at").first()
-    if last and last.number.isdigit():
-        return str(int(last.number) + 1)
-    return ""

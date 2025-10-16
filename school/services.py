@@ -1,4 +1,6 @@
 from datetime import date, timedelta
+from decimal import Decimal
+
 from django.utils import timezone
 
 from .models import AthleteContract, DiscountType, FamilyService, ServiceType
@@ -32,6 +34,33 @@ def get_month_range(reference_date=None):
         next_month = date(month_start.year, month_start.month + 1, 1)
     month_end = next_month - timedelta(days=1)
     return month_start, month_end, next_month
+
+
+def compute_contract_defaults(reference_date=None):
+    if reference_date is None:
+        reference_date = timezone.now().date()
+    year = reference_date.year
+    month = reference_date.month
+
+    if month >= 7:
+        issue_date = date(year, 9, 1)
+        start_date = issue_date
+    else:
+        issue_date = reference_date
+        start_date = reference_date
+
+    if month in (7, 8) or month >= 9:
+        end_date = date(year + 1, 8, 31)
+    else:
+        end_date = date(year, 8, 31)
+
+    return {
+        "issue_date": issue_date,
+        "start_date": start_date,
+        "end_date": end_date,
+        "base_fee": Decimal("12000.00"),
+        "discount_value": Decimal("0.00"),
+    }
 
 
 def ensure_monthly_service_for_contract(contract: AthleteContract, reference_date=None):

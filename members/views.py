@@ -18,13 +18,12 @@ from school.forms import (
     FamilyAthleteProfileFormSet,
     FamilyServiceForm,
     FamilyPaymentForm,
-    AthleteContractCreateForm,
-    AthleteContractUpdateForm,
+    AthleteContractForm,
 )
 from school.models import Person, Family, FamilyMember, Athlete, FamilyAthleteProfile, FamilyService, FamilyPayment
 from school.models import DiscountType, ServiceType, AthleteContract
 from school.services import (
-    compute_season_label,
+    compute_contract_defaults,
     ensure_monthly_service_for_contract,
     get_month_range,
 )
@@ -454,7 +453,7 @@ class FamilyServiceUpdateView(ApprovedUserRequiredMixin, UpdateView):
 
 
 class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
-    form_class = AthleteContractCreateForm
+    form_class = AthleteContractForm
     template_name = "members/family_contract_create.html"
 
     def dispatch(self, request, *args, **kwargs):
@@ -463,6 +462,19 @@ class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
         self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
         self.profile = get_object_or_404(FamilyAthleteProfile, pk=self.kwargs["profile_pk"], family=self.family)
         return super().dispatch(request, *args, **kwargs)
+
+    def get_initial(self):
+        initial = super().get_initial()
+        defaults = compute_contract_defaults()
+        initial.update(defaults)
+        last = (
+            AthleteContract.objects.filter(profile__family=self.family)
+            .order_by("-created_at")
+            .first()
+        )
+        if last and last.number and last.number.isdigit():
+            initial.setdefault("number", str(int(last.number) + 1))
+        return initial
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -485,7 +497,7 @@ class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
 
 class AthleteContractUpdateView(ApprovedUserRequiredMixin, UpdateView):
     model = AthleteContract
-    form_class = AthleteContractUpdateForm
+    form_class = AthleteContractForm
     template_name = "members/family_contract_update.html"
     pk_url_kwarg = "contract_pk"
 
