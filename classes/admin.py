@@ -1,26 +1,22 @@
 from django.contrib import admin
+from django.db import models as django_models
 
 from .models import TrainingTemplate
 
 
-@admin.register(TrainingTemplate)
 class TrainingTemplateAdmin(admin.ModelAdmin):
-    list_display = (
-        "name",
-        "group",
-        "get_day_of_week_display",
-        "start_time",
-        "season_start_month",
-        "season_end_month",
-        "is_active",
-    )
-    list_filter = (
-        "group",
-        "day_of_week",
-        "season_start_month",
-        "season_end_month",
-        "training_type",
-        "location",
-        "is_active",
-    )
-    search_fields = ("name", "group__name")
+    list_display = [field.name for field in TrainingTemplate._meta.fields]
+    search_fields = [
+        field.name
+        for field in TrainingTemplate._meta.fields
+        if isinstance(field, (django_models.CharField, django_models.TextField))
+    ]
+    list_filter = [
+        field.name
+        for field in TrainingTemplate._meta.fields
+        if field.choices
+        or isinstance(field, (django_models.BooleanField, django_models.DateField, django_models.DateTimeField))
+    ]
+
+
+admin.site.register(TrainingTemplate, TrainingTemplateAdmin)

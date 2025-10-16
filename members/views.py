@@ -6,6 +6,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, UpdateView, DeleteView
 
 from users.mixins import ApprovedUserRequiredMixin
@@ -36,6 +37,14 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
 
     def get_queryset(self):
         return get_person_queryset_for_user(self.request.user).prefetch_related("familymember_set__family")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        can_manage = self.request.user.is_staff or self.request.user.is_superuser
+        context["can_manage_people"] = can_manage
+        if can_manage:
+            context["families"] = list(Family.objects.order_by("family_name"))
+        return context
 
 
 class PersonDetailView(ApprovedUserRequiredMixin, DetailView):
@@ -106,7 +115,7 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        families = self.get_queryset()
+        families = list(self.get_queryset())
         context["active_families"] = [f for f in families if f.status == Family.STATUS_ACTIVE]
         context["alumni_families"] = [f for f in families if f.status == Family.STATUS_ALUMNI]
         context["family_form"] = getattr(self, "family_form", FamilyForm())
@@ -115,6 +124,8 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
             "member_formset",
             FamilyMemberInlineFormSet(prefix="members"),
         )
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            self._attach_candidate_people(families)
         return context
 
     def post(self, request, *args, **kwargs):
@@ -177,6 +188,24 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
                         "discount_value": family.discount_value,
                     },
                 )
+
+    def _attach_candidate_people(self, families: list[Family]) -> None:
+        people = list(Person.objects.all().order_by("surname", "name"))
+        for family in families:
+            existing_ids = {membership.person_id for membership in family.members.all()}
+            candidates = [person for person in people if person.id not in existing_ids]
+            family_name = (family.family_name or "").lower()
+            candidates.sort(
+                key=lambda person: (
+                    0
+                    if family_name and person.surname.lower() == family_name
+                    else 1,
+                    person.surname.lower(),
+                    person.name.lower(),
+                )
+            )
+            family.candidate_people = candidates
+            family.relation_choices = FamilyMember.FAMILY_RELATION
 
 
 class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
@@ -535,3 +564,158 @@ class AthleteContractUpdateView(ApprovedUserRequiredMixin, UpdateView):
         ensure_monthly_service_for_contract(contract)
         messages.success(self.request, "Договор обновлён")
         return redirect("members:family_detail", pk=self.family.pk)
+
+
+class PersonToggleAthleteView(ApprovedUserRequiredMixin, View):
+    """Переключение статуса спортсмена для человека."""
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+
+        person = get_object_or_404(Person, pk=self.kwargs["pk"])
+        redirect_url = request.POST.get("next") or reverse("members:members_list")
+
+        if person.is_athlete:
+            person.athlete.delete()
+            messages.success(request, f"{person} исключён из списка спортсменов.")
+            return redirect(redirect_url)
+
+        level_value = Athlete.LEVEL_CHOICES[-1][0]
+        athlete = Athlete.objects.create(person=person, level=level_value)
+
+        for membership in person.familymember_set.select_related("family"):
+            family = membership.family
+            FamilyAthleteProfile.objects.get_or_create(
+                family=family,
+                athlete=athlete,
+                defaults={
+                    "monthly_fee": family.base_monthly_fee,
+                    "discount_type": family.discount_type,
+                    "discount_value": family.discount_value,
+                },
+            )
+
+        messages.success(request, f"{person} добавлен в список спортсменов.")
+        return redirect(redirect_url)
+
+
+class PersonAssignFamilyView(ApprovedUserRequiredMixin, View):
+    """Назначение человека в семью или удаление связи."""
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+
+        person = get_object_or_404(Person, pk=self.kwargs["pk"])
+        family_id = request.POST.get("family_id") or ""
+        redirect_url = request.POST.get("next") or reverse("members:members_list")
+
+        existing_family_ids = list(person.familymember_set.values_list("family_id", flat=True))
+
+        if not family_id:
+            FamilyMember.objects.filter(person=person).delete()
+            if person.is_athlete and existing_family_ids:
+                FamilyAthleteProfile.objects.filter(
+                    family_id__in=existing_family_ids,
+                    athlete=person.athlete,
+                ).delete()
+            messages.success(request, f"Человек {person} удалён из семьи.")
+            return redirect(redirect_url)
+
+        family = get_object_or_404(Family, pk=family_id)
+        FamilyMember.objects.filter(person=person).exclude(family=family).delete()
+        membership, created = FamilyMember.objects.get_or_create(
+            family=family,
+            person=person,
+            defaults={"relation": FamilyMember.FAMILY_RELATION[0][0]},
+        )
+        if not created and not membership.relation:
+            membership.relation = FamilyMember.FAMILY_RELATION[0][0]
+            membership.save(update_fields=["relation"])
+
+        if person.is_athlete:
+            FamilyAthleteProfile.objects.filter(
+                family_id__in=[fid for fid in existing_family_ids if fid != family.pk],
+                athlete=person.athlete,
+            ).delete()
+            FamilyAthleteProfile.objects.get_or_create(
+                family=family,
+                athlete=person.athlete,
+                defaults={
+                    "monthly_fee": family.base_monthly_fee,
+                    "discount_type": family.discount_type,
+                    "discount_value": family.discount_value,
+                },
+            )
+
+        messages.success(request, f"{person} привязан к семье {family}.")
+        return redirect(redirect_url)
+
+
+class FamilyToggleStatusView(ApprovedUserRequiredMixin, View):
+    """Переключение статуса семьи между действующей и бывшей."""
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+
+        family = get_object_or_404(Family, pk=self.kwargs["pk"])
+        next_status = Family.STATUS_ALUMNI if family.status == Family.STATUS_ACTIVE else Family.STATUS_ACTIVE
+        family.status = next_status
+        family.save(update_fields=["status"])
+        status_label = dict(Family.STATUS_CHOICES).get(next_status, next_status)
+        messages.success(request, f"Статус семьи обновлён: {status_label.lower()}.")
+        redirect_url = request.POST.get("next") or reverse("members:family_list")
+        return redirect(redirect_url)
+
+
+class FamilyAddMemberView(ApprovedUserRequiredMixin, View):
+    """Добавление существующего человека в семью."""
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+
+        family = get_object_or_404(Family, pk=self.kwargs["pk"])
+        redirect_url = request.POST.get("next") or reverse("members:family_list")
+        person_id = request.POST.get("person_id")
+        relation = request.POST.get("relation")
+
+        if not person_id or not relation:
+            messages.error(request, "Выберите участника и укажите отношение.")
+            return redirect(redirect_url)
+
+        valid_relations = {value for value, _ in FamilyMember.FAMILY_RELATION}
+        if relation not in valid_relations:
+            messages.error(request, "Некорректный тип отношения.")
+            return redirect(redirect_url)
+
+        person = get_object_or_404(Person, pk=person_id)
+        membership, created = FamilyMember.objects.get_or_create(
+            family=family,
+            person=person,
+            defaults={"relation": relation},
+        )
+        if not created and membership.relation != relation:
+            membership.relation = relation
+            membership.save(update_fields=["relation"])
+            action_message = f"{person} обновлён в семье."
+        elif created:
+            action_message = f"{person} добавлен в семью."
+        else:
+            action_message = f"{person} уже состоит в семье."
+
+        if person.is_athlete:
+            FamilyAthleteProfile.objects.get_or_create(
+                family=family,
+                athlete=person.athlete,
+                defaults={
+                    "monthly_fee": family.base_monthly_fee,
+                    "discount_type": family.discount_type,
+                    "discount_value": family.discount_value,
+                },
+            )
+
+        messages.success(request, action_message)
+        return redirect(redirect_url)

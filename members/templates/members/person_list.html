@@ -26,6 +26,7 @@
             <th scope="col">Контакты</th>
             <th scope="col">Телеграм</th>
             <th scope="col">Статус</th>
+            <th scope="col">Семья</th>
             <th scope="col" class="text-end">Действия</th>
         </tr>
         </thead>
@@ -46,6 +47,42 @@
                 {% else %}
                     <span class="badge text-bg-secondary">Член семьи</span>
                 {% endif %}
+                {% if can_manage_people %}
+                    <form method="post" action="{% url 'members:person_toggle_athlete' person.pk %}" class="mt-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        {% if person.is_athlete %}
+                            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Член семьи</button>
+                        {% else %}
+                            <button type="submit" class="btn btn-outline-success btn-sm w-100">Спортсмен</button>
+                        {% endif %}
+                    </form>
+                {% endif %}
+            </td>
+            <td>
+                {% with memberships=person.familymember_set.all %}
+                    {% if can_manage_people %}
+                        <form method="post" action="{% url 'members:person_assign_family' person.pk %}" class="d-flex gap-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            <select name="family_id" class="form-select form-select-sm">
+                                <option value="">{% if memberships %}Без семьи{% else %}Семья не указана{% endif %}</option>
+                                {% for family in families %}
+                                    <option value="{{ family.pk }}" {% if memberships and memberships.0.family_id == family.pk %}selected{% endif %}>
+                                        {{ family.family_name|default:'Без названия' }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-outline-primary btn-sm">Ок</button>
+                        </form>
+                    {% else %}
+                        {% if memberships %}
+                            {{ memberships.0.family.family_name|default:'Семья не указана' }}
+                        {% else %}
+                            Семья не указана
+                        {% endif %}
+                    {% endif %}
+                {% endwith %}
             </td>
             <td class="text-end" style="width: 22vh;">
                 <a class="btn btn-outline-primary btn-sm" href="{% url 'members:members_update' person.pk%}">Изменить</a>
@@ -56,7 +93,7 @@
         </tr>
         {% empty %}
         <tr>
-            <td colspan="7" class="text-center text-muted py-4">Нет доступных участников.</td>
+            <td colspan="8" class="text-center text-muted py-4">Нет доступных участников.</td>
         </tr>
         {% endfor %}
         </tbody>

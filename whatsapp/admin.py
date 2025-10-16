@@ -1,29 +1,39 @@
 from django.contrib import admin
+from django.db import models as django_models
 
 from .models import WhatsAppChat, WhatsAppChatMember
 
 
 @admin.register(WhatsAppChat)
 class WhatsAppChatAdmin(admin.ModelAdmin):
-    list_display = ("name", "last_synced_at", "created_at", "updated_at")
-    search_fields = ("name",)
-    readonly_fields = ("created_at", "updated_at")
+    list_display = [field.name for field in WhatsAppChat._meta.fields]
+    search_fields = [
+        field.name
+        for field in WhatsAppChat._meta.fields
+        if isinstance(field, (django_models.CharField, django_models.TextField))
+    ]
+    list_filter = [
+        field.name
+        for field in WhatsAppChat._meta.fields
+        if field.choices
+        or isinstance(field, (django_models.BooleanField, django_models.DateField, django_models.DateTimeField))
+    ]
     ordering = ("-last_synced_at", "-updated_at")
 
 
 @admin.register(WhatsAppChatMember)
 class WhatsAppChatMemberAdmin(admin.ModelAdmin):
-    list_display = (
-        "member_id",
-        "chat",
-        "push_name",
-        "phone",
-        "is_admin",
-        "is_super_admin",
-        "is_active",
-        "last_seen_at",
-    )
-    list_filter = ("chat", "is_admin", "is_super_admin", "is_active")
-    search_fields = ("member_id", "push_name", "phone")
-    readonly_fields = ("first_seen_at", "last_seen_at", "left_at")
+    list_display = [field.name for field in WhatsAppChatMember._meta.fields]
+    search_fields = [
+        field.name
+        for field in WhatsAppChatMember._meta.fields
+        if isinstance(field, (django_models.CharField, django_models.TextField))
+    ]
+    list_filter = [
+        field.name
+        for field in WhatsAppChatMember._meta.fields
+        if field.choices
+        or isinstance(field, (django_models.BooleanField, django_models.DateField, django_models.DateTimeField))
+    ]
+    ordering = ("-last_seen_at", "-first_seen_at")
     autocomplete_fields = ("chat",)

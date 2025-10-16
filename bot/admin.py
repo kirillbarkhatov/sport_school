@@ -1,37 +1,39 @@
 from django.contrib import admin
+from django.db import models as django_models
 
 from bot.models import TelegramChat, TelegramParticipant
 
 
 @admin.register(TelegramChat)
 class TelegramChatAdmin(admin.ModelAdmin):
-    list_display = ("chat_id", "type", "title", "username", "last_seen")
-    search_fields = ("chat_id", "title", "username")
-    list_filter = ("type",)
-    readonly_fields = ("first_seen", "last_seen")
+    list_display = [field.name for field in TelegramChat._meta.fields]
+    search_fields = [
+        field.name
+        for field in TelegramChat._meta.fields
+        if isinstance(field, (django_models.CharField, django_models.TextField))
+    ]
+    list_filter = [
+        field.name
+        for field in TelegramChat._meta.fields
+        if field.choices
+        or isinstance(field, (django_models.BooleanField, django_models.DateField, django_models.DateTimeField))
+    ]
     ordering = ("-last_seen",)
 
 
 @admin.register(TelegramParticipant)
 class TelegramParticipantAdmin(admin.ModelAdmin):
-    list_display = (
-        "user_id",
-        "chat",
-        "username",
-        "first_name",
-        "last_seen",
-        "status",
-        "is_bot",
-    )
-    search_fields = (
-        "user_id",
-        "username",
-        "first_name",
-        "last_name",
-        "chat__title",
-    )
-    list_filter = ("status", "is_bot", "chat__type")
-    readonly_fields = ("first_seen", "last_seen")
-    ordering = ("-last_seen",)
+    list_display = [field.name for field in TelegramParticipant._meta.fields]
+    search_fields = [
+        field.name
+        for field in TelegramParticipant._meta.fields
+        if isinstance(field, (django_models.CharField, django_models.TextField))
+    ]
+    list_filter = [
+        field.name
+        for field in TelegramParticipant._meta.fields
+        if field.choices
+        or isinstance(field, (django_models.BooleanField, django_models.DateField, django_models.DateTimeField))
+    ]
+    ordering = ("-last_seen", "-first_seen")
     autocomplete_fields = ("chat",)
-
