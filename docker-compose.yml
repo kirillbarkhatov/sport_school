@@ -49,6 +49,3 @@ services:
 
 volumes:
   redis_data:
-
-volumes:
-  static_volume:
