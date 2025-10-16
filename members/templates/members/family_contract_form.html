@@ -1,0 +1,42 @@
+{% extends 'school/base.html' %}
+{% load static %}
+
+{% block title %}{% if form.instance.pk %}Редактирование договора{% else %}Создание договора{% endif %}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card shadow-sm mt-4">
+            <div class="card-header">
+                {% if form.instance.pk %}
+                    Редактировать договор для {{ profile.athlete.person.surname }} {{ profile.athlete.person.name }}
+                {% else %}
+                    Создать договор для {{ profile.athlete.person.surname }} {{ profile.athlete.person.name }}
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    {{ form.non_field_errors }}
+                    {% for field in form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                            {% endif %}
+                            {% for error in field.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                    <div class="d-flex justify-content-between">
+                        <a class="btn btn-outline-secondary" href="{% url 'members:family_detail' family.pk %}">Назад</a>
+                        <button type="submit" class="btn btn-primary">Сохранить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
