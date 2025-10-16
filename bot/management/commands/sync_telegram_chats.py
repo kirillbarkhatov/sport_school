@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 from telegram import Bot
 from telegram.error import TelegramError
 
-from tg_bot.user_manager import sync_chat_snapshot
+from tg_bot.services.audience import sync_chat_snapshot
 
 
 class Command(BaseCommand):

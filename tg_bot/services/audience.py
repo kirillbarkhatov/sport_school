@@ -2,13 +2,13 @@ import logging
 from typing import Iterable, Optional
 
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from django.utils import timezone
 from telegram import Bot, Chat, ChatMemberUpdated, Message, Update, User
 from telegram.constants import ChatMemberStatus, ChatType
 from telegram.error import TelegramError
 
 from bot.models import TelegramChat, TelegramParticipant
+from tg_bot.services.notifications import notify_admins_bot
 
 logger = logging.getLogger(__name__)
 
@@ -18,25 +18,6 @@ __all__ = [
     "sync_chat_snapshot",
 ]
 
-def _admin_chat_ids() -> list[str]:
-    ids = [
-        str(chat_id).strip()
-        for chat_id in getattr(settings, "TELEGRAM_ADMIN_IDS", []) or []
-        if str(chat_id).strip()
-    ]
-    log_chat_id = getattr(settings, "TELEGRAM_LOG_CHAT_ID", None)
-    if not ids and log_chat_id:
-        ids = [str(log_chat_id)]
-    return ids
-
-
-async def _notify_admins(bot: Bot, message: str) -> None:
-    for chat_id in _admin_chat_ids():
-        try:
-            await bot.send_message(chat_id=int(chat_id), text=message)
-        except TelegramError:
-            logger.exception("Не удалось уведомить администратора %s", chat_id)
-
 
 def _coalesce(value: Optional[str]) -> str:
     return value or ""
@@ -45,27 +26,39 @@ def _coalesce(value: Optional[str]) -> str:
 def _chat_extra(chat: Chat) -> dict:
     """Collect additional chat metadata."""
     extra: dict = {}
+
     permissions = getattr(chat, "permissions", None)
     if permissions:
         extra["permissions"] = permissions.to_dict()
+
     location = getattr(chat, "location", None)
     if location:
         extra["location"] = location.to_dict()
+
     has_protected_content = getattr(chat, "has_protected_content", None)
     if has_protected_content is not None:
         extra["has_protected_content"] = has_protected_content
+
     linked_chat_id = getattr(chat, "linked_chat_id", None)
     if linked_chat_id is not None:
         extra["linked_chat_id"] = linked_chat_id
+
     bio = getattr(chat, "bio", None)
     if bio:
         extra["bio"] = bio
+
     photo = getattr(chat, "photo", None)
     if photo:
         extra["photo"] = photo.to_dict()
+
     active_usernames = getattr(chat, "active_usernames", None)
     if active_usernames:
         extra["active_usernames"] = active_usernames
+
+    available_reactions = getattr(chat, "available_reactions", None)
+    if available_reactions:
+        extra["available_reactions"] = available_reactions
+
     return extra
 
 
@@ -76,8 +69,8 @@ def _participant_extra(message: Optional[Message] = None) -> dict:
     payload: dict = {
         "message_id": message.message_id,
         "via_bot_id": message.via_bot.id if message.via_bot else None,
-        "is_automatic_forward": message.is_automatic_forward,
-        "has_protected_content": message.has_protected_content,
+        "is_automatic_forward": getattr(message, "is_automatic_forward", None),
+        "has_protected_content": getattr(message, "has_protected_content", None),
     }
     if message.forward_origin:
         payload["forward_origin"] = message.forward_origin.to_dict()
@@ -98,7 +91,7 @@ def _map_member_status(status: Optional[str]) -> str:
     return mapping.get(status, TelegramParticipant.MemberStatus.UNKNOWN)
 
 
-async def _upsert_chat(chat: Chat) -> TelegramChat:
+async def _upsert_chat(chat: Chat, *, member_count: Optional[int] = None) -> TelegramChat:
     now = timezone.now()
     defaults = {
         "type": chat.type or TelegramChat.ChatType.UNKNOWN,
@@ -109,6 +102,8 @@ async def _upsert_chat(chat: Chat) -> TelegramChat:
         "last_seen": now,
     }
     extra = _chat_extra(chat)
+    if member_count is not None:
+        extra.setdefault("stats", {})["member_count"] = member_count
     if extra:
         defaults["extra_data"] = extra
     chat_obj, _ = await sync_to_async(
@@ -162,11 +157,9 @@ async def _register_user_interaction(message: Message) -> None:
     chat_obj = await _upsert_chat(chat)
 
     if message.from_user:
-        status = TelegramParticipant.MemberStatus.UNKNOWN
-        if chat.type in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
-            status = TelegramParticipant.MemberStatus.MEMBER
-        elif chat.type == ChatType.PRIVATE:
-            status = TelegramParticipant.MemberStatus.MEMBER
+        status = TelegramParticipant.MemberStatus.MEMBER
+        if chat.type not in {ChatType.PRIVATE, ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
+            status = TelegramParticipant.MemberStatus.UNKNOWN
         await _upsert_participant(
             chat_obj,
             message.from_user,
@@ -254,7 +247,6 @@ async def handle_chat_member_update(update: Update, _: object) -> None:
     if not event:
         return
     try:
-
         chat_obj = await _upsert_chat(event.chat)
 
         if event.from_user:
@@ -281,11 +273,19 @@ async def handle_chat_member_update(update: Update, _: object) -> None:
 
 async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
     """Explicitly fetch chat info and administrators for the given chat ID."""
-    await _notify_admins(bot, f"🔍 Запрашиваю данные чата {chat_id}")
+    await notify_admins_bot(bot, f"🔍 Запрашиваю данные чата {chat_id}")
     chat = await bot.get_chat(chat_id)
-    await _notify_admins(bot, f"ℹ️ Информация о чате {chat_id}:\n{chat.to_dict()}")
-    chat_obj = await _upsert_chat(chat)
-    await _notify_admins(
+    member_count = None
+    try:
+        member_count = await bot.get_chat_member_count(chat_id)
+        await notify_admins_bot(
+            bot, f"📊 Количество участников в чате {chat_id}: {member_count}"
+        )
+    except TelegramError as exc:
+        logger.info("Не удалось получить количество участников %s: %s", chat_id, exc)
+    await notify_admins_bot(bot, f"ℹ️ Информация о чате {chat_id}:\n{chat.to_dict()}")
+    chat_obj = await _upsert_chat(chat, member_count=member_count)
+    await notify_admins_bot(
         bot,
         "💾 Сохранён чат в БД: "
         f"id={chat_obj.pk}, chat_id={chat_obj.chat_id}, type={chat_obj.type}, title={chat_obj.title}",
@@ -293,12 +293,12 @@ async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
 
     try:
         administrators = await bot.get_chat_administrators(chat_id)
-        await _notify_admins(
+        await notify_admins_bot(
             bot, f"👥 Получено администраторов: {len(administrators)} для чата {chat_id}"
         )
     except TelegramError as exc:
         logger.warning("Не удалось получить администраторов чата %s: %s", chat_id, exc)
-        await _notify_admins(
+        await notify_admins_bot(
             bot, f"⚠️ Не удалось получить администраторов чата {chat_id}: {exc}"
         )
         return chat_obj
@@ -306,7 +306,7 @@ async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
     for member in administrators:
         custom_title = getattr(member, "custom_title", None)
         extra = member.to_dict()
-        await _notify_admins(
+        await notify_admins_bot(
             bot,
             "👤 Сохраняю администратора:\n"
             f"user_id={member.user.id}\n"
@@ -322,7 +322,7 @@ async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
             extra=extra,
         )
 
-    await _notify_admins(
+    await notify_admins_bot(
         bot, f"✅ Синхронизация завершена для чата {chat_id} (БД id={chat_obj.pk})"
     )
     return chat_obj
