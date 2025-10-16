@@ -240,23 +240,33 @@ class AthleteContractForm(StyleFormMixin, forms.ModelForm):
         if self.profile and not isinstance(self.profile, FamilyAthleteProfile):
             self.profile = self.profile.profile
         super().__init__(*args, **kwargs)
-        if not self.instance.pk and self.profile:
-            today = timezone.now().date()
-            season_start, season_end = get_season_bounds(today)
-            defaults = {
-                "issue_date": today,
-                "start_date": season_start,
-                "end_date": season_end,
-                "base_fee": Decimal("12000.00"),
-                "discount_value": Decimal("0.00"),
-            }
-            for field, value in defaults.items():
-                if not self.initial.get(field):
-                    self.initial[field] = value
-            if not self.initial.get("number"):
-                last = athlete_contract_number_seed(self.profile.family)
-                if last:
-                    self.initial["number"] = last
+        today = timezone.now().date()
+        july_first = today.replace(month=7, day=1)
+        if today < july_first:
+            issue_default = today
+            start_default = today
+        else:
+            issue_default = today.replace(month=9, day=1)
+            start_default = issue_default
+        if today.month in (7, 8):
+            end_default = start_default.replace(year=start_default.year + 1, month=8, day=31)
+        else:
+            _, end_default = get_season_bounds(today)
+
+        if self.profile:
+            if not self.instance.pk:
+                self.initial.setdefault("issue_date", issue_default)
+                self.initial.setdefault("start_date", start_default)
+                self.initial.setdefault("end_date", end_default)
+                self.initial.setdefault("base_fee", Decimal("12000.00"))
+                self.initial.setdefault("discount_value", Decimal("0.00"))
+                if not self.initial.get("number"):
+                    last = athlete_contract_number_seed(self.profile.family)
+                    if last:
+                        self.initial["number"] = last
+        else:
+            # при редактировании данные подхватываются из instance; ничего не меняем
+            pass
 
         self.fields["number"].widget.attrs["placeholder"] = "Авто"
 
