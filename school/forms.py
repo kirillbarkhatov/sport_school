@@ -236,7 +236,11 @@ class FamilyPaymentForm(StyleFormMixin, forms.ModelForm):
 
 class AthleteContractBaseForm(StyleFormMixin, forms.ModelForm):
     def __init__(self, *args, profile=None, **kwargs):
-        self.profile = profile or kwargs.get("instance", None)
+        instance = kwargs.get("instance")
+        if instance is not None and profile is None:
+            self.profile = instance.profile
+        else:
+            self.profile = profile
         if self.profile and not isinstance(self.profile, FamilyAthleteProfile):
             self.profile = self.profile.profile
         super().__init__(*args, **kwargs)
