@@ -244,21 +244,21 @@ class AthleteContractBaseForm(StyleFormMixin, forms.ModelForm):
         if self.profile and not isinstance(self.profile, FamilyAthleteProfile):
             self.profile = self.profile.profile
         super().__init__(*args, **kwargs)
-        today = timezone.now().date()
-        july_first = today.replace(month=7, day=1)
-        if today < july_first:
-            issue_default = today
-            start_default = today
-        else:
-            issue_default = today.replace(month=9, day=1)
-            start_default = issue_default
-        if today.month in (7, 8):
-            end_default = start_default.replace(year=start_default.year + 1, month=8, day=31)
-        else:
-            _, end_default = get_season_bounds(today)
+        if not self.instance or not self.instance.pk:
+            today = timezone.now().date()
+            july_first = today.replace(month=7, day=1)
+            if today < july_first:
+                issue_default = today
+                start_default = today
+            else:
+                issue_default = today.replace(month=9, day=1)
+                start_default = issue_default
+            if today.month in (7, 8):
+                end_default = start_default.replace(year=start_default.year + 1, month=8, day=31)
+            else:
+                _, end_default = get_season_bounds(today)
 
-        if self.profile:
-            if not self.instance.pk:
+            if self.profile:
                 self.initial.setdefault("issue_date", issue_default)
                 self.initial.setdefault("start_date", start_default)
                 self.initial.setdefault("end_date", end_default)
@@ -268,9 +268,6 @@ class AthleteContractBaseForm(StyleFormMixin, forms.ModelForm):
                     last = athlete_contract_number_seed(self.profile.family)
                     if last:
                         self.initial["number"] = last
-        else:
-            # при редактировании данные подхватываются из instance; ничего не меняем
-            pass
 
         self.fields["number"].widget.attrs["placeholder"] = "Авто"
 
@@ -298,14 +295,13 @@ class AthleteContractCreateForm(AthleteContractBaseForm):
 class AthleteContractUpdateForm(AthleteContractBaseForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # при редактировании используем данные из instance, поэтому сбрасываем initial
         if self.instance and self.instance.pk:
-            self.initial.setdefault("number", self.instance.number)
-            self.initial.setdefault("issue_date", self.instance.issue_date)
-            self.initial.setdefault("start_date", self.instance.start_date)
-            self.initial.setdefault("end_date", self.instance.end_date)
-            self.initial.setdefault("base_fee", self.instance.base_fee)
-            self.initial.setdefault("discount_value", self.instance.discount_value)
+            for field in ["number", "issue_date", "start_date", "end_date", "base_fee", "discount_value"]:
+                self.initial[field] = getattr(self.instance, field)
+                if field in self.fields:
+                    self.fields[field].initial = getattr(self.instance, field)
+
+
 def athlete_contract_number_seed(family):
     last = AthleteContract.objects.filter(profile__family=family).order_by("-created_at").first()
     if last and last.number.isdigit():
