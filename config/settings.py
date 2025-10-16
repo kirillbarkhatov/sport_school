@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "groups",
     "users",
     "notifications",
+    "bot",
 ]
 
 MIDDLEWARE = [

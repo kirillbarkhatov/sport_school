@@ -26,6 +26,8 @@ from telegram.ext import (
     MessageHandler,
     filters,
     InlineQueryHandler,
+    ChatMemberHandler,
+    TypeHandler,
 )
 
 # Настройка логирования
@@ -38,6 +40,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 from users.models import User
+from tg_bot.user_manager import handle_chat_member_update, track_audience
 
 
 logger = logging.getLogger("bot.telegram")
@@ -383,6 +386,7 @@ if __name__ == "__main__":
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Добавление обработчиков
+    audience_handler = TypeHandler(Update, track_audience)
     start_handler = CommandHandler("start", start)
     person_handler = CommandHandler("person", person)
     caps_handler = CommandHandler("caps", caps)
@@ -393,6 +397,9 @@ if __name__ == "__main__":
     echo_handler = MessageHandler(filters.TEXT & (~filters.COMMAND), echo)
     inline_caps_handler = InlineQueryHandler(inline_caps)
 
+    application.add_handler(audience_handler, group=0)
+    application.add_handler(ChatMemberHandler(handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER), group=0)
+    application.add_handler(ChatMemberHandler(handle_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER), group=0)
     application.add_handler(start_handler)
     application.add_handler(person_handler)
     application.add_handler(echo_handler)
