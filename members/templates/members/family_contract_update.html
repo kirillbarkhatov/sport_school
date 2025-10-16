@@ -1,4 +1,5 @@
 {% extends 'school/base.html' %}
+{% load static %}
 
 {% block title %}Редактирование договора{% endblock %}
 
@@ -16,7 +17,15 @@
                     {% for field in form %}
                         <div class="mb-3">
                             <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                            {{ field }}
+                            {% if field.name in "issue_date start_date end_date".split %}
+                                <div class="input-group">
+                                    {{ field }}
+                                    <button type="button" class="btn btn-outline-secondary" data-set-date="today">Сегодня</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-set-date="default">По умолчанию</button>
+                                </div>
+                            {% else %}
+                                {{ field }}
+                            {% endif %}
                             {% if field.help_text %}
                                 <div class="form-text">{{ field.help_text }}</div>
                             {% endif %}
@@ -34,4 +43,5 @@
         </div>
     </div>
 </div>
+<script src="{% static 'js/contract_form_dates.js' %}"></script>
 {% endblock %}

@@ -14,6 +14,7 @@ from .models import (
     ClassEnrollment,
     Group,
 )
+from .services import compute_contract_defaults
 
 
 class StyleFormMixin:
@@ -240,6 +241,24 @@ class AthleteContractForm(StyleFormMixin, forms.ModelForm):
         self.profile = profile
         super().__init__(*args, **kwargs)
         self.fields["number"].widget.attrs["placeholder"] = "Авто"
+        if not (self.instance and self.instance.pk):
+            defaults = compute_contract_defaults()
+            for field, value in defaults.items():
+                if field in self.fields and field not in self.initial:
+                    self.initial[field] = value
+                    self.fields[field].initial = value
+            if self.profile:
+                next_number = _next_contract_number(self.profile.family)
+                if next_number and "number" in self.fields and "number" not in self.initial:
+                    self.initial["number"] = next_number
+                    self.fields["number"].initial = next_number
+        for field in ["issue_date", "start_date", "end_date"]:
+            if field in self.fields:
+                self.fields[field].widget.attrs.setdefault("data-contract-date", "true")
+                value = self.initial.get(field, self.fields[field].initial)
+                if value:
+                    iso_value = value.isoformat() if hasattr(value, "isoformat") else str(value)
+                    self.fields[field].widget.attrs["data-default-date"] = iso_value
 
     class Meta:
         model = AthleteContract
@@ -256,3 +275,14 @@ class AthleteContractForm(StyleFormMixin, forms.ModelForm):
             "start_date": forms.DateInput(attrs={"type": "date"}),
             "end_date": forms.DateInput(attrs={"type": "date"}),
         }
+
+
+def _next_contract_number(family):
+    last = (
+        AthleteContract.objects.filter(profile__family=family)
+        .order_by("-created_at")
+        .first()
+    )
+    if last and last.number and last.number.isdigit():
+        return str(int(last.number) + 1)
+    return ""

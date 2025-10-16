@@ -23,7 +23,6 @@ from school.forms import (
 from school.models import Person, Family, FamilyMember, Athlete, FamilyAthleteProfile, FamilyService, FamilyPayment
 from school.models import DiscountType, ServiceType, AthleteContract
 from school.services import (
-    compute_contract_defaults,
     ensure_monthly_service_for_contract,
     get_month_range,
 )
@@ -462,19 +461,6 @@ class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
         self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
         self.profile = get_object_or_404(FamilyAthleteProfile, pk=self.kwargs["profile_pk"], family=self.family)
         return super().dispatch(request, *args, **kwargs)
-
-    def get_initial(self):
-        initial = super().get_initial()
-        defaults = compute_contract_defaults()
-        initial.update(defaults)
-        last = (
-            AthleteContract.objects.filter(profile__family=self.family)
-            .order_by("-created_at")
-            .first()
-        )
-        if last and last.number and last.number.isdigit():
-            initial.setdefault("number", str(int(last.number) + 1))
-        return initial
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
