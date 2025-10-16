@@ -434,6 +434,8 @@ class Family(models.Model):
         on_delete=models.CASCADE,
         related_name="families",
         verbose_name="Контактное лицо",
+        blank=True,
+        null=True,
     )
     family_name = models.CharField(
         max_length=100,
