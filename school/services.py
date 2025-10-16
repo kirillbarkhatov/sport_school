@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from decimal import Decimal
+import locale
 
 from django.utils import timezone
 
@@ -86,11 +87,17 @@ def ensure_monthly_service_for_contract(contract: AthleteContract, reference_dat
     due_date = date(reference_date.year, reference_date.month, due_day)
 
     monthly_label = getattr(ServiceType.MONTHLY, "label", "Ежемесячный платеж")
+    try:
+        locale.setlocale(locale.LC_TIME, "ru_RU.UTF-8")
+        localized_month = reference_date.strftime("%B")
+    except locale.Error:
+        localized_month = reference_date.strftime("%B")
+    name = f"{monthly_label} ({localized_month}) - {contract.profile.athlete.person.surname} {contract.profile.athlete.person.name} - сезон {season}"
     service = FamilyService.objects.create(
         family=contract.profile.family,
         profile=contract.profile,
         contract=contract,
-        name=f"{monthly_label} - {contract.profile.athlete.person.surname} {contract.profile.athlete.person.name} - сезон {season}",
+        name=name,
         service_type=ServiceType.MONTHLY,
         amount=contract.base_fee,
         discount_type=DiscountType.NONE,

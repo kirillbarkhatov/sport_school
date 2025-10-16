@@ -31,7 +31,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for row in service_rows %}
+                    {% for row in service_rows %}
                     <tr>
                         <td>{{ row.service.name }}</td>
                         <td>{{ row.service.get_service_type_display }}</td>
@@ -41,8 +41,12 @@
                         <td>{% if row.balance > 0 %}<span class="text-danger">{{ row.balance|floatformat:2 }}</span>{% elif row.balance < 0 %}<span class="text-success">{{ row.balance|floatformat:2 }}</span>{% else %}0{% endif %}</td>
                         <td>{{ row.service.notes|default:'—' }}</td>
                         {% if user.is_staff %}
-                            <td class="text-end">
+                            <td class="text-end d-flex gap-2 justify-content-end">
                                 <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_service_update' object.pk row.service.pk %}">Изменить</a>
+                                <form method="post" action="{% url 'members:family_service_delete' object.pk row.service.pk %}" onsubmit="return confirm('Удалить счёт?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-outline-danger btn-sm">Удалить</button>
+                                </form>
                             </td>
                         {% endif %}
                     </tr>

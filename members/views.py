@@ -451,6 +451,30 @@ class FamilyServiceUpdateView(ApprovedUserRequiredMixin, UpdateView):
         return redirect("members:family_finance", pk=self.family.pk)
 
 
+class FamilyServiceDeleteView(ApprovedUserRequiredMixin, DeleteView):
+    model = FamilyService
+    pk_url_kwarg = "service_pk"
+    template_name = "members/family_service_confirm_delete.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+        self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return FamilyService.objects.filter(family=self.family)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["family"] = self.family
+        return context
+
+    def get_success_url(self):
+        messages.success(self.request, "Счёт удалён")
+        return reverse("members:family_finance", kwargs={"pk": self.family.pk})
+
+
 class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
     form_class = AthleteContractForm
     template_name = "members/family_contract_create.html"
