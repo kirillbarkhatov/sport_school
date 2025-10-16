@@ -339,6 +339,7 @@ class FamilyFinanceView(ApprovedUserRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         family = self.object
         services = family.services.select_related("profile__athlete__person").prefetch_related("payments")
+        payments = FamilyPayment.objects.filter(service__family=family).select_related("service")
         service_rows = []
         for service in services:
             paid = sum((p.amount for p in service.payments.all()), Decimal("0.00"))
