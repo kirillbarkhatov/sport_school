@@ -1,9 +1,15 @@
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import status, viewsets
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from school.models import Person
 from users.models import User
-from .serializers import PersonSerializer, UserSerializer
+from .serializers import (
+    PersonSerializer,
+    UserSerializer,
+    WhatsAppChatSyncSerializer,
+)
 
 
 class PersonViewSet(viewsets.ModelViewSet):
@@ -22,3 +28,26 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     queryset = User.objects.all()
     permission_classes = [IsAuthenticated]
+
+
+class WhatsAppChatSyncView(APIView):
+    """Приём данных о составе чатов WhatsApp"""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = WhatsAppChatSyncSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        chat = serializer.save()
+        data = serializer.validated_data
+        active_members = chat.members.filter(is_active=True).count()
+        return Response(
+            {
+                "chat_id": chat.id,
+                "group_name": chat.name,
+                "synced_at": data["synced_at"],
+                "processed_members": len(data["members"]),
+                "active_member_count": active_members,
+            },
+            status=status.HTTP_200_OK,
+        )

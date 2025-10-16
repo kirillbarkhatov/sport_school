@@ -81,16 +81,18 @@ def _participant_extra(message: Optional[Message] = None) -> dict:
 
 
 def _map_member_status(status: Optional[str]) -> str:
+    if not status:
+        return TelegramParticipant.MemberStatus.UNKNOWN
+
     mapping = {
         ChatMemberStatus.OWNER: TelegramParticipant.MemberStatus.CREATOR,
         ChatMemberStatus.ADMINISTRATOR: TelegramParticipant.MemberStatus.ADMIN,
         ChatMemberStatus.MEMBER: TelegramParticipant.MemberStatus.MEMBER,
         ChatMemberStatus.RESTRICTED: TelegramParticipant.MemberStatus.RESTRICTED,
         ChatMemberStatus.LEFT: TelegramParticipant.MemberStatus.LEFT,
-        ChatMemberStatus.KICKED: TelegramParticipant.MemberStatus.KICKED,
+        ChatMemberStatus.BANNED: TelegramParticipant.MemberStatus.KICKED,
+        "kicked": TelegramParticipant.MemberStatus.KICKED,  # compat with legacy PTB
     }
-    if not status:
-        return TelegramParticipant.MemberStatus.UNKNOWN
     return mapping.get(status, TelegramParticipant.MemberStatus.UNKNOWN)
 
 

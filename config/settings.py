@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "users",
     "notifications",
     "bot",
+    "whatsapp",
 ]
 
 MIDDLEWARE = [
