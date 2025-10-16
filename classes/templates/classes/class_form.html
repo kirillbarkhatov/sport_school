@@ -35,49 +35,49 @@
                 <div class="card-body">
                     <div class="row g-3">
                         <div class="col-md-6">
-                            {{ form.date.label_tag(attrs={"class": "form-label"}) }}
+                            <label class="form-label" for="{{ form.date.id_for_label }}">{{ form.date.label }}</label>
                             {{ form.date }}
                             {% if form.date.help_text %}<div class="form-text">{{ form.date.help_text }}</div>{% endif %}
                             {% for error in form.date.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
                         <div class="col-md-6">
-                            {{ form.duration.label_tag(attrs={"class": "form-label"}) }}
+                            <label class="form-label" for="{{ form.duration.id_for_label }}">{{ form.duration.label }}</label>
                             {{ form.duration }}
                             {% if form.duration.help_text %}<div class="form-text">{{ form.duration.help_text }}</div>{% endif %}
                             {% for error in form.duration.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
                         <div class="col-md-6">
-                            {{ form.group.label_tag(attrs={"class": "form-label"}) }}
+                            <label class="form-label" for="{{ form.group.id_for_label }}">{{ form.group.label }}</label>
                             {{ form.group }}
                             {% if form.group.help_text %}<div class="form-text">{{ form.group.help_text }}</div>{% endif %}
                             {% for error in form.group.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
                         <div class="col-md-6">
-                            {{ form.type.label_tag(attrs={"class": "form-label"}) }}
+                            <label class="form-label" for="{{ form.type.id_for_label }}">{{ form.type.label }}</label>
                             {{ form.type }}
                             {% if form.type.help_text %}<div class="form-text">{{ form.type.help_text }}</div>{% endif %}
                             {% for error in form.type.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
                         <div class="col-md-6">
-                            {{ form.training_type.label_tag(attrs={"class": "form-label"}) }}
+                            <label class="form-label" for="{{ form.training_type.id_for_label }}">{{ form.training_type.label }}</label>
                             {{ form.training_type }}
                             {% if form.training_type.help_text %}<div class="form-text">{{ form.training_type.help_text }}</div>{% endif %}
                             {% for error in form.training_type.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
                         <div class="col-md-6">
-                            {{ form.location.label_tag(attrs={"class": "form-label"}) }}
+                            <label class="form-label" for="{{ form.location.id_for_label }}">{{ form.location.label }}</label>
                             {{ form.location }}
                             {% if form.location.help_text %}<div class="form-text">{{ form.location.help_text }}</div>{% endif %}
                             {% for error in form.location.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
                         <div class="col-12">
-                            {{ form.equipment.label_tag(attrs={"class": "form-label"}) }}
+                            <label class="form-label" for="{{ form.equipment.id_for_label }}">{{ form.equipment.label }}</label>
                             {{ form.equipment }}
                             {% if form.equipment.help_text %}<div class="form-text">{{ form.equipment.help_text }}</div>{% endif %}
                             {% for error in form.equipment.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
                         <div class="col-12">
-                            {{ form.comment.label_tag(attrs={"class": "form-label"}) }}
+                            <label class="form-label" for="{{ form.comment.id_for_label }}">{{ form.comment.label }}</label>
                             {{ form.comment }}
                             {% if form.comment.help_text %}<div class="form-text">{{ form.comment.help_text }}</div>{% endif %}
                             {% for error in form.comment.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
