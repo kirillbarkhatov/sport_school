@@ -23,6 +23,62 @@
                             {% endfor %}
                         </div>
                     {% endfor %}
+
+                    <hr class="my-4">
+                    <h5>Члены семьи</h5>
+                    {% if member_formset.non_form_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in member_formset.non_form_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    {{ member_formset.management_form }}
+                    {% for form in member_formset.forms %}
+                        <div class="border rounded p-3 mb-3">
+                            {% for field in form.hidden_fields %}
+                                {{ field }}
+                            {% endfor %}
+                            {% for field in form.visible_fields %}
+                                <div class="mb-2">
+                                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                    {{ field }}
+                                    {% for error in field.errors %}
+                                        <div class="text-danger small">{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+
+                    <hr class="my-4">
+                    <h5>Условия спортсменов</h5>
+                    {% if profile_formset.non_form_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in profile_formset.non_form_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    {{ profile_formset.management_form }}
+                    {% for form in profile_formset.forms %}
+                        <div class="border rounded p-3 mb-3">
+                            <p class="small text-muted mb-2">{{ form.instance.athlete.person.surname }} {{ form.instance.athlete.person.name }}</p>
+                            {% for field in form.hidden_fields %}
+                                {{ field }}
+                            {% endfor %}
+                            {% for field in form.visible_fields %}
+                                <div class="mb-2">
+                                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                    {{ field }}
+                                    {% for error in field.errors %}
+                                        <div class="text-danger small">{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+
                     <div class="d-flex justify-content-between">
                         <a class="btn btn-outline-secondary" href="{% url 'members:family_detail' object.pk %}">Отмена</a>
                         <button type="submit" class="btn btn-primary">Сохранить</button>

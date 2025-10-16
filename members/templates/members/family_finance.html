@@ -1,0 +1,144 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Финансы семьи {{ object.family_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <div>
+        <h2 class="mb-0">Финансы семьи {{ object.family_name }}</h2>
+        <p class="text-muted mb-0">Контроль услуг и оплат.</p>
+    </div>
+    <div class="btn-toolbar gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'members:family_detail' object.pk %}">К карточке семьи</a>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-body-tertiary">Услуги</div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Тип</th>
+                    <th>Спортсмен</th>
+                    <th>Сумма</th>
+                    <th>Оплачено</th>
+                    <th>Баланс</th>
+                    <th>Комментарий</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in service_rows %}
+                    <tr>
+                        <td>{{ row.service.name }}</td>
+                        <td>{{ row.service.get_service_type_display }}</td>
+                        <td>{% if row.service.profile %}{{ row.service.profile.athlete.person.surname }} {{ row.service.profile.athlete.person.name }}{% else %}—{% endif %}</td>
+                        <td>{{ row.net_amount|floatformat:2 }}</td>
+                        <td>{{ row.paid_amount|floatformat:2 }}</td>
+                        <td>{% if row.balance > 0 %}<span class="text-danger">{{ row.balance|floatformat:2 }}</span>{% elif row.balance < 0 %}<span class="text-success">{{ row.balance|floatformat:2 }}</span>{% else %}0{% endif %}</td>
+                        <td>{{ row.service.notes|default:'—' }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-muted text-center">Услуги не добавлены</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-body-tertiary">Платежи</div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead>
+                <tr>
+                    <th>Дата</th>
+                    <th>Услуга</th>
+                    <th>Тип</th>
+                    <th>Сумма</th>
+                    <th>Комментарий</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for payment in payments %}
+                    <tr>
+                        <td>{{ payment.paid_at }}</td>
+                        <td>{{ payment.service.name }}</td>
+                        <td>{{ payment.get_payment_type_display }}</td>
+                        <td>{{ payment.amount|floatformat:2 }}</td>
+                        <td>{{ payment.note|default:'—' }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">Платежи отсутствуют</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if user.is_staff %}
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-body-tertiary">Добавить услугу</div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="create_service">
+                    {% if service_form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in service_form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    {% for field in service_form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% for error in field.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-body-tertiary">Добавить платёж</div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="create_payment">
+                    {% if payment_form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in payment_form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    {% for field in payment_form %}
+                        <div class="mb-3">
+                            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% for error in field.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                    <button type="submit" class="btn btn-primary">Добавить платёж</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

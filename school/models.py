@@ -1,7 +1,36 @@
+from decimal import Decimal
+
 from django.db import models
 from django.urls import reverse
 from django.templatetags.static import static
 
+
+class DiscountType(models.TextChoices):
+    NONE = "none", "Без скидки"
+    SECOND_CHILD = "second_child", "Второй ребёнок"
+    THIRD_CHILD = "third_child", "Третий ребёнок"
+    PERSONAL = "personal", "Персональная скидка"
+    ACHIEVEMENT = "achievement", "За достижения"
+    PREPAYMENT = "prepayment", "Оплата абонемента вперёд"
+
+
+class ServiceType(models.TextChoices):
+    MONTHLY = "monthly", "Ежемесячный платеж"
+    LODGE = "lodge", "Сервисный домик"
+    SKIPASS_SNOW = "skipass_snow", "Скипасс «Снежный»"
+    SKIPASS_YUKKI = "skipass_yukki", "Скипасс «Юкки»"
+    SKI_PREP = "ski_preparation", "Подготовка лыж"
+    FEDERATION = "federation", "Взнос в федерацию"
+    CAMP = "camp", "Сборы"
+    INDIVIDUAL = "individual_training", "Индивидуальная тренировка"
+    EXTRA = "extra_payment", "Дополнительная услуга"
+    OTHER = "other", "Прочее"
+
+
+class PaymentType(models.TextChoices):
+    PREPAYMENT = "prepayment", "Предоплата"
+    ADDITIONAL = "additional", "Доплата"
+    FULL = "full", "Полная оплата"
 
 # всё из чат-гпт, проверить
 class Person(models.Model):
@@ -306,6 +335,13 @@ class CompetitionEntry(models.Model):
 class Family(models.Model):
     """Модель «Семья»"""
 
+    STATUS_ACTIVE = "active"
+    STATUS_ALUMNI = "alumni"
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, "Действующий член клуба"),
+        (STATUS_ALUMNI, "Бывший член клуба"),
+    ]
+
     contact_person = models.ForeignKey(
         Person,
         on_delete=models.CASCADE,
@@ -318,6 +354,35 @@ class Family(models.Model):
         null=True,
         verbose_name="Фамилия семьи",
         help_text="Заполнится автоматически",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_ACTIVE,
+        verbose_name="Статус семьи",
+    )
+    base_monthly_fee = models.DecimalField(
+        max_digits=9,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Базовая стоимость месяца",
+        help_text="Используется как значение по умолчанию для спортсменов семьи",
+    )
+    discount_type = models.CharField(
+        max_length=20,
+        choices=DiscountType.choices,
+        default=DiscountType.NONE,
+        verbose_name="Тип скидки семьи",
+    )
+    discount_value = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Размер скидки семьи",
+    )
+    current_month_paid = models.BooleanField(
+        default=False,
+        verbose_name="Оплата текущего месяца получена",
     )
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
@@ -333,6 +398,7 @@ class Family(models.Model):
     class Meta:
         verbose_name = "Семья"
         verbose_name_plural = "Семьи"
+        ordering = ["family_name"]
 
 
 class FamilyMember(models.Model):
@@ -365,3 +431,138 @@ class FamilyMember(models.Model):
     class Meta:
         verbose_name = "Член семьи"
         verbose_name_plural = "Члены семьи"
+
+
+class FamilyAthleteProfile(models.Model):
+    """Дополнительные настройки спортсмена внутри семьи."""
+
+    family = models.ForeignKey(
+        Family,
+        on_delete=models.CASCADE,
+        related_name="athlete_profiles",
+    )
+    athlete = models.ForeignKey(
+        Athlete,
+        on_delete=models.CASCADE,
+        related_name="family_profiles",
+    )
+    contract_active = models.BooleanField(default=True, verbose_name="Договор активен")
+    monthly_fee = models.DecimalField(
+        max_digits=9,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Оплата в месяц",
+    )
+    discount_type = models.CharField(
+        max_length=20,
+        choices=DiscountType.choices,
+        default=DiscountType.NONE,
+        verbose_name="Тип скидки",
+    )
+    discount_value = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Размер скидки",
+    )
+    current_month_paid = models.BooleanField(
+        default=False,
+        verbose_name="Оплата текущего месяца",
+    )
+    notes = models.TextField(blank=True, null=True, verbose_name="Комментарии")
+
+    class Meta:
+        unique_together = ("family", "athlete")
+        ordering = ["athlete__person__surname"]
+        verbose_name = "Настройки спортсмена семьи"
+        verbose_name_plural = "Настройки спортсменов семьи"
+
+    def __str__(self):
+        return f"{self.family}: {self.athlete.person}"
+
+
+class FamilyService(models.Model):
+    """Услуги и начисления для семьи."""
+
+    family = models.ForeignKey(
+        Family,
+        on_delete=models.CASCADE,
+        related_name="services",
+    )
+    profile = models.ForeignKey(
+        FamilyAthleteProfile,
+        on_delete=models.CASCADE,
+        related_name="services",
+        blank=True,
+        null=True,
+    )
+    name = models.CharField(max_length=150, verbose_name="Название услуги")
+    service_type = models.CharField(
+        max_length=30,
+        choices=ServiceType.choices,
+        default=ServiceType.MONTHLY,
+        verbose_name="Тип услуги",
+    )
+    amount = models.DecimalField(
+        max_digits=9,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Сумма к оплате",
+    )
+    discount_type = models.CharField(
+        max_length=20,
+        choices=DiscountType.choices,
+        default=DiscountType.NONE,
+        verbose_name="Тип скидки",
+    )
+    discount_value = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Размер скидки",
+    )
+    is_recurring = models.BooleanField(default=False, verbose_name="Повторяющаяся")
+    is_closed = models.BooleanField(default=False, verbose_name="Закрыта")
+    created_at = models.DateTimeField(auto_now_add=True)
+    due_date = models.DateField(blank=True, null=True, verbose_name="Дата оплаты")
+    notes = models.TextField(blank=True, null=True, verbose_name="Комментарии")
+
+    class Meta:
+        verbose_name = "Услуга семьи"
+        verbose_name_plural = "Услуги семьи"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.family})"
+
+
+class FamilyPayment(models.Model):
+    """Оплаты по услугам семьи."""
+
+    service = models.ForeignKey(
+        FamilyService,
+        on_delete=models.CASCADE,
+        related_name="payments",
+    )
+    amount = models.DecimalField(
+        max_digits=9,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Сумма платежа",
+    )
+    payment_type = models.CharField(
+        max_length=20,
+        choices=PaymentType.choices,
+        default=PaymentType.FULL,
+        verbose_name="Тип платежа",
+    )
+    paid_at = models.DateField(auto_now_add=True, verbose_name="Дата оплаты")
+    note = models.TextField(blank=True, null=True, verbose_name="Комментарий")
+
+    class Meta:
+        verbose_name = "Оплата"
+        verbose_name_plural = "Оплаты"
+        ordering = ["-paid_at"]
+
+    def __str__(self):
+        return f"{self.service} — {self.amount}"

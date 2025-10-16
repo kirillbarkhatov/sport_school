@@ -1,11 +1,14 @@
 from django import forms
-from django.forms import BooleanField, inlineformset_factory
+from django.forms import BooleanField, BaseFormSet, formset_factory, inlineformset_factory
 
 from .models import (
     Athlete,
     Person,
     Family,
     FamilyMember,
+    FamilyAthleteProfile,
+    FamilyService,
+    FamilyPayment,
     Class,
     ClassEnrollment,
     Group,
@@ -84,10 +87,138 @@ class AthleteSelectionForm(forms.Form):
 class FamilyForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Family
-        fields = ["contact_person", "comment"]
+        fields = [
+            "family_name",
+            "contact_person",
+            "status",
+            "base_monthly_fee",
+            "discount_type",
+            "discount_value",
+            "current_month_paid",
+            "comment",
+        ]
+        widgets = {
+            "comment": forms.Textarea(attrs={"rows": 3}),
+        }
 
 
 class FamilyMemberForm(forms.ModelForm):
     class Meta:
         model = FamilyMember
         fields = ["person", "relation"]
+
+
+class FamilyMemberInlineForm(forms.Form):
+    existing_person = forms.ModelChoiceField(
+        queryset=Person.objects.all().order_by("surname"),
+        required=False,
+        label="Существующий участник",
+    )
+    surname = forms.CharField(required=False, label="Фамилия")
+    name = forms.CharField(required=False, label="Имя")
+    middlename = forms.CharField(required=False, label="Отчество", widget=forms.TextInput())
+    date_of_birth = forms.DateField(required=False, label="Дата рождения", widget=forms.DateInput(attrs={"type": "date"}))
+    gender = forms.ChoiceField(required=False, choices=Person.GENDER_CHOICES, label="Пол")
+    relation = forms.ChoiceField(choices=FamilyMember.FAMILY_RELATION, label="Отношение", required=False)
+    is_athlete = forms.BooleanField(required=False, label="Создать как спортсмена")
+
+    def clean(self):
+        cleaned = super().clean()
+        person = cleaned.get("existing_person")
+        surname = cleaned.get("surname")
+        name = cleaned.get("name")
+        if not any(cleaned.values()):
+            return cleaned
+        if not person and not (surname and name):
+            raise forms.ValidationError("Выберите существующего участника или заполните фамилию и имя.")
+        if (person or surname or name) and not cleaned.get("relation"):
+            raise forms.ValidationError("Укажите отношение внутри семьи.")
+        return cleaned
+
+
+class FamilyAthleteProfileForm(StyleFormMixin, forms.ModelForm):
+    class Meta:
+        model = FamilyAthleteProfile
+        fields = [
+            "contract_active",
+            "monthly_fee",
+            "discount_type",
+            "discount_value",
+            "current_month_paid",
+            "notes",
+        ]
+
+FamilyMemberInlineFormSet = formset_factory(FamilyMemberInlineForm, extra=2, can_delete=False)
+
+
+ExistingFamilyMemberFormSet = inlineformset_factory(
+    Family,
+    FamilyMember,
+    form=FamilyMemberForm,
+    extra=1,
+    can_delete=True,
+)
+
+
+FamilyAthleteProfileFormSet = inlineformset_factory(
+    Family,
+    FamilyAthleteProfile,
+    form=FamilyAthleteProfileForm,
+    extra=0,
+    can_delete=False,
+)
+
+
+class FamilyServiceForm(StyleFormMixin, forms.ModelForm):
+    profile = forms.ModelChoiceField(
+        queryset=FamilyAthleteProfile.objects.none(),
+        required=False,
+        label="Спортсмен",
+    )
+
+    def __init__(self, *args, family=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if family:
+            self.fields["profile"].queryset = FamilyAthleteProfile.objects.filter(family=family).select_related("athlete__person")
+        else:
+            self.fields["profile"].queryset = FamilyAthleteProfile.objects.none()
+        self.fields["profile"].empty_label = "—"
+
+    class Meta:
+        model = FamilyService
+        fields = [
+            "profile",
+            "name",
+            "service_type",
+            "amount",
+            "discount_type",
+            "discount_value",
+            "is_recurring",
+            "due_date",
+            "notes",
+        ]
+        widgets = {
+            "notes": forms.Textarea(attrs={"rows": 2}),
+            "due_date": forms.DateInput(attrs={"type": "date"}),
+        }
+
+
+class FamilyPaymentForm(StyleFormMixin, forms.ModelForm):
+    service = forms.ModelChoiceField(
+        queryset=FamilyService.objects.none(),
+        label="Услуга",
+    )
+
+    def __init__(self, *args, family=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if family:
+            self.fields["service"].queryset = FamilyService.objects.filter(family=family)
+        else:
+            self.fields["service"].queryset = FamilyService.objects.none()
+
+    class Meta:
+        model = FamilyPayment
+        fields = ["service", "amount", "payment_type", "note"]
+        widgets = {
+            "note": forms.Textarea(attrs={"rows": 2}),
+        }

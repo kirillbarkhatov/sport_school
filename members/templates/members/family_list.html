@@ -6,50 +6,171 @@
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <div>
         <h2 class="mb-0">Семьи клуба</h2>
-        <p class="text-muted mb-0">Контактные лица, родственные связи и связанные аккаунты.</p>
+        <p class="text-muted mb-0">Управление действующими и бывшими членами клуба.</p>
     </div>
     {% if user.is_staff %}
-    <a class="btn btn-primary" href="{% url 'admin:school_family_add' %}" target="_blank">Добавить семью</a>
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#familyCreateModal">
+            Добавить семью
+        </button>
     {% endif %}
 </div>
 
-<div class="row g-3">
-    {% for family in object_list %}
-        <div class="col-lg-4 col-md-6">
-            <div class="card h-100 shadow-sm">
-                <div class="card-body d-flex flex-column">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="flex-grow-1">
+<div class="mb-4">
+    <h5 class="text-muted">Действующие семьи</h5>
+    <div class="row g-3">
+        {% for family in active_families %}
+            <div class="col-lg-4 col-md-6">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body d-flex flex-column">
+                        <div class="mb-2">
                             <h5 class="card-title mb-1">{{ family.family_name|default:'Без названия' }}</h5>
-                            <p class="text-muted mb-0">Контакт: {{ family.contact_person }}</p>
+                            <p class="text-muted small mb-1">Контакт: {{ family.contact_person }}</p>
                             {% if family.comment %}
-                                <p class="small text-muted mb-0 mt-1">{{ family.comment }}</p>
+                                <p class="small text-muted mb-0">{{ family.comment }}</p>
+                            {% endif %}
+                        </div>
+                        <ul class="list-unstyled small flex-grow-1">
+                            {% for membership in family.members.all %}
+                                <li class="mb-1">
+                                    {{ membership.person.surname }} {{ membership.person.name }}
+                                    <span class="text-muted">— {{ membership.get_relation_display }}</span>
+                                </li>
+                            {% empty %}
+                                <li class="text-muted">Нет связанных членов семьи</li>
+                            {% endfor %}
+                        </ul>
+                        <div class="mt-3 d-flex gap-2">
+                            <a class="btn btn-outline-primary btn-sm flex-fill" href="{% url 'members:family_detail' family.pk %}">Подробнее</a>
+                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_finance' family.pk %}">Финансы</a>
+                            {% if user.is_staff %}
+                                <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_update' family.pk %}">Редактировать</a>
                             {% endif %}
                         </div>
                     </div>
-                    <ul class="list-unstyled small flex-grow-1">
-                        {% for membership in family.members.all %}
-                            <li class="mb-1">
-                                {{ membership.person.surname }} {{ membership.person.name }}
-                                <span class="text-muted">— {{ membership.get_relation_display }}</span>
-                            </li>
-                        {% empty %}
-                            <li class="text-muted">Нет связанных членов семьи</li>
-                        {% endfor %}
-                    </ul>
-                    <div class="mt-3 d-flex gap-2">
-                        <a class="btn btn-outline-primary btn-sm flex-fill" href="{% url 'members:family_detail' family.pk %}">Подробнее</a>
-                        {% if user.is_staff %}
-                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_update' family.pk %}">Редактировать</a>
-                        {% endif %}
+                </div>
+            </div>
+        {% empty %}
+            <div class="col-12">
+                <div class="alert alert-info">Нет действующих семей.</div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div>
+    <h5 class="text-muted">Бывшие семьи</h5>
+    <div class="row g-3">
+        {% for family in alumni_families %}
+            <div class="col-lg-4 col-md-6">
+                <div class="card h-100 shadow-sm border border-warning-subtle">
+                    <div class="card-body d-flex flex-column">
+                        <div class="mb-2">
+                            <h5 class="card-title mb-1">{{ family.family_name|default:'Без названия' }}</h5>
+                            <p class="text-muted small mb-1">Контакт: {{ family.contact_person }}</p>
+                            {% if family.comment %}
+                                <p class="small text-muted mb-0">{{ family.comment }}</p>
+                            {% endif %}
+                        </div>
+                        <ul class="list-unstyled small flex-grow-1">
+                            {% for membership in family.members.all %}
+                                <li class="mb-1">
+                                    {{ membership.person.surname }} {{ membership.person.name }}
+                                    <span class="text-muted">— {{ membership.get_relation_display }}</span>
+                                </li>
+                            {% empty %}
+                                <li class="text-muted">Нет связанных членов семьи</li>
+                            {% endfor %}
+                        </ul>
+                        <div class="mt-3 d-flex gap-2">
+                            <a class="btn btn-outline-primary btn-sm flex-fill" href="{% url 'members:family_detail' family.pk %}">Подробнее</a>
+                            {% if user.is_staff %}
+                                <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_update' family.pk %}">Редактировать</a>
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    {% empty %}
-        <div class="col-12">
-            <div class="alert alert-info">Пока нет доступных семей.</div>
-        </div>
-    {% endfor %}
+        {% empty %}
+            <div class="col-12">
+                <div class="alert alert-light">Нет семей в статусе «бывшие».</div>
+            </div>
+        {% endfor %}
+    </div>
 </div>
+
+{% if user.is_staff %}
+<div class="modal fade" id="familyCreateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Создать семью</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="" novalidate>
+                <div class="modal-body">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        {% for field in family_form %}
+                            <div class="col-12 col-md-6">
+                                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                {{ field }}
+                                {% if field.help_text %}
+                                    <div class="form-text">{{ field.help_text }}</div>
+                                {% endif %}
+                                {% for error in field.errors %}
+                                    <div class="text-danger small">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <hr class="my-3">
+                    <h6>Члены семьи</h6>
+                    {% if member_formset.non_form_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in member_formset.non_form_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    {{ member_formset.management_form }}
+                    {% for form in member_formset %}
+                        <div class="border rounded p-3 mb-3">
+                            {% for field in form.hidden_fields %}
+                                {{ field }}
+                            {% endfor %}
+                            {% for field in form.visible_fields %}
+                                <div class="mb-2">
+                                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                    {{ field }}
+                                    {% for error in field.errors %}
+                                        <div class="text-danger small">{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+                            {% endfor %}
+                            {% if form.non_field_errors %}
+                                <div class="text-danger small">{{ form.non_field_errors }}</div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Создать</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+    {% if family_form.errors or member_formset.non_form_errors %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var modalElement = document.getElementById('familyCreateModal');
+            if (modalElement) {
+                var modal = new bootstrap.Modal(modalElement);
+                modal.show();
+            }
+        });
+    </script>
+    {% endif %}
+{% endif %}
 {% endblock %}
