@@ -2,6 +2,7 @@ import logging
 from typing import Iterable, Optional
 
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.utils import timezone
 from telegram import Bot, Chat, ChatMemberUpdated, Message, Update, User
 from telegram.constants import ChatMemberStatus, ChatType
@@ -16,6 +17,25 @@ __all__ = [
     "handle_chat_member_update",
     "sync_chat_snapshot",
 ]
+
+def _admin_chat_ids() -> list[str]:
+    ids = [
+        str(chat_id).strip()
+        for chat_id in getattr(settings, "TELEGRAM_ADMIN_IDS", []) or []
+        if str(chat_id).strip()
+    ]
+    log_chat_id = getattr(settings, "TELEGRAM_LOG_CHAT_ID", None)
+    if not ids and log_chat_id:
+        ids = [str(log_chat_id)]
+    return ids
+
+
+async def _notify_admins(bot: Bot, message: str) -> None:
+    for chat_id in _admin_chat_ids():
+        try:
+            await bot.send_message(chat_id=int(chat_id), text=message)
+        except TelegramError:
+            logger.exception("Не удалось уведомить администратора %s", chat_id)
 
 
 def _coalesce(value: Optional[str]) -> str:
@@ -254,18 +274,39 @@ async def handle_chat_member_update(update: Update, _: object) -> None:
 
 async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
     """Explicitly fetch chat info and administrators for the given chat ID."""
+    await _notify_admins(bot, f"🔍 Запрашиваю данные чата {chat_id}")
     chat = await bot.get_chat(chat_id)
+    await _notify_admins(bot, f"ℹ️ Информация о чате {chat_id}:\n{chat.to_dict()}")
     chat_obj = await _upsert_chat(chat)
+    await _notify_admins(
+        bot,
+        "💾 Сохранён чат в БД: "
+        f"id={chat_obj.pk}, chat_id={chat_obj.chat_id}, type={chat_obj.type}, title={chat_obj.title}",
+    )
 
     try:
         administrators = await bot.get_chat_administrators(chat_id)
+        await _notify_admins(
+            bot, f"👥 Получено администраторов: {len(administrators)} для чата {chat_id}"
+        )
     except TelegramError as exc:
         logger.warning("Не удалось получить администраторов чата %s: %s", chat_id, exc)
+        await _notify_admins(
+            bot, f"⚠️ Не удалось получить администраторов чата {chat_id}: {exc}"
+        )
         return chat_obj
 
     for member in administrators:
         custom_title = getattr(member, "custom_title", None)
         extra = member.to_dict()
+        await _notify_admins(
+            bot,
+            "👤 Сохраняю администратора:\n"
+            f"user_id={member.user.id}\n"
+            f"username={member.user.username}\n"
+            f"status={member.status}\n"
+            f"custom_title={custom_title}",
+        )
         await _upsert_participant(
             chat_obj,
             member.user,
@@ -274,4 +315,7 @@ async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
             extra=extra,
         )
 
+    await _notify_admins(
+        bot, f"✅ Синхронизация завершена для чата {chat_id} (БД id={chat_obj.pk})"
+    )
     return chat_obj
