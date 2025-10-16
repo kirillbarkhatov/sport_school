@@ -3,12 +3,19 @@ from typing import Iterable, Optional
 
 from asgiref.sync import sync_to_async
 from django.utils import timezone
-from telegram import Chat, ChatMemberUpdated, Message, Update, User
+from telegram import Bot, Chat, ChatMemberUpdated, Message, Update, User
 from telegram.constants import ChatMemberStatus, ChatType
+from telegram.error import TelegramError
 
 from bot.models import TelegramChat, TelegramParticipant
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "track_audience",
+    "handle_chat_member_update",
+    "sync_chat_snapshot",
+]
 
 
 def _coalesce(value: Optional[str]) -> str:
@@ -243,3 +250,28 @@ async def handle_chat_member_update(update: Update, _: object) -> None:
         )
     except Exception:
         logger.exception("Не удалось обновить статус участника чата")
+
+
+async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
+    """Explicitly fetch chat info and administrators for the given chat ID."""
+    chat = await bot.get_chat(chat_id)
+    chat_obj = await _upsert_chat(chat)
+
+    try:
+        administrators = await bot.get_chat_administrators(chat_id)
+    except TelegramError as exc:
+        logger.warning("Не удалось получить администраторов чата %s: %s", chat_id, exc)
+        return chat_obj
+
+    for member in administrators:
+        custom_title = getattr(member, "custom_title", None)
+        extra = member.to_dict()
+        await _upsert_participant(
+            chat_obj,
+            member.user,
+            status=_map_member_status(member.status),
+            custom_title=custom_title,
+            extra=extra,
+        )
+
+    return chat_obj
