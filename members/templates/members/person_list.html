@@ -12,7 +12,9 @@
     </div>
     <div class="btn-toolbar mb-2 mb-md-0 gap-2">
         {% if user.is_staff %}
-            <a class="btn btn-primary" href="{% url 'members:members_create' %}">Добавить участника</a>
+            <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#personCreateModal">
+                Добавить участника
+            </button>
         {% endif %}
     </div>
 </div>
@@ -199,6 +201,83 @@
 </div>
 
 {% endblock %}
+
+{% if can_manage_people %}
+<div class="modal fade" id="personCreateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Добавить участника</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post"
+                  action="{% url 'members:family_member_create' %}"
+                  enctype="multipart/form-data"
+                  data-person-create-form>
+                <div class="modal-body">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        {% for field in person_create_form %}
+                            {% if field.field.widget.input_type != 'hidden' %}
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                    {{ field }}
+                                    {% if field.help_text %}
+                                        <div class="form-text">{{ field.help_text }}</div>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                {{ field }}
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    <hr class="my-3">
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="id_create_family">Семья</label>
+                            <select name="family_id"
+                                    id="id_create_family"
+                                    class="form-select"
+                                    data-role="modal-family-select">
+                                <option value="">Без семьи</option>
+                                {% for family in families %}
+                                    <option value="{{ family.pk }}">{{ family.family_name|default:'Без названия' }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="id_create_relation">Родство</label>
+                            <select name="relation"
+                                    id="id_create_relation"
+                                    class="form-select"
+                                    data-role="modal-relation-select"
+                                    disabled>
+                                <option value="" selected hidden>Сын/дочь/мать/отец…</option>
+                                {% for value, label in relation_choices %}
+                                    <option value="{{ value }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="on" id="id_create_make_contact" name="make_contact">
+                                <label class="form-check-label" for="id_create_make_contact">
+                                    Сделать контактом в семье
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3 small text-danger d-none" data-modal-feedback></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Добавить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 {% block content_2 %}
     {{ block.super }}
