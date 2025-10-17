@@ -26,8 +26,6 @@
             <th scope="col">Фамилия, Имя</th>
             <th scope="col" class="w-25">Контакты</th>
             <th scope="col">Телеграм</th>
-            <th scope="col">Статус</th>
-            <th scope="col">Смена статуса</th>
             <th scope="col">Семья</th>
             <th scope="col" class="text-end">Действия</th>
         </tr>
@@ -37,7 +35,29 @@
         <tr>
             <td>{{ forloop.counter }}</td>
             <td><img src="{{ person.get_photo_url }}" alt="{{ person }}" class="rounded-circle" style="width:40px;height:40px;object-fit:cover;"></td>
-            <td><a href="{% url 'members:members_detail' person.pk%}" class="link-underline link-underline-opacity-0">{{ person.surname }} {{ person.name }}</a></td>
+            <td class="align-middle">
+                <div class="fw-semibold text-nowrap">
+                    <a href="{% url 'members:members_detail' person.pk%}" class="link-underline link-underline-opacity-0">
+                        {{ person.surname }} {{ person.name }}
+                    </a>
+                </div>
+                <div class="d-flex align-items-center flex-wrap gap-2 mt-1">
+                    <small class="text-muted" data-family-status data-person-id="{{ person.pk }}">
+                        {% with memberships=person.familymember_set.all %}
+                            {% if memberships %}
+                                {{ memberships.0.family.family_name|default:'Семья не указана' }} — {{ memberships.0.get_relation_display }}
+                            {% else %}
+                                Семья не указана
+                            {% endif %}
+                        {% endwith %}
+                    </small>
+                    {% if person.is_athlete %}
+                        <span class="badge text-bg-success">Спортсмен</span>
+                    {% else %}
+                        <span class="badge text-bg-secondary">Член семьи</span>
+                    {% endif %}
+                </div>
+            </td>
             <td class="align-middle">
                 <div class="small text-truncate" style="max-width: 14rem;">
                     {% if person.email %}<div><a href="mailto:{{ person.email }}">{{ person.email }}</a></div>{% endif %}
@@ -46,28 +66,6 @@
             </td>
             <td class="small text-truncate" style="max-width: 10rem;">
                 {{ person.telegram|default:"—" }}
-            </td>
-            <td>
-                {% if person.is_athlete %}
-                    <span class="badge text-bg-success">Спортсмен</span>
-                {% else %}
-                    <span class="badge text-bg-secondary">Член семьи</span>
-                {% endif %}
-            </td>
-            <td>
-                {% if can_manage_people %}
-                    <form method="post" action="{% url 'members:person_toggle_athlete' person.pk %}">
-                        {% csrf_token %}
-                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                        {% if person.is_athlete %}
-                            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Сделать членом семьи</button>
-                        {% else %}
-                            <button type="submit" class="btn btn-outline-success btn-sm w-100">Сделать спортсменом</button>
-                        {% endif %}
-                    </form>
-                {% else %}
-                    —
-                {% endif %}
             </td>
             <td>
                 {% with memberships=person.familymember_set.all %}
@@ -99,34 +97,48 @@
                                 <button type="submit" class="btn btn-outline-primary btn-sm">Ок</button>
                                 <div class="align-self-center small text-muted" data-form-feedback style="min-width: 8rem;"></div>
                             </form>
-                            <div class="small text-muted" data-family-status>
-                                {% if membership %}
-                                    {{ membership.family.family_name|default:'Без названия' }} — {{ membership.get_relation_display }}
-                                {% else %}
-                                    Семья не указана
-                                {% endif %}
-                            </div>
                         </div>
                     {% else %}
-                        {% if membership %}
-                            {{ membership.family.family_name|default:'Семья не указана' }} — {{ membership.get_relation_display }}
-                        {% else %}
-                            Семья не указана
-                        {% endif %}
+                        <div class="small text-muted">
+                            {% if membership %}
+                                {{ membership.family.family_name|default:'Семья не указана' }} — {{ membership.get_relation_display }}
+                            {% else %}
+                                Семья не указана
+                            {% endif %}
+                        </div>
                     {% endif %}
                     {% endwith %}
                 {% endwith %}
             </td>
-            <td class="text-end" style="width: 22vh;">
-                <a class="btn btn-outline-primary btn-sm" href="{% url 'members:members_update' person.pk%}">Изменить</a>
-                {% if user.is_staff %}
-                    <a class="btn btn-outline-danger btn-sm" href="{% url 'members:members_delete' person.pk%}">Удалить</a>
-                {% endif %}
+            <td class="text-end" style="min-width: 24rem;">
+                <div class="d-flex justify-content-end gap-2 flex-nowrap">
+                    {% if can_manage_people %}
+                        <form method="post"
+                              action="{% url 'members:person_toggle_athlete' person.pk %}"
+                              class="m-0">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                            {% if person.is_athlete %}
+                                <button type="submit" class="btn btn-outline-secondary btn-sm" style="min-width: 11rem;">
+                                    Сделать членом семьи
+                                </button>
+                            {% else %}
+                                <button type="submit" class="btn btn-outline-success btn-sm" style="min-width: 11rem;">
+                                    Сделать спортсменом
+                                </button>
+                            {% endif %}
+                        </form>
+                    {% endif %}
+                    <a class="btn btn-outline-primary btn-sm" style="min-width: 11rem;" href="{% url 'members:members_update' person.pk%}">Изменить</a>
+                    {% if user.is_staff %}
+                        <a class="btn btn-outline-danger btn-sm" style="min-width: 11rem;" href="{% url 'members:members_delete' person.pk%}">Удалить</a>
+                    {% endif %}
+                </div>
             </td>
         </tr>
         {% empty %}
         <tr>
-            <td colspan="8" class="text-center text-muted py-4">Нет доступных участников.</td>
+            <td colspan="7" class="text-center text-muted py-4">Нет доступных участников.</td>
         </tr>
         {% endfor %}
         </tbody>

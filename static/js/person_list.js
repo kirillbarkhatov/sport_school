@@ -14,13 +14,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
   forms.forEach((form) => {
     const feedbackEl = form.querySelector("[data-form-feedback]");
-    const statusEl = form.parentElement.querySelector("[data-family-status]");
     const familySelect = form.querySelector('select[name="family_id"]');
     const relationSelect = form.querySelector('select[name="relation"]');
+    const personId = form.dataset.personId;
 
     if (!familySelect || !relationSelect) {
       return;
     }
+
+    const statusElements = document.querySelectorAll(
+      `[data-family-status][data-person-id="${personId}"]`
+    );
 
     const toggleRelationState = () => {
       if (!relationSelect) {
@@ -61,14 +65,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (payload.membership) {
-          if (statusEl) {
-            statusEl.textContent = `${payload.membership.family_name} — ${payload.membership.relation_display}`;
-          }
+          statusElements.forEach((element) => {
+            element.textContent = `${payload.membership.family_name} — ${payload.membership.relation_display}`;
+          });
           if (relationSelect && payload.membership.relation) {
             relationSelect.value = payload.membership.relation;
           }
-        } else if (statusEl) {
-          statusEl.textContent = "Семья не указана";
+        } else {
+          statusElements.forEach((element) => {
+            element.textContent = "Семья не указана";
+          });
         }
 
         toggleRelationState();
