@@ -30,7 +30,6 @@
         </thead>
         <tbody>
         {% for person in object_list %}
-            {% with membership=person.familymember_set.all|first %}
             <tr>
                 <td>{{ forloop.counter }}</td>
                 <td>
@@ -46,78 +45,98 @@
                         <span class="badge {% if person.is_athlete %}text-bg-success{% else %}text-bg-secondary{% endif %}"
                               data-person-status-badge
                               data-person-id="{{ person.pk }}">
-                            {% if person.is_athlete %}
-                                Спортсмен
-                            {% else %}
-                                Член семьи{% if membership %} - {{ membership.get_relation_display|lower }}{% endif %}
-                            {% endif %}
+                            {% if person.is_athlete %}Спортсмен{% else %}Член семьи{% endif %}
                         </span>
                     </div>
-                    {% if can_manage_people %}
-                        <div class="mt-1 small text-muted"
-                             data-family-display-container
-                             data-person-id="{{ person.pk }}">
-                            <span class="person-family-display link-offset-1"
-                                  role="button"
-                                  tabindex="0"
-                                  data-person-id="{{ person.pk }}"
-                                  data-target="family"
-                                  style="cursor: pointer;">
-                                Семья:
-                                {% if membership %}
-                                    {{ membership.family.family_name|default:'не указана' }}
-                                {% else %}
-                                    не указана
-                                {% endif %}
-                            </span>
-                        </div>
-                        <form method="post"
-                              action="{% url 'members:person_assign_family' person.pk %}"
-                              class="person-family-form d-none mt-2"
-                              data-person-id="{{ person.pk }}"
-                              data-person-surname="{{ person.surname }}">
-                            {% csrf_token %}
-                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                            <div class="d-flex flex-wrap align-items-center gap-2">
-                                <select name="family_id"
-                                        class="form-select form-select-sm w-auto"
-                                        data-role="family-select">
-                                    <option value="">Без семьи</option>
-                                    {% for family in families %}
-                                        <option value="{{ family.pk }}" {% if membership and membership.family_id == family.pk %}selected{% endif %}>
-                                            {{ family.family_name|default:'Без названия' }}
-                                        </option>
-                                    {% endfor %}
-                                </select>
-                                <select name="relation"
-                                        class="form-select form-select-sm w-auto"
-                                        data-role="relation-select"
-                                        {% if not membership %}disabled{% endif %}>
-                                    <option value="" {% if not membership %}selected{% endif %} hidden>Сын/дочь/мать/отец…</option>
-                                    {% for value, label in relation_choices %}
-                                        <option value="{{ value }}" {% if membership and membership.relation == value %}selected{% endif %}>
-                                            {{ label }}
-                                        </option>
-                                    {% endfor %}
-                                </select>
-                                <button type="submit"
-                                        class="btn btn-primary btn-sm d-none"
-                                        data-role="family-save">
-                                    Ок
-                                </button>
-                            </div>
-                            <div class="small text-danger mt-1 d-none" data-form-feedback></div>
-                        </form>
-                    {% else %}
-                        <div class="mt-1 small text-muted">
-                            Семья:
-                            {% if membership %}
-                                {{ membership.family.family_name|default:'не указана' }}
+                    {% with memberships=person.familymember_set.all %}
+                        {% with membership=memberships.0 %}
+                            {% if can_manage_people %}
+                                <div class="mt-1 d-flex flex-column gap-1 small text-muted"
+                                     data-family-display-container
+                                     data-person-id="{{ person.pk }}">
+                                    <span class="person-family-display link-offset-1"
+                                          role="button"
+                                          tabindex="0"
+                                          data-person-id="{{ person.pk }}"
+                                          data-target="family"
+                                          style="cursor: pointer;">
+                                        Семья:
+                                        {% if membership %}
+                                            {{ membership.family.family_name|default:'не указана' }}
+                                        {% else %}
+                                            не указана
+                                        {% endif %}
+                                    </span>
+                                    <span class="person-relation-display link-offset-1"
+                                          role="button"
+                                          tabindex="0"
+                                          data-person-id="{{ person.pk }}"
+                                          data-target="relation"
+                                          style="cursor: pointer;">
+                                        Родство:
+                                        {% if membership %}
+                                            {{ membership.get_relation_display }}
+                                        {% else %}
+                                            не указано
+                                        {% endif %}
+                                    </span>
+                                </div>
+                                <form method="post"
+                                      action="{% url 'members:person_assign_family' person.pk %}"
+                                      class="person-family-form d-none mt-2"
+                                      data-person-id="{{ person.pk }}"
+                                      data-person-surname="{{ person.surname }}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <select name="family_id"
+                                                class="form-select form-select-sm w-auto"
+                                                data-role="family-select">
+                                            <option value="">Без семьи</option>
+                                            {% for family in families %}
+                                                <option value="{{ family.pk }}" {% if membership and membership.family_id == family.pk %}selected{% endif %}>
+                                                    {{ family.family_name|default:'Без названия' }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                        <select name="relation"
+                                                class="form-select form-select-sm w-auto"
+                                                data-role="relation-select"
+                                                {% if not membership %}disabled{% endif %}>
+                                            <option value="" {% if not membership %}selected{% endif %} hidden>Сын/дочь/мать/отец…</option>
+                                            {% for value, label in relation_choices %}
+                                                <option value="{{ value }}" {% if membership and membership.relation == value %}selected{% endif %}>
+                                                    {{ label }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit"
+                                                class="btn btn-primary btn-sm d-none"
+                                                data-role="family-save">
+                                            Ок
+                                        </button>
+                                    </div>
+                                    <div class="small text-danger mt-1 d-none" data-form-feedback></div>
+                                </form>
                             {% else %}
-                                не указана
+                                <div class="mt-1 small text-muted">
+                                    Семья:
+                                    {% if membership %}
+                                        {{ membership.family.family_name|default:'не указана' }}
+                                    {% else %}
+                                        не указана
+                                    {% endif %}
+                                    <br>
+                                    Родство:
+                                    {% if membership %}
+                                        {{ membership.get_relation_display }}
+                                    {% else %}
+                                        не указано
+                                    {% endif %}
+                                </div>
                             {% endif %}
-                        </div>
-                    {% endif %}
+                        {% endwith %}
+                    {% endwith %}
                 </td>
                 <td>
                     {% if person.phone or person.email or person.telegram %}
@@ -188,7 +207,6 @@
                     </div>
                 </td>
             </tr>
-            {% endwith %}
         {% empty %}
             <tr>
                 <td colspan="5" class="text-center text-muted py-4">Нет доступных участников.</td>

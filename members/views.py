@@ -130,9 +130,6 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
         )
         if self.request.user.is_staff or self.request.user.is_superuser:
             self._attach_candidate_people(families)
-            context["all_families"] = families
-            context["relation_choices"] = FamilyMember.FAMILY_RELATION
-            context["person_form"] = PersonForm()
         return context
 
     def post(self, request, *args, **kwargs):
@@ -803,87 +800,6 @@ class FamilyInlineUpdateView(ApprovedUserRequiredMixin, View):
         return JsonResponse(
             {"success": False, "errors": ["Неподдерживаемое поле для обновления."]},
             status=400,
-        )
-
-
-class FamilyMemberCreateModalView(ApprovedUserRequiredMixin, View):
-    """Создание нового участника и привязка его к семье из модального окна."""
-
-    def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
-            return self.handle_no_permission()
-
-        form = PersonForm(request.POST, request.FILES)
-        family_id = request.POST.get("family_id")
-        relation = (request.POST.get("relation") or "").strip()
-        make_contact = request.POST.get("make_contact") == "on"
-
-        errors: list[str] = []
-        if not family_id:
-            errors.append("Выберите семью.")
-        if not relation:
-            errors.append("Укажите родство.")
-
-        family = None
-        if family_id:
-            family = Family.objects.filter(pk=family_id).first()
-            if not family:
-                errors.append("Выбрана некорректная семья.")
-
-        valid_relations = {value for value, _ in FamilyMember.FAMILY_RELATION}
-        if relation and relation not in valid_relations:
-            errors.append("Некорректное значение родства.")
-
-        if errors:
-            return JsonResponse({"success": False, "errors": errors}, status=400)
-
-        if not form.is_valid():
-            form_errors: list[str] = []
-            for field, field_errors in form.errors.items():
-                if field == "__all__":
-                    form_errors.extend(field_errors)
-                else:
-                    label = form.fields.get(field).label if field in form.fields else field
-                    for message in field_errors:
-                        form_errors.append(f"{label}: {message}")
-            return JsonResponse({"success": False, "errors": form_errors}, status=400)
-
-        assert family is not None  # for type checker
-
-        with transaction.atomic():
-            person = form.save()
-            membership, _ = FamilyMember.objects.get_or_create(
-                family=family,
-                person=person,
-                defaults={"relation": relation},
-            )
-            if membership.relation != relation:
-                membership.relation = relation
-                membership.save(update_fields=["relation"])
-
-            if make_contact:
-                family.contact_person = person
-                family.save(update_fields=["contact_person"])
-
-        member_html = render_to_string(
-            "members/includes/family_member_item.html",
-            {"membership": membership},
-            request=request,
-        )
-        message = f"{person} добавлен в семью {family}."
-        if make_contact:
-            message += " Назначен новым контактом семьи."
-
-        return JsonResponse(
-            {
-                "success": True,
-                "message": message,
-                "member": {
-                    "family_id": family.pk,
-                    "html": member_html,
-                },
-                "contact_person": str(family.contact_person) if make_contact else None,
-            }
         )
 
 
