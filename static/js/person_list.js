@@ -65,11 +65,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const displayContainer = document.querySelector(
       `[data-family-display-container][data-person-id="${personId}"]`
     );
+    const statusBadge = document.querySelector(
+      `[data-person-status-badge][data-person-id="${personId}"]`
+    );
     const familyDisplay = displayContainer?.querySelector(
       ".person-family-display"
-    );
-    const relationDisplay = displayContainer?.querySelector(
-      ".person-relation-display"
     );
 
     if (!familySelect || !relationSelect || !displayContainer) {
@@ -114,35 +114,19 @@ document.addEventListener("DOMContentLoaded", () => {
       saveButton.classList.add("d-none");
     };
 
-    const openEditor = (focusTarget) => {
+    const openEditor = () => {
       displayContainer.classList.add("d-none");
       form.classList.remove("d-none");
       toggleRelationState();
       updateSaveVisibility();
-      if (focusTarget === "relation" && !familySelect.value) {
-        familySelect.focus();
-        return;
-      }
-      if (focusTarget === "relation") {
-        relationSelect.focus();
-      } else {
-        familySelect.focus();
-      }
+      familySelect.focus();
     };
 
-    familyDisplay?.addEventListener("click", () => openEditor("family"));
+    familyDisplay?.addEventListener("click", () => openEditor());
     familyDisplay?.addEventListener("keypress", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        openEditor("family");
-      }
-    });
-
-    relationDisplay?.addEventListener("click", () => openEditor("relation"));
-    relationDisplay?.addEventListener("keypress", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openEditor("relation");
+        openEditor();
       }
     });
 
@@ -192,11 +176,14 @@ document.addEventListener("DOMContentLoaded", () => {
           if (familyDisplay) {
             familyDisplay.textContent = `Семья: ${membership.family_name}`;
           }
-          if (relationDisplay) {
-            relationDisplay.textContent = `Родство: ${membership.relation_display}`;
-          }
           familySelect.value = originalFamily;
           relationSelect.value = originalRelation;
+          if (statusBadge && !statusBadge.classList.contains("text-bg-success")) {
+            const relationText = membership.relation_display || "";
+            statusBadge.textContent = relationText
+              ? `Член семьи — ${relationText.toLocaleLowerCase("ru")}`
+              : "Член семьи";
+          }
         } else {
           originalFamily = "";
           originalRelation = "";
@@ -205,8 +192,8 @@ document.addEventListener("DOMContentLoaded", () => {
           if (familyDisplay) {
             familyDisplay.textContent = "Семья: не указана";
           }
-          if (relationDisplay) {
-            relationDisplay.textContent = "Родство: не указано";
+          if (statusBadge && !statusBadge.classList.contains("text-bg-success")) {
+            statusBadge.textContent = "Член семьи";
           }
         }
 

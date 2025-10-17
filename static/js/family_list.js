@@ -1,88 +1,164 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const forms = document.querySelectorAll(".family-add-member-form");
-  if (!forms.length) {
+  const modalElement = document.getElementById("familyMemberCreateModal");
+  const openButtons = document.querySelectorAll("[data-action='open-add-member']");
+
+  if (!modalElement || !openButtons.length) {
     return;
   }
 
-  const createFeedbackUpdater = (element) => (message, type = "muted") => {
-    if (!element) {
-      return;
+  const modal = new bootstrap.Modal(modalElement);
+  const form = modalElement.querySelector("[data-member-create-form]");
+  const familySelect = form.querySelector('[data-role="family-select"]');
+  const relationSelect = form.querySelector('[data-role="relation-select"]');
+  const feedbackBox = modalElement.querySelector("[data-form-feedback]");
+  const submitButton = form.querySelector('button[type="submit"]');
+  const selectedFamilyContainer = modalElement.querySelector(
+    "[data-selected-family-container]"
+  );
+  const selectedFamilyLabel = modalElement.querySelector(
+    "[data-selected-family]"
+  );
+
+  const resetForm = () => {
+    form.reset();
+    if (relationSelect) {
+      relationSelect.disabled = !familySelect.value;
     }
-    element.textContent = message || "";
-    element.className = `small text-${type}`;
+    if (feedbackBox) {
+      feedbackBox.classList.add("d-none");
+      feedbackBox.textContent = "";
+    }
+    if (selectedFamilyContainer) {
+      selectedFamilyContainer.classList.add("d-none");
+      if (selectedFamilyLabel) {
+        selectedFamilyLabel.textContent = "не выбрана";
+      }
+    }
   };
 
-  const updateMemberList = (container, memberPayload) => {
-    if (!container || !memberPayload) {
+  const setSelectedFamily = (familyId, familyName) => {
+    if (!familySelect) {
       return;
     }
-    const emptyStub = container.querySelector("[data-family-empty]");
-    if (emptyStub) {
-      emptyStub.remove();
+    familySelect.value = familyId || "";
+    if (relationSelect) {
+      relationSelect.disabled = !familySelect.value;
+      relationSelect.value = "";
     }
-    const existing = container.querySelector(
-      `#family-member-${memberPayload.id}`
-    );
-    if (existing) {
-      existing.outerHTML = memberPayload.html;
+    if (selectedFamilyLabel) {
+      selectedFamilyLabel.textContent = familyName || "не выбрана";
+    }
+    if (selectedFamilyContainer) {
+      if (familyId) {
+        selectedFamilyContainer.classList.remove("d-none");
+      } else {
+        selectedFamilyContainer.classList.add("d-none");
+      }
+    }
+  };
+
+  openButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const familyId = button.dataset.familyId || "";
+      const familyName = button.dataset.familyName || "не выбрана";
+      setSelectedFamily(familyId, familyName);
+      if (feedbackBox) {
+        feedbackBox.classList.add("d-none");
+        feedbackBox.textContent = "";
+      }
+      modal.show();
+    });
+  });
+
+  familySelect.addEventListener("change", () => {
+    if (relationSelect) {
+      relationSelect.disabled = !familySelect.value;
+      relationSelect.value = "";
+    }
+    if (familySelect.value && selectedFamilyLabel) {
+      const option =
+        familySelect.options[familySelect.selectedIndex]?.textContent || "";
+      selectedFamilyLabel.textContent = option || "не выбрана";
+      selectedFamilyContainer?.classList.remove("d-none");
     } else {
-      container.insertAdjacentHTML("beforeend", memberPayload.html);
+      selectedFamilyLabel.textContent = "не выбрана";
+      selectedFamilyContainer?.classList.add("d-none");
     }
+  });
+
+  modalElement.addEventListener("hidden.bs.modal", () => {
+    resetForm();
+  });
+
+  const showFeedback = (messages, tone = "danger") => {
+    if (!feedbackBox) {
+      if (Array.isArray(messages)) {
+        window.showToast?.(messages.join(". "), tone);
+      } else if (messages) {
+        window.showToast?.(messages, tone);
+      }
+      return;
+    }
+    const text = Array.isArray(messages) ? messages.join(" ") : messages;
+    feedbackBox.textContent = text || "";
+    feedbackBox.classList.toggle("d-none", !text);
   };
 
-  forms.forEach((form) => {
-    const cardContainer = form.closest("[data-family-card]");
-    const memberList = cardContainer?.querySelector("[data-family-member-list]");
-    const feedbackEl = form.querySelector("[data-form-feedback]");
-    const feedback = createFeedbackUpdater(feedbackEl);
-    const personSelect = form.querySelector('select[name="person_id"]');
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    showFeedback("");
+    submitButton.disabled = true;
 
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      feedback("");
+    const formData = new FormData(form);
 
-      const formData = new FormData(form);
-      try {
-        const response = await fetch(form.action, {
-          method: "POST",
-          headers: {
-            "X-Requested-With": "XMLHttpRequest",
-          },
-          body: formData,
-        });
+    try {
+      const response = await fetch(form.action, {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await response.json();
 
-        const payload = await response.json();
-        if (!response.ok || !payload.success) {
-          const errorMessage =
-            payload?.errors?.join(". ") ||
-            "Не удалось добавить участника. Попробуйте ещё раз.";
-          feedback(errorMessage, "danger");
-          return;
-        }
-
-        updateMemberList(memberList, payload.member);
-
-        if (payload.member?.created && personSelect) {
-          const selectedValue = formData.get("person_id");
-          if (selectedValue) {
-            const optionToRemove = personSelect.querySelector(
-              `option[value="${CSS.escape(selectedValue)}"]`
-            );
-            if (optionToRemove) {
-              optionToRemove.remove();
-            }
-          }
-        }
-
-        form.reset();
-        feedback(payload.message || "Член семьи добавлен.", "success");
-      } catch (error) {
-        console.error("Family member add failed:", error);
-        feedback(
-          "Произошла ошибка при добавлении. Проверьте соединение и повторите попытку.",
+      if (!response.ok || !payload.success) {
+        showFeedback(
+          payload?.errors || ["Не удалось добавить участника. Попробуйте ещё раз."],
           "danger"
         );
+        return;
       }
-    });
+
+      const familyId = payload.member?.family_id;
+      if (familyId) {
+        const targetModal = document.getElementById(`familyModal${familyId}`);
+        const memberList = targetModal?.querySelector(
+          "[data-family-member-list]"
+        );
+        if (memberList && payload.member.html) {
+          const emptyStub = memberList.querySelector("[data-family-empty]");
+          if (emptyStub) {
+            emptyStub.remove();
+          }
+          memberList.insertAdjacentHTML("beforeend", payload.member.html);
+        }
+        if (payload.contact_person) {
+          const contactDisplay = targetModal?.querySelector(
+            `[data-contact-display][data-family-id="${familyId}"]`
+          );
+          if (contactDisplay) {
+            contactDisplay.textContent = payload.contact_person;
+          }
+        }
+      }
+
+      modal.hide();
+      window.showToast?.(payload.message || "Участник добавлен.");
+    } catch (error) {
+      console.error("Family member create failed:", error);
+      showFeedback(
+        "Произошла ошибка при добавлении. Проверьте соединение и повторите попытку.",
+        "danger"
+      );
+    } finally {
+      submitButton.disabled = false;
+    }
   });
 });

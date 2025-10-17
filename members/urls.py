@@ -15,6 +15,7 @@ urlpatterns = [
     path("families/<int:pk>/finance/", views.FamilyFinanceView.as_view(), name="family_finance"),
     path("families/<int:pk>/toggle-status/", views.FamilyToggleStatusView.as_view(), name="family_toggle_status"),
     path("families/<int:pk>/inline-update/", views.FamilyInlineUpdateView.as_view(), name="family_inline_update"),
+    path("families/add-member/new/", views.FamilyMemberCreateModalView.as_view(), name="family_member_create"),
     path("families/<int:pk>/add-member/", views.FamilyAddMemberView.as_view(), name="family_add_member"),
     path("families/<int:pk>/services/<int:service_pk>/edit/", views.FamilyServiceUpdateView.as_view(), name="family_service_update"),
     path("families/<int:pk>/services/<int:service_pk>/delete/", views.FamilyServiceDeleteView.as_view(), name="family_service_delete"),
