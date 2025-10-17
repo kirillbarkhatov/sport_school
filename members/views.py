@@ -3,7 +3,9 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.db import transaction
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
@@ -44,6 +46,7 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
         context["can_manage_people"] = can_manage
         if can_manage:
             context["families"] = list(Family.objects.order_by("family_name"))
+            context["relation_choices"] = FamilyMember.FAMILY_RELATION
         return context
 
 
@@ -609,7 +612,9 @@ class PersonAssignFamilyView(ApprovedUserRequiredMixin, View):
 
         person = get_object_or_404(Person, pk=self.kwargs["pk"])
         family_id = request.POST.get("family_id") or ""
+        relation = (request.POST.get("relation") or "").strip()
         redirect_url = request.POST.get("next") or reverse("members:members_list")
+        is_ajax = request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
 
         existing_family_ids = list(person.familymember_set.values_list("family_id", flat=True))
 
@@ -621,17 +626,38 @@ class PersonAssignFamilyView(ApprovedUserRequiredMixin, View):
                     athlete=person.athlete,
                 ).delete()
             messages.success(request, f"Человек {person} удалён из семьи.")
+            if is_ajax:
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "membership": None,
+                        "message": f"Человек {person} удалён из семьи.",
+                    }
+                )
             return redirect(redirect_url)
 
         family = get_object_or_404(Family, pk=family_id)
+        valid_relations = {value for value, _ in FamilyMember.FAMILY_RELATION}
+        if not relation or relation not in valid_relations:
+            error_message = "Укажите корректное родственное отношение."
+            if is_ajax:
+                return JsonResponse({"success": False, "errors": [error_message]}, status=400)
+            messages.error(request, error_message)
+            return redirect(redirect_url)
+
         FamilyMember.objects.filter(person=person).exclude(family=family).delete()
         membership, created = FamilyMember.objects.get_or_create(
             family=family,
             person=person,
             defaults={"relation": FamilyMember.FAMILY_RELATION[0][0]},
         )
-        if not created and not membership.relation:
-            membership.relation = FamilyMember.FAMILY_RELATION[0][0]
+        updated = False
+        if not created and membership.relation != relation:
+            membership.relation = relation
+            membership.save(update_fields=["relation"])
+            updated = True
+        elif created and membership.relation != relation:
+            membership.relation = relation
             membership.save(update_fields=["relation"])
 
         if person.is_athlete:
@@ -649,7 +675,23 @@ class PersonAssignFamilyView(ApprovedUserRequiredMixin, View):
                 },
             )
 
-        messages.success(request, f"{person} привязан к семье {family}.")
+        relation_display = dict(FamilyMember.FAMILY_RELATION).get(membership.relation, membership.relation)
+        action = "добавлен" if created else "обновлён" if updated else "подтверждён"
+        action_message = f"{person} {action} в семье {family}."
+        messages.success(request, action_message)
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "success": True,
+                    "membership": {
+                        "family_id": family.pk,
+                        "family_name": family.family_name or "Без названия",
+                        "relation": membership.relation,
+                        "relation_display": relation_display,
+                    },
+                    "message": action_message,
+                }
+            )
         return redirect(redirect_url)
 
 
@@ -678,17 +720,28 @@ class FamilyAddMemberView(ApprovedUserRequiredMixin, View):
             return self.handle_no_permission()
 
         family = get_object_or_404(Family, pk=self.kwargs["pk"])
+        is_ajax = request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
         redirect_url = request.POST.get("next") or reverse("members:family_list")
         person_id = request.POST.get("person_id")
         relation = request.POST.get("relation")
 
         if not person_id or not relation:
             messages.error(request, "Выберите участника и укажите отношение.")
+            if is_ajax:
+                return JsonResponse(
+                    {"success": False, "errors": ["Выберите участника и укажите отношение."]},
+                    status=400,
+                )
             return redirect(redirect_url)
 
         valid_relations = {value for value, _ in FamilyMember.FAMILY_RELATION}
         if relation not in valid_relations:
             messages.error(request, "Некорректный тип отношения.")
+            if is_ajax:
+                return JsonResponse(
+                    {"success": False, "errors": ["Некорректный тип отношения."]},
+                    status=400,
+                )
             return redirect(redirect_url)
 
         person = get_object_or_404(Person, pk=person_id)
@@ -717,5 +770,27 @@ class FamilyAddMemberView(ApprovedUserRequiredMixin, View):
                 },
             )
 
+        relation_display = membership.get_relation_display()
         messages.success(request, action_message)
+        if is_ajax:
+            member_html = render_to_string(
+                "members/includes/family_member_item.html",
+                {"membership": membership},
+                request=request,
+            )
+            return JsonResponse(
+                {
+                    "success": True,
+                    "message": action_message,
+                    "member": {
+                        "id": membership.pk,
+                        "person_id": person.pk,
+                        "full_name": str(person),
+                        "relation": membership.relation,
+                        "relation_display": relation_display,
+                        "html": member_html,
+                        "created": created,
+                    },
+                }
+            )
         return redirect(redirect_url)

@@ -1,4 +1,5 @@
 {% extends 'school/base.html' %}
+{% load static %}
 
 {% block title %}Семьи{% endblock %}
 
@@ -22,25 +23,38 @@
             <div class="col-lg-4 col-md-6">
                 <div class="card h-100 shadow-sm">
                     <div class="card-body d-flex flex-column">
-                        <div class="mb-2">
-                            <h5 class="card-title mb-1">{{ family.family_name|default:'Без названия' }}</h5>
-                            <p class="text-muted small mb-1">Контакт: {{ family.contact_person }}</p>
-                            {% if family.comment %}
-                                <p class="small text-muted mb-0">{{ family.comment }}</p>
+                        <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                            <div>
+                                <h5 class="card-title mb-1">{{ family.family_name|default:'Без названия' }}</h5>
+                                <p class="text-muted small mb-1">Контакт: {{ family.contact_person }}</p>
+                                {% if family.comment %}
+                                    <p class="small text-muted mb-0">{{ family.comment }}</p>
+                                {% endif %}
+                            </div>
+                            {% if user.is_staff %}
+                                <form method="post"
+                                      action="{% url 'members:family_toggle_status' family.pk %}"
+                                      class="ms-auto">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="btn btn-outline-warning btn-sm">
+                                        Исключить из клуба
+                                    </button>
+                                </form>
                             {% endif %}
                         </div>
-                        <ul class="list-unstyled small flex-grow-1">
+                        <ul class="list-unstyled small flex-grow-1" data-family-member-list>
                             {% for membership in family.members.all %}
-                                <li class="mb-1">
-                                    {{ membership.person.surname }} {{ membership.person.name }}
-                                    <span class="text-muted">— {{ membership.get_relation_display }}</span>
-                                </li>
+                                {% include 'members/includes/family_member_item.html' with membership=membership %}
                             {% empty %}
-                                <li class="text-muted">Нет связанных членов семьи</li>
+                                <li class="text-muted" data-family-empty>Нет связанных членов семьи</li>
                             {% endfor %}
                         </ul>
                         {% if user.is_staff %}
-                            <form method="post" action="{% url 'members:family_add_member' family.pk %}" class="mt-2">
+                            <form method="post"
+                                  action="{% url 'members:family_add_member' family.pk %}"
+                                  class="mt-2 family-add-member-form"
+                                  data-family-id="{{ family.pk }}">
                                 {% csrf_token %}
                                 <input type="hidden" name="next" value="{{ request.get_full_path }}">
                                 <div class="row g-2">
@@ -53,7 +67,8 @@
                                         </select>
                                     </div>
                                     <div class="col-12">
-                                        <select name="relation" class="form-select form-select-sm">
+                                        <select name="relation" class="form-select form-select-sm" required>
+                                            <option value="" selected hidden>Сын/дочь/мать/отец…</option>
                                             {% for value, label in family.relation_choices %}
                                                 <option value="{{ value }}">{{ label }}</option>
                                             {% endfor %}
@@ -61,6 +76,9 @@
                                     </div>
                                     <div class="col-12 d-grid">
                                         <button type="submit" class="btn btn-outline-primary btn-sm">Добавить</button>
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="small" data-form-feedback></div>
                                     </div>
                                 </div>
                             </form>
@@ -70,12 +88,6 @@
                             <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_finance' family.pk %}">Финансы</a>
                             {% if user.is_staff %}
                                 <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_update' family.pk %}">Редактировать</a>
-                                <form method="post" action="{% url 'members:family_toggle_status' family.pk %}"
-                                      class="d-inline">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                    <button type="submit" class="btn btn-outline-warning btn-sm">Сделать бывшими</button>
-                                </form>
                             {% endif %}
                         </div>
                     </div>
@@ -103,18 +115,38 @@
                                 <p class="small text-muted mb-0">{{ family.comment }}</p>
                             {% endif %}
                         </div>
-                        <ul class="list-unstyled small flex-grow-1">
+                        <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                            <div>
+                                <h5 class="card-title mb-1">{{ family.family_name|default:'Без названия' }}</h5>
+                                <p class="text-muted small mb-1">Контакт: {{ family.contact_person }}</p>
+                                {% if family.comment %}
+                                    <p class="small text-muted mb-0">{{ family.comment }}</p>
+                                {% endif %}
+                            </div>
+                            {% if user.is_staff %}
+                                <form method="post"
+                                      action="{% url 'members:family_toggle_status' family.pk %}"
+                                      class="ms-auto">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                    <button type="submit" class="btn btn-outline-success btn-sm">
+                                        Вернуть в клуб
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
+                        <ul class="list-unstyled small flex-grow-1" data-family-member-list>
                             {% for membership in family.members.all %}
-                                <li class="mb-1">
-                                    {{ membership.person.surname }} {{ membership.person.name }}
-                                    <span class="text-muted">— {{ membership.get_relation_display }}</span>
-                                </li>
+                                {% include 'members/includes/family_member_item.html' with membership=membership %}
                             {% empty %}
-                                <li class="text-muted">Нет связанных членов семьи</li>
+                                <li class="text-muted" data-family-empty>Нет связанных членов семьи</li>
                             {% endfor %}
                         </ul>
                         {% if user.is_staff %}
-                            <form method="post" action="{% url 'members:family_add_member' family.pk %}" class="mt-2">
+                            <form method="post"
+                                  action="{% url 'members:family_add_member' family.pk %}"
+                                  class="mt-2 family-add-member-form"
+                                  data-family-id="{{ family.pk }}">
                                 {% csrf_token %}
                                 <input type="hidden" name="next" value="{{ request.get_full_path }}">
                                 <div class="row g-2">
@@ -127,7 +159,8 @@
                                         </select>
                                     </div>
                                     <div class="col-12">
-                                        <select name="relation" class="form-select form-select-sm">
+                                        <select name="relation" class="form-select form-select-sm" required>
+                                            <option value="" selected hidden>Сын/дочь/мать/отец…</option>
                                             {% for value, label in family.relation_choices %}
                                                 <option value="{{ value }}">{{ label }}</option>
                                             {% endfor %}
@@ -136,6 +169,9 @@
                                     <div class="col-12 d-grid">
                                         <button type="submit" class="btn btn-outline-primary btn-sm">Добавить</button>
                                     </div>
+                                    <div class="col-12">
+                                        <div class="small" data-form-feedback></div>
+                                    </div>
                                 </div>
                             </form>
                         {% endif %}
@@ -143,12 +179,6 @@
                             <a class="btn btn-outline-primary btn-sm flex-fill" href="{% url 'members:family_detail' family.pk %}">Подробнее</a>
                             {% if user.is_staff %}
                                 <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_update' family.pk %}">Редактировать</a>
-                                <form method="post" action="{% url 'members:family_toggle_status' family.pk %}"
-                                      class="d-inline">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                    <button type="submit" class="btn btn-outline-success btn-sm">Сделать действующими</button>
-                                </form>
                             {% endif %}
                         </div>
                     </div>
@@ -237,4 +267,9 @@
     </script>
     {% endif %}
 {% endif %}
+{% endblock %}
+
+{% block content_2 %}
+    {{ block.super }}
+    <script src="{% static 'js/family_list.js' %}"></script>
 {% endblock %}

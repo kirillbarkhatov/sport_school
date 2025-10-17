@@ -131,27 +131,28 @@ def ensure_week_ahead_schedule(reference_date=None) -> list[Class]:
 
     created_classes: list[Class] = []
 
-    templates = (
-        TrainingTemplate.objects.filter(is_active=True)
-        .select_related("group")
-        .order_by("day_of_week", "start_time")
-    )
+    with transaction.atomic():
+        templates = (
+            TrainingTemplate.objects.filter(is_active=True)
+            .select_for_update()
+            .select_related("group")
+            .order_by("day_of_week", "start_time")
+        )
 
-    for template in templates:
-        target_date = template.next_occurrence(start_date)
-        if target_date > end_date:
-            continue
-        if not template.applies_to_date(target_date):
-            continue
+        for template in templates:
+            target_date = template.next_occurrence(start_date)
+            if target_date > end_date:
+                continue
+            if not template.applies_to_date(target_date):
+                continue
 
-        naive_start = datetime.combine(target_date, template.start_time)
-        aware_start = timezone.make_aware(naive_start, tz)
+            naive_start = datetime.combine(target_date, template.start_time)
+            aware_start = timezone.make_aware(naive_start, tz)
 
-        exists = Class.objects.filter(group=template.group, date=aware_start).exists()
-        if exists:
-            continue
+            exists = Class.objects.filter(group=template.group, date=aware_start).exists()
+            if exists:
+                continue
 
-        with transaction.atomic():
             new_class = Class.objects.create(
                 date=aware_start,
                 duration=template.duration_minutes,
@@ -164,6 +165,6 @@ def ensure_week_ahead_schedule(reference_date=None) -> list[Class]:
                 creation_source=ClassCreationSource.TEMPLATE,
                 coach_status=ClassCoachStatus.PENDING,
             )
-        created_classes.append(new_class)
+            created_classes.append(new_class)
 
     return created_classes
