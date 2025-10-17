@@ -48,6 +48,7 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
         if can_manage:
             context["families"] = list(Family.objects.order_by("family_name"))
             context["relation_choices"] = FamilyMember.FAMILY_RELATION
+            context["person_form"] = PersonForm()
         return context
 
 
@@ -67,11 +68,93 @@ class PersonCreateView(ApprovedUserRequiredMixin, CreateView):
     model = Person
     template_name = "members/person_form.html"
     form_class = PersonForm
+    success_url = reverse_lazy("members:members_list")
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_staff and not request.user.is_superuser:
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
+
+    def _is_ajax(self) -> bool:
+        return self.request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+
+    def form_invalid(self, form):
+        response = super().form_invalid(form)
+        if self._is_ajax():
+            errors = {}
+            for field, messages_list in form.errors.get_json_data().items():
+                errors[field] = [message["message"] for message in messages_list]
+            return JsonResponse({"success": False, "errors": errors}, status=400)
+        return response
+
+    def form_valid(self, form):
+        request = self.request
+        family_id = request.POST.get("family_id") or ""
+        relation = (request.POST.get("relation") or "").strip()
+        make_contact = request.POST.get("make_family_contact") in {"on", "true", "1"}
+
+        selected_family = None
+        membership_payload = None
+
+        if family_id:
+            try:
+                selected_family = Family.objects.get(pk=family_id)
+            except (Family.DoesNotExist, ValueError):
+                form.add_error(None, "Выбранная семья не найдена.")
+                return self.form_invalid(form)
+
+            valid_relations = {value for value, _ in FamilyMember.FAMILY_RELATION}
+            if relation not in valid_relations:
+                form.add_error(None, "Укажите корректное родственное отношение.")
+                return self.form_invalid(form)
+        elif relation:
+            form.add_error(None, "Для указанного родства выберите семью.")
+            return self.form_invalid(form)
+
+        if make_contact and not selected_family:
+            form.add_error(None, "Чтобы сделать человека контактом, необходимо выбрать семью.")
+            return self.form_invalid(form)
+
+        with transaction.atomic():
+            self.object = form.save()
+
+            if selected_family:
+                membership, _ = FamilyMember.objects.get_or_create(
+                    family=selected_family,
+                    person=self.object,
+                    defaults={"relation": relation},
+                )
+                if membership.relation != relation:
+                    membership.relation = relation
+                    membership.save(update_fields=["relation"])
+                if make_contact and selected_family.contact_person_id != self.object.pk:
+                    selected_family.contact_person = self.object
+                    selected_family.save(update_fields=["contact_person"])
+
+                membership_payload = {
+                    "family_id": selected_family.pk,
+                    "family_name": selected_family.family_name or "Без названия",
+                    "relation": membership.relation,
+                    "relation_display": dict(FamilyMember.FAMILY_RELATION).get(
+                        membership.relation, membership.relation
+                    ),
+                }
+
+        messages.success(request, "Участник успешно добавлен.")
+
+        if self._is_ajax():
+            return JsonResponse(
+                {
+                    "success": True,
+                    "person_id": self.object.pk,
+                    "redirect_url": str(self.get_success_url()),
+                    "membership": membership_payload,
+                    "message": "Участник успешно добавлен.",
+                },
+                status=201,
+            )
+
+        return redirect(self.get_success_url())
 
 
 class PersonUpdateView(ApprovedUserRequiredMixin, UpdateView):

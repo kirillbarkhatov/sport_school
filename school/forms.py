@@ -56,7 +56,25 @@ class AthleteForm(StyleFormMixin, forms.ModelForm):
 class PersonForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Person
-        fields = "__all__"  # Выберите нужные поля
+        fields = "__all__"
+        widgets = {
+            "date_of_birth": forms.DateInput(
+                attrs={
+                    "type": "date",
+                    "class": "form-control",
+                }
+            ),
+            "gender": forms.Select(attrs={"class": "form-select"}),
+            "comment": forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # StyleFormMixin sets baseline classes; adjust select/input specifics here.
+        if "gender" in self.fields:
+            self.fields["gender"].widget.attrs["class"] = "form-select"
+        if "photo" in self.fields:
+            self.fields["photo"].widget.attrs.setdefault("class", "form-control")
 
 
 class ClassForm(StyleFormMixin, forms.ModelForm):

@@ -53,6 +53,42 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  const setStatusBadgeState = (
+    personId,
+    { isAthlete, relationLabel = "", relationCode = "" } = {}
+  ) => {
+    const badge = document.querySelector(
+      `[data-person-status-badge][data-person-id="${personId}"]`
+    );
+    if (!badge) {
+      return;
+    }
+    if (isAthlete) {
+      badge.textContent = "Спортсмен";
+      badge.classList.add("text-bg-success");
+      badge.classList.remove("text-bg-secondary");
+      delete badge.dataset.relationCode;
+      delete badge.dataset.relationDisplay;
+      return;
+    }
+    const trimmedLabel = relationLabel.trim();
+    badge.textContent = trimmedLabel
+      ? `Член семьи - ${trimmedLabel}`
+      : "Член семьи";
+    badge.classList.add("text-bg-secondary");
+    badge.classList.remove("text-bg-success");
+    if (relationCode) {
+      badge.dataset.relationCode = relationCode;
+    } else {
+      delete badge.dataset.relationCode;
+    }
+    if (trimmedLabel) {
+      badge.dataset.relationDisplay = trimmedLabel;
+    } else {
+      delete badge.dataset.relationDisplay;
+    }
+  };
+
   const familyForms = document.querySelectorAll(".person-family-form");
 
   familyForms.forEach((form) => {
@@ -68,8 +104,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const familyDisplay = displayContainer?.querySelector(
       ".person-family-display"
     );
-    const relationDisplay = displayContainer?.querySelector(
-      ".person-relation-display"
+    const statusBadge = document.querySelector(
+      `[data-person-status-badge][data-person-id="${personId}"]`
     );
 
     if (!familySelect || !relationSelect || !displayContainer) {
@@ -138,14 +174,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    relationDisplay?.addEventListener("click", () => openEditor("relation"));
-    relationDisplay?.addEventListener("keypress", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openEditor("relation");
-      }
-    });
-
     familySelect.addEventListener("change", () => {
       toggleRelationState();
       updateSaveVisibility();
@@ -192,11 +220,18 @@ document.addEventListener("DOMContentLoaded", () => {
           if (familyDisplay) {
             familyDisplay.textContent = `Семья: ${membership.family_name}`;
           }
-          if (relationDisplay) {
-            relationDisplay.textContent = `Родство: ${membership.relation_display}`;
-          }
           familySelect.value = originalFamily;
           relationSelect.value = originalRelation;
+          if (
+            statusBadge &&
+            !statusBadge.classList.contains("text-bg-success")
+          ) {
+            setStatusBadgeState(personId, {
+              isAthlete: false,
+              relationLabel: membership.relation_display || "",
+              relationCode: membership.relation || "",
+            });
+          }
         } else {
           originalFamily = "";
           originalRelation = "";
@@ -205,8 +240,11 @@ document.addEventListener("DOMContentLoaded", () => {
           if (familyDisplay) {
             familyDisplay.textContent = "Семья: не указана";
           }
-          if (relationDisplay) {
-            relationDisplay.textContent = "Родство: не указано";
+          if (
+            statusBadge &&
+            !statusBadge.classList.contains("text-bg-success")
+          ) {
+            setStatusBadgeState(personId, { isAthlete: false });
           }
         }
 
@@ -267,16 +305,33 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (payload.is_athlete) {
-          statusBadge.textContent = "Спортсмен";
-          statusBadge.classList.remove("text-bg-secondary");
-          statusBadge.classList.add("text-bg-success");
+          setStatusBadgeState(personId, { isAthlete: true });
           toggleButton.textContent = "Сделать членом семьи";
           toggleButton.classList.remove("btn-outline-success");
           toggleButton.classList.add("btn-outline-secondary");
         } else {
-          statusBadge.textContent = "Член семьи";
-          statusBadge.classList.remove("text-bg-success");
-          statusBadge.classList.add("text-bg-secondary");
+          let relationLabel = "";
+          let relationCode = "";
+          const familyForm = document.querySelector(
+            `.person-family-form[data-person-id="${personId}"]`
+          );
+          const relationSelect = familyForm?.querySelector(
+            '[data-role="relation-select"]'
+          );
+          if (relationSelect && relationSelect.value) {
+            relationCode = relationSelect.value;
+            const option =
+              relationSelect.options[relationSelect.selectedIndex];
+            relationLabel = option ? option.textContent.trim() : "";
+          } else {
+            relationLabel = statusBadge.dataset.relationDisplay || "";
+            relationCode = statusBadge.dataset.relationCode || "";
+          }
+          setStatusBadgeState(personId, {
+            isAthlete: false,
+            relationLabel,
+            relationCode,
+          });
           toggleButton.textContent = "Сделать спортсменом";
           toggleButton.classList.remove("btn-outline-secondary");
           toggleButton.classList.add("btn-outline-success");
@@ -300,5 +355,192 @@ document.addEventListener("DOMContentLoaded", () => {
       document.querySelectorAll('[data-bs-toggle="tooltip"]')
     );
     tooltipElements.forEach((element) => new bootstrap.Tooltip(element));
+  }
+
+  const personCreateModal = document.getElementById("personCreateModal");
+  if (personCreateModal) {
+    const createForm = personCreateModal.querySelector(
+      '[data-role="person-create-form"]'
+    );
+    const familySelect = createForm?.querySelector(
+      '[data-role="modal-family-select"]'
+    );
+    const relationSelect = createForm?.querySelector(
+      '[data-role="modal-relation-select"]'
+    );
+    const contactCheckbox = createForm?.querySelector(
+      '[data-role="modal-family-contact"]'
+    );
+    const errorsContainer = createForm?.querySelector(
+      '[data-role="person-form-errors"]'
+    );
+    const submitButton = createForm?.querySelector(
+      '[data-role="modal-submit-button"]'
+    );
+
+    const clearErrors = () => {
+      if (!createForm) {
+        return;
+      }
+      if (errorsContainer) {
+        errorsContainer.classList.add("d-none");
+        errorsContainer.textContent = "";
+      }
+      createForm
+        .querySelectorAll(".is-invalid")
+        .forEach((element) => element.classList.remove("is-invalid"));
+      createForm
+        .querySelectorAll("[data-field-error]")
+        .forEach((element) => {
+          element.classList.add("d-none");
+          element.textContent = "";
+        });
+    };
+
+    const toggleModalRelationState = () => {
+      if (!familySelect || !relationSelect || !contactCheckbox) {
+        return;
+      }
+      if (!familySelect.value) {
+        relationSelect.value = "";
+        relationSelect.disabled = true;
+        relationSelect.classList.remove("is-invalid");
+        contactCheckbox.checked = false;
+        contactCheckbox.disabled = true;
+        contactCheckbox.classList.remove("is-invalid");
+      } else {
+        relationSelect.disabled = false;
+        relationSelect.classList.remove("is-invalid");
+        contactCheckbox.disabled = false;
+        contactCheckbox.classList.remove("is-invalid");
+      }
+    };
+
+    const renderErrors = (errors = {}) => {
+      if (!createForm) {
+        return;
+      }
+      const generalMessages = [];
+      Object.entries(errors).forEach(([field, messages]) => {
+        const messageText = Array.isArray(messages)
+          ? messages.join(" ")
+          : String(messages || "");
+        if (!messageText) {
+          return;
+        }
+        if (field === "__all__") {
+          generalMessages.push(messageText);
+          return;
+        }
+        const fieldError = createForm.querySelector(
+          `[data-field-error="${field}"]`
+        );
+        const inputs = createForm.querySelectorAll(`[name="${field}"]`);
+        if (!fieldError || inputs.length === 0) {
+          generalMessages.push(messageText);
+          return;
+        }
+        fieldError.textContent = messageText;
+        fieldError.classList.remove("d-none");
+        inputs.forEach((input) => input.classList.add("is-invalid"));
+      });
+      if (generalMessages.length && errorsContainer) {
+        errorsContainer.textContent = generalMessages.join(" ");
+        errorsContainer.classList.remove("d-none");
+      }
+    };
+
+    familySelect?.addEventListener("change", () => {
+      toggleModalRelationState();
+      if (!createForm) {
+        return;
+      }
+      const familyError = createForm.querySelector(
+        '[data-field-error="family_id"]'
+      );
+      if (familyError) {
+        familyError.classList.add("d-none");
+        familyError.textContent = "";
+      }
+      familySelect.classList.remove("is-invalid");
+      if (relationSelect) {
+        relationSelect.classList.remove("is-invalid");
+        const relationError = createForm.querySelector(
+          '[data-field-error="relation"]'
+        );
+        if (relationError) {
+          relationError.classList.add("d-none");
+          relationError.textContent = "";
+        }
+      }
+    });
+
+    personCreateModal.addEventListener("show.bs.modal", () => {
+      clearErrors();
+      toggleModalRelationState();
+    });
+
+    personCreateModal.addEventListener("hidden.bs.modal", () => {
+      createForm?.reset();
+      clearErrors();
+      toggleModalRelationState();
+    });
+
+    createForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!createForm) {
+        return;
+      }
+      clearErrors();
+      if (submitButton) {
+        submitButton.disabled = true;
+      }
+      const formData = new FormData(createForm);
+      try {
+        const response = await fetch(createForm.action, {
+          method: "POST",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          body: formData,
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload?.success) {
+          renderErrors(payload?.errors || {});
+          const fallbackMessage =
+            payload?.message ||
+            "Не удалось добавить участника. Проверьте данные и попробуйте снова.";
+          if (errorsContainer && errorsContainer.classList.contains("d-none")) {
+            errorsContainer.textContent = fallbackMessage;
+            errorsContainer.classList.remove("d-none");
+          }
+          return;
+        }
+        const modalInstance = bootstrap.Modal.getOrCreateInstance(
+          personCreateModal
+        );
+        showToast(
+          payload.message || "Участник успешно добавлен.",
+          "success"
+        );
+        modalInstance.hide();
+        const redirectUrl =
+          payload.redirect_url || window.location.href;
+        setTimeout(() => {
+          window.location.href = redirectUrl;
+        }, 200);
+      } catch (error) {
+        console.error("Create person failed:", error);
+        if (errorsContainer) {
+          errorsContainer.textContent =
+            "Произошла ошибка при добавлении. Повторите попытку позже.";
+          errorsContainer.classList.remove("d-none");
+        }
+      } finally {
+        if (submitButton) {
+          submitButton.disabled = false;
+        }
+      }
+    });
   }
 });

@@ -12,7 +12,12 @@
     </div>
     <div class="btn-toolbar mb-2 mb-md-0 gap-2">
         {% if user.is_staff %}
-            <a class="btn btn-primary" href="{% url 'members:members_create' %}">Добавить участника</a>
+            <button type="button"
+                    class="btn btn-primary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#personCreateModal">
+                Добавить участника
+            </button>
         {% endif %}
     </div>
 </div>
@@ -37,19 +42,27 @@
                          style="width:40px;height:40px;object-fit:cover;">
                 </td>
                 <td>
-                    <div class="d-flex align-items-center gap-2 flex-nowrap text-truncate" style="max-width: 18rem;">
-                        <a href="{% url 'members:members_detail' person.pk %}"
-                           class="link-underline link-underline-opacity-0 text-truncate">
-                            {{ person.surname }} {{ person.name }}
-                        </a>
-                        <span class="badge {% if person.is_athlete %}text-bg-success{% else %}text-bg-secondary{% endif %}"
-                              data-person-status-badge
-                              data-person-id="{{ person.pk }}">
-                            {% if person.is_athlete %}Спортсмен{% else %}Член семьи{% endif %}
-                        </span>
-                    </div>
                     {% with memberships=person.familymember_set.all %}
                         {% with membership=memberships.0 %}
+                            <div class="d-flex align-items-center gap-2 flex-nowrap text-truncate" style="max-width: 18rem;">
+                                <a href="{% url 'members:members_detail' person.pk %}"
+                                   class="link-underline link-underline-opacity-0 text-truncate">
+                                    {{ person.surname }} {{ person.name }}
+                                </a>
+                                <span class="badge {% if person.is_athlete %}text-bg-success{% else %}text-bg-secondary{% endif %}"
+                                      data-person-status-badge
+                                      data-person-id="{{ person.pk }}"
+                                      {% if not person.is_athlete and membership %}
+                                          data-relation-code="{{ membership.relation|default_if_none:'' }}"
+                                          data-relation-display="{{ membership.get_relation_display|default_if_none:'' }}"
+                                      {% endif %}>
+                                    {% if person.is_athlete %}
+                                        Спортсмен
+                                    {% else %}
+                                        Член семьи{% if membership %} - {{ membership.get_relation_display }}{% endif %}
+                                    {% endif %}
+                                </span>
+                            </div>
                             {% if can_manage_people %}
                                 <div class="mt-1 d-flex flex-column gap-1 small text-muted"
                                      data-family-display-container
@@ -65,19 +78,6 @@
                                             {{ membership.family.family_name|default:'не указана' }}
                                         {% else %}
                                             не указана
-                                        {% endif %}
-                                    </span>
-                                    <span class="person-relation-display link-offset-1"
-                                          role="button"
-                                          tabindex="0"
-                                          data-person-id="{{ person.pk }}"
-                                          data-target="relation"
-                                          style="cursor: pointer;">
-                                        Родство:
-                                        {% if membership %}
-                                            {{ membership.get_relation_display }}
-                                        {% else %}
-                                            не указано
                                         {% endif %}
                                     </span>
                                 </div>
@@ -125,13 +125,6 @@
                                         {{ membership.family.family_name|default:'не указана' }}
                                     {% else %}
                                         не указана
-                                    {% endif %}
-                                    <br>
-                                    Родство:
-                                    {% if membership %}
-                                        {{ membership.get_relation_display }}
-                                    {% else %}
-                                        не указано
                                     {% endif %}
                                 </div>
                             {% endif %}
@@ -215,6 +208,170 @@
         </tbody>
     </table>
 </div>
+
+{% if can_manage_people and person_form %}
+    <div class="modal fade" id="personCreateModal" tabindex="-1" aria-labelledby="personCreateModalLabel"
+         aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <form id="person-create-form"
+                      action="{% url 'members:members_create' %}"
+                      method="post"
+                      enctype="multipart/form-data"
+                      data-role="person-create-form">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="personCreateModalLabel">Добавить участника</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                    </div>
+                    <div class="modal-body">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <div class="alert alert-danger d-none" data-role="person-form-errors"></div>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <div class="row g-3 align-items-end">
+                                    <div class="col-md-4">
+                                        <label class="form-label" for="{{ person_form.surname.id_for_label }}">
+                                            {{ person_form.surname.label }}
+                                        </label>
+                                        {{ person_form.surname }}
+                                        <div class="invalid-feedback d-none" data-field-error="surname"></div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label" for="{{ person_form.name.id_for_label }}">
+                                            {{ person_form.name.label }}
+                                        </label>
+                                        {{ person_form.name }}
+                                        <div class="invalid-feedback d-none" data-field-error="name"></div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label" for="{{ person_form.middlename.id_for_label }}">
+                                            {{ person_form.middlename.label }}
+                                        </label>
+                                        {{ person_form.middlename }}
+                                        <div class="invalid-feedback d-none" data-field-error="middlename"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="row g-3 align-items-end">
+                                    <div class="col-md-6 col-lg-4">
+                                        <label class="form-label" for="{{ person_form.date_of_birth.id_for_label }}">
+                                            {{ person_form.date_of_birth.label }}
+                                        </label>
+                                        {{ person_form.date_of_birth }}
+                                        <div class="invalid-feedback d-none" data-field-error="date_of_birth"></div>
+                                    </div>
+                                    <div class="col-md-6 col-lg-4">
+                                        <label class="form-label" for="{{ person_form.gender.id_for_label }}">
+                                            {{ person_form.gender.label }}
+                                        </label>
+                                        {{ person_form.gender }}
+                                        <div class="invalid-feedback d-none" data-field-error="gender"></div>
+                                    </div>
+                                    <div class="col-lg-4">
+                                        <label class="form-label" for="{{ person_form.photo.id_for_label }}">
+                                            {{ person_form.photo.label }}
+                                        </label>
+                                        {{ person_form.photo }}
+                                        <div class="invalid-feedback d-none" data-field-error="photo"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="border-top pt-3">
+                                    <h6 class="text-muted mb-3">Контакты</h6>
+                                    <div class="row g-3 align-items-end">
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="{{ person_form.email.id_for_label }}">
+                                                {{ person_form.email.label }}
+                                            </label>
+                                            {{ person_form.email }}
+                                            <div class="invalid-feedback d-none" data-field-error="email"></div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="{{ person_form.phone.id_for_label }}">
+                                                {{ person_form.phone.label }}
+                                            </label>
+                                            {{ person_form.phone }}
+                                            <div class="invalid-feedback d-none" data-field-error="phone"></div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="{{ person_form.telegram.id_for_label }}">
+                                                {{ person_form.telegram.label }}
+                                            </label>
+                                            {{ person_form.telegram }}
+                                            <div class="invalid-feedback d-none" data-field-error="telegram"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="{{ person_form.comment.id_for_label }}">
+                                    {{ person_form.comment.label }}
+                                </label>
+                                {{ person_form.comment }}
+                                <div class="invalid-feedback d-none" data-field-error="comment"></div>
+                            </div>
+                            <div class="col-12">
+                                <div class="border-top pt-3">
+                                    <div class="row g-3 align-items-center">
+                                        <div class="col-lg-5">
+                                            <label class="form-label" for="id_modal_family_select">Семья</label>
+                                            <select class="form-select"
+                                                    id="id_modal_family_select"
+                                                    name="family_id"
+                                                    data-role="modal-family-select">
+                                                <option value="">Без семьи</option>
+                                                {% for family in families %}
+                                                    <option value="{{ family.pk }}">{{ family.family_name|default:'Без названия' }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <div class="invalid-feedback d-none" data-field-error="family_id"></div>
+                                        </div>
+                                        <div class="col-lg-5">
+                                            <label class="form-label" for="id_modal_relation_select">Родство</label>
+                                            <select class="form-select"
+                                                    id="id_modal_relation_select"
+                                                    name="relation"
+                                                    data-role="modal-relation-select"
+                                                    disabled>
+                                                <option value="" selected hidden>Сын/дочь/мать/отец…</option>
+                                                {% for value, label in relation_choices %}
+                                                    <option value="{{ value }}">{{ label }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <div class="invalid-feedback d-none" data-field-error="relation"></div>
+                                        </div>
+                                        <div class="col-lg-2">
+                                            <div class="form-check mt-4">
+                                                <input class="form-check-input"
+                                                       type="checkbox"
+                                                       value="1"
+                                                       id="id_modal_make_contact"
+                                                       name="make_family_contact"
+                                                       data-role="modal-family-contact"
+                                                       disabled>
+                                                <label class="form-check-label small" for="id_modal_make_contact">
+                                                    Сделать контактом в семье
+                                                </label>
+                                            </div>
+                                            <div class="invalid-feedback d-none" data-field-error="make_family_contact"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+                        <button type="submit" class="btn btn-primary" data-role="modal-submit-button">Добавить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endif %}
 
 {% endblock %}
 
