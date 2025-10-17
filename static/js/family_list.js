@@ -31,9 +31,8 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   forms.forEach((form) => {
-    const memberList = form
-      .closest(".card-body")
-      ?.querySelector("[data-family-member-list]");
+    const cardContainer = form.closest("[data-family-card]");
+    const memberList = cardContainer?.querySelector("[data-family-member-list]");
     const feedbackEl = form.querySelector("[data-form-feedback]");
     const feedback = createFeedbackUpdater(feedbackEl);
     const personSelect = form.querySelector('select[name="person_id"]');
@@ -65,11 +64,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (payload.member?.created && personSelect) {
           const selectedValue = formData.get("person_id");
-          const optionToRemove = personSelect.querySelector(
-            `option[value="${CSS.escape(selectedValue)}"]`
-          );
-          if (optionToRemove) {
-            optionToRemove.remove();
+          if (selectedValue) {
+            const optionToRemove = personSelect.querySelector(
+              `option[value="${CSS.escape(selectedValue)}"]`
+            );
+            if (optionToRemove) {
+              optionToRemove.remove();
+            }
           }
         }
 

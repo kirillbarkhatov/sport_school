@@ -197,11 +197,12 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
         for family in families:
             existing_ids = {membership.person_id for membership in family.members.all()}
             candidates = [person for person in people if person.id not in existing_ids]
-            family_name = (family.family_name or "").lower()
+            family_prefix = (family.family_name or "").strip().lower()[:3]
             candidates.sort(
                 key=lambda person: (
                     0
-                    if family_name and person.surname.lower() == family_name
+                    if family_prefix
+                    and (person.surname or "").strip().lower()[:3] == family_prefix
                     else 1,
                     person.surname.lower(),
                     person.name.lower(),
@@ -578,10 +579,20 @@ class PersonToggleAthleteView(ApprovedUserRequiredMixin, View):
 
         person = get_object_or_404(Person, pk=self.kwargs["pk"])
         redirect_url = request.POST.get("next") or reverse("members:members_list")
+        is_ajax = request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
 
         if person.is_athlete:
             person.athlete.delete()
-            messages.success(request, f"{person} исключён из списка спортсменов.")
+            message = f"{person} исключён из списка спортсменов."
+            if is_ajax:
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "is_athlete": False,
+                        "message": message,
+                    }
+                )
+            messages.success(request, message)
             return redirect(redirect_url)
 
         level_value = Athlete.LEVEL_CHOICES[-1][0]
@@ -599,7 +610,16 @@ class PersonToggleAthleteView(ApprovedUserRequiredMixin, View):
                 },
             )
 
-        messages.success(request, f"{person} добавлен в список спортсменов.")
+        message = f"{person} добавлен в список спортсменов."
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "success": True,
+                    "is_athlete": True,
+                    "message": message,
+                }
+            )
+        messages.success(request, message)
         return redirect(redirect_url)
 
 
