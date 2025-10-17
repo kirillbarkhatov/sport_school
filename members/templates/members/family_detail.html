@@ -1,21 +1,112 @@
 {% extends 'school/base.html' %}
-
+{% load static %}
 {% block title %}{{ object.family_name }} — семья{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <div>
-        <h2 class="mb-0">Семья {{ object.family_name }}</h2>
-        <p class="text-muted mb-0">Контактное лицо — {{ object.contact_person }}</p>
-        <div class="small text-muted">Статус: {{ object.get_status_display }}</div>
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-start pt-3 pb-2 mb-3 border-bottom">
+    <div class="pe-3"
+         data-family-inline
+         data-family-id="{{ object.pk }}"
+         data-update-url="{% url 'members:family_inline_update' object.pk %}">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <h2 class="mb-0">
+                Семья
+                <span data-family-field="family_name-display">
+                    {{ object.family_name|default:'Без названия' }}
+                </span>
+            </h2>
+            {% if user.is_staff %}
+                <button class="btn btn-link btn-sm text-muted p-0"
+                        type="button"
+                        data-family-edit-trigger="family_name"
+                        aria-label="Переименовать семью">
+                    <i class="bi bi-pencil-square"></i>
+                </button>
+            {% endif %}
+        </div>
+        {% if user.is_staff %}
+            <div class="mt-2 d-none" data-family-editor="family_name">
+                <div class="input-group input-group-sm" style="max-width: 24rem;">
+                    <input type="text"
+                           class="form-control"
+                           maxlength="100"
+                           value="{{ object.family_name|default:'' }}"
+                           placeholder="Название семьи"
+                           data-editor-input>
+                    <button class="btn btn-primary" type="button" data-editor-action="save">Сохранить</button>
+                    <button class="btn btn-outline-secondary" type="button" data-editor-action="cancel">Отмена</button>
+                </div>
+                <div class="small text-danger mt-1 d-none" data-editor-feedback></div>
+            </div>
+        {% endif %}
+        <div class="text-muted mt-2 d-flex align-items-center gap-2 flex-wrap">
+            <span>
+                Контактное лицо —
+                <span data-family-field="contact_person-display">
+                    {{ object.contact_person|default:'Не указано' }}
+                </span>
+            </span>
+            {% if user.is_staff %}
+                <button class="btn btn-link btn-sm text-muted p-0"
+                        type="button"
+                        data-family-edit-trigger="contact_person"
+                        aria-label="Изменить контактное лицо">
+                    <i class="bi bi-pencil-square"></i>
+                </button>
+            {% endif %}
+        </div>
+        {% if user.is_staff %}
+            <div class="mt-2 d-none" data-family-editor="contact_person">
+                <div class="input-group input-group-sm" style="max-width: 28rem;">
+                    <select class="form-select" data-editor-input>
+                        <option value="">Не указано</option>
+                        {% for person in contact_people %}
+                            <option value="{{ person.pk }}" {% if object.contact_person_id == person.pk %}selected{% endif %}>
+                                {{ person.surname }} {{ person.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-primary" type="button" data-editor-action="save">Сохранить</button>
+                    <button class="btn btn-outline-secondary" type="button" data-editor-action="cancel">Отмена</button>
+                </div>
+                <div class="small text-danger mt-1 d-none" data-editor-feedback></div>
+            </div>
+        {% endif %}
+        <div class="small text-muted mt-2 d-flex align-items-center gap-2 flex-wrap">
+            <span>
+                Статус:
+                <span data-family-field="status-display">{{ object.get_status_display }}</span>
+            </span>
+            {% if user.is_staff %}
+                <button class="btn btn-link btn-sm text-muted p-0"
+                        type="button"
+                        data-family-edit-trigger="status"
+                        aria-label="Изменить статус семьи">
+                    <i class="bi bi-pencil-square"></i>
+                </button>
+            {% endif %}
+        </div>
+        {% if user.is_staff %}
+            <div class="mt-2 d-none" data-family-editor="status">
+                <div class="input-group input-group-sm" style="max-width: 20rem;">
+                    <select class="form-select" data-editor-input>
+                        {% for value, label in status_choices %}
+                            <option value="{{ value }}" {% if object.status == value %}selected{% endif %}>
+                                {{ label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-primary" type="button" data-editor-action="save">Сохранить</button>
+                    <button class="btn btn-outline-secondary" type="button" data-editor-action="cancel">Отмена</button>
+                </div>
+                <div class="small text-danger mt-1 d-none" data-editor-feedback></div>
+            </div>
+        {% endif %}
         {% if object.comment %}
-            <p class="text-muted small mb-0 mt-1">{{ object.comment }}</p>
+            <p class="text-muted small mb-0 mt-2">{{ object.comment }}</p>
         {% endif %}
     </div>
     <div class="btn-toolbar gap-2 mb-2 mb-md-0">
-        {% if user.is_staff %}
-            <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#familyEditModal">Редактировать</button>
-        {% endif %}
         <a class="btn btn-outline-secondary" href="{% url 'members:family_finance' object.pk %}">Услуги и платежи</a>
         <a class="btn btn-outline-secondary" href="{% url 'members:family_list' %}">К списку семей</a>
     </div>
@@ -70,7 +161,7 @@
 <div class="row g-4 mt-3">
     <div class="col-12">
         <div class="card shadow-sm">
-            <div class="card-header bg-body-tertiary">Спортсмены семьи</div>
+            <div class="card-header bg-body-terтиary">Спортсмены семьи</div>
             <div class="table-responsive">
                 <table class="table table-sm mb-0 align-middle">
                     <thead>
@@ -159,7 +250,15 @@
                                 <td>{{ row.service.name }}</td>
                                 <td>{{ row.net_amount|floatformat:2 }}</td>
                                 <td>{{ row.paid_amount|floatformat:2 }}</td>
-                                <td>{% if row.balance > 0 %}<span class="text-danger">{{ row.balance|floatformat:2 }}</span>{% elif row.balance < 0 %}<span class="text-success">{{ row.balance|floatformat:2 }}</span>{% else %}0{% endif %}</td>
+                                <td>
+                                    {% if row.balance > 0 %}
+                                        <span class="text-danger">{{ row.balance|floatformat:2 }}</span>
+                                    {% elif row.balance < 0 %}
+                                        <span class="text-success">{{ row.balance|floatformat:2 }}</span>
+                                    {% else %}
+                                        0
+                                    {% endif %}
+                                </td>
                             </tr>
                         {% empty %}
                             <tr>
@@ -174,81 +273,9 @@
 </div>
 {% endblock %}
 
-{% if user.is_staff %}
-<div class="modal fade" id="familyEditModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Редактировать семью</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <form method="post" action="{% url 'members:family_update' object.pk %}" novalidate>
-                <div class="modal-body">
-                    {% csrf_token %}
-                    <div class="row g-3">
-                        {% for field in family_form %}
-                            <div class="col-12 col-md-6">
-                                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                                {{ field }}
-                                {% for error in field.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                        {% endfor %}
-                    </div>
-                    <hr class="my-3">
-                    <h6>Члены семьи</h6>
-                    {% if member_formset.non_form_errors %}
-                        <div class="alert alert-danger">
-                            {% for error in member_formset.non_form_errors %}
-                                <div>{{ error }}</div>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                    {{ member_formset.management_form }}
-                    {% for form in member_formset.forms %}
-                        <div class="border rounded p-3 mb-3">
-                            {% for field in form.hidden_fields %}
-                                {{ field }}
-                            {% endfor %}
-                            {% for field in form.visible_fields %}
-                                <div class="mb-2">
-                                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                                    {{ field }}
-                                    {% for error in field.errors %}
-                                        <div class="text-danger small">{{ error }}</div>
-                                    {% endfor %}
-                                </div>
-                            {% endfor %}
-                        </div>
-                    {% endfor %}
-                    <hr class="my-3">
-                    <h6>Условия спортсменов</h6>
-                    {{ profile_formset.management_form }}
-                    {% for form in profile_formset.forms %}
-                        <div class="border rounded p-3 mb-3">
-                            <p class="small text-muted mb-2">{{ form.instance.athlete.person.surname }} {{ form.instance.athlete.person.name }}</p>
-                            {% for field in form.hidden_fields %}
-                                {{ field }}
-                            {% endfor %}
-                            {% for field in form.visible_fields %}
-                                <div class="mb-2">
-                                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                                    {{ field }}
-                                    {% for error in field.errors %}
-                                        <div class="text-danger small">{{ error }}</div>
-                                    {% endfor %}
-                                </div>
-                            {% endfor %}
-                        </div>
-                    {% endfor %}
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
-                    <button type="submit" class="btn btn-primary">Сохранить</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-{% endif %}
+{% block content_2 %}
+    {{ block.super }}
+    {% if user.is_staff %}
+        <script src="{% static 'js/family_detail.js' %}"></script>
+    {% endif %}
+{% endblock %}

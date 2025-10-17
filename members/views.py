@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.db import transaction
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
@@ -186,9 +187,9 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
                     family=family,
                     athlete=athlete,
                     defaults={
-                        "monthly_fee": family.base_monthly_fee,
-                        "discount_type": family.discount_type,
-                        "discount_value": family.discount_value,
+                        "monthly_fee": Decimal("0.00"),
+                        "discount_type": DiscountType.NONE,
+                        "discount_value": Decimal("0.00"),
                     },
                 )
 
@@ -233,9 +234,9 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
                     family=family,
                     athlete=person.athlete,
                     defaults={
-                        "monthly_fee": family.base_monthly_fee,
-                        "discount_type": family.discount_type,
-                        "discount_value": family.discount_value,
+                        "monthly_fee": Decimal("0.00"),
+                        "discount_type": DiscountType.NONE,
+                        "discount_value": Decimal("0.00"),
                     },
                 )
         profiles = (
@@ -329,10 +330,9 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
             athlete_rows=athlete_rows,
             service_rows=service_rows,
         )
-        if self.request.user.is_staff:
-            context["family_form"] = FamilyForm(instance=family)
-            context["member_formset"] = ExistingFamilyMemberFormSet(instance=family, prefix="members")
-            context["profile_formset"] = FamilyAthleteProfileFormSet(instance=family, prefix="profiles")
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            context["contact_people"] = Person.objects.order_by("surname", "name")
+            context["status_choices"] = Family.STATUS_CHOICES
         return context
 
 
@@ -604,9 +604,9 @@ class PersonToggleAthleteView(ApprovedUserRequiredMixin, View):
                 family=family,
                 athlete=athlete,
                 defaults={
-                    "monthly_fee": family.base_monthly_fee,
-                    "discount_type": family.discount_type,
-                    "discount_value": family.discount_value,
+                    "monthly_fee": Decimal("0.00"),
+                    "discount_type": DiscountType.NONE,
+                    "discount_value": Decimal("0.00"),
                 },
             )
 
@@ -689,9 +689,9 @@ class PersonAssignFamilyView(ApprovedUserRequiredMixin, View):
                 family=family,
                 athlete=person.athlete,
                 defaults={
-                    "monthly_fee": family.base_monthly_fee,
-                    "discount_type": family.discount_type,
-                    "discount_value": family.discount_value,
+                    "monthly_fee": Decimal("0.00"),
+                    "discount_type": DiscountType.NONE,
+                    "discount_value": Decimal("0.00"),
                 },
             )
 
@@ -730,6 +730,77 @@ class FamilyToggleStatusView(ApprovedUserRequiredMixin, View):
         messages.success(request, f"Статус семьи обновлён: {status_label.lower()}.")
         redirect_url = request.POST.get("next") or reverse("members:family_list")
         return redirect(redirect_url)
+
+
+class FamilyInlineUpdateView(ApprovedUserRequiredMixin, View):
+    """Обновление отдельных полей семьи без полной формы."""
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+
+        family = get_object_or_404(Family, pk=self.kwargs["pk"])
+        field = (request.POST.get("field") or "").strip()
+        value = (request.POST.get("value") or "").strip()
+
+        try:
+            if field == "family_name":
+                family.family_name = value or None
+                family.full_clean()
+                family.save(update_fields=["family_name"])
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "family_name": family.family_name or "Без названия",
+                        "message": "Название семьи обновлено.",
+                    }
+                )
+
+            if field == "contact_person":
+                contact_person = None
+                if value:
+                    contact_person = get_object_or_404(Person, pk=value)
+                family.contact_person = contact_person
+                family.full_clean()
+                family.save(update_fields=["contact_person"])
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "contact_person": str(contact_person) if contact_person else "Не указано",
+                        "contact_person_id": contact_person.pk if contact_person else None,
+                        "message": "Контактное лицо обновлено.",
+                    }
+                )
+
+            if field == "status":
+                valid_status = {value for value, _ in Family.STATUS_CHOICES}
+                if value not in valid_status:
+                    return JsonResponse(
+                        {"success": False, "errors": ["Некорректный статус."]},
+                        status=400,
+                    )
+                family.status = value
+                family.full_clean()
+                family.save(update_fields=["status"])
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "status": family.status,
+                        "status_display": family.get_status_display(),
+                        "message": "Статус семьи обновлён.",
+                    }
+                )
+        except ValidationError as exc:
+            error_list = []
+            for messages_list in exc.message_dict.values():
+                error_list.extend(messages_list)
+            error_list = error_list or [exc.message]
+            return JsonResponse({"success": False, "errors": error_list}, status=400)
+
+        return JsonResponse(
+            {"success": False, "errors": ["Неподдерживаемое поле для обновления."]},
+            status=400,
+        )
 
 
 class FamilyAddMemberView(ApprovedUserRequiredMixin, View):
@@ -784,9 +855,9 @@ class FamilyAddMemberView(ApprovedUserRequiredMixin, View):
                 family=family,
                 athlete=person.athlete,
                 defaults={
-                    "monthly_fee": family.base_monthly_fee,
-                    "discount_type": family.discount_type,
-                    "discount_value": family.discount_value,
+                    "monthly_fee": Decimal("0.00"),
+                    "discount_type": DiscountType.NONE,
+                    "discount_value": Decimal("0.00"),
                 },
             )
 

@@ -11,6 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!select) {
       return;
     }
+
     const surnamePrefix = normalizePrefix(surname);
     if (!surnamePrefix) {
       return;
@@ -33,32 +34,52 @@ document.addEventListener("DOMContentLoaded", () => {
     options.forEach((option) => select.appendChild(option));
   };
 
-  const setFeedback = (element, message, type = "muted") => {
+  const setFeedback = (element, message) => {
     if (!element) {
       return;
     }
-    element.textContent = message || "";
-    element.className = `align-self-center small text-${type}`;
+    if (!message) {
+      element.textContent = "";
+      element.classList.add("d-none");
+      return;
+    }
+    element.textContent = message;
+    element.classList.remove("d-none");
+  };
+
+  const showToast = (message, variant = "success") => {
+    if (window.showToast) {
+      window.showToast(message, variant);
+    }
   };
 
   const familyForms = document.querySelectorAll(".person-family-form");
 
   familyForms.forEach((form) => {
-    const feedbackEl = form.querySelector("[data-form-feedback]");
-    const familySelect = form.querySelector('select[name="family_id"]');
-    const relationSelect = form.querySelector('select[name="relation"]');
     const personId = form.dataset.personId;
     const personSurname = form.dataset.personSurname || "";
+    const familySelect = form.querySelector('[data-role="family-select"]');
+    const relationSelect = form.querySelector('[data-role="relation-select"]');
+    const saveButton = form.querySelector('[data-role="family-save"]');
+    const feedbackEl = form.querySelector("[data-form-feedback]");
+    const displayContainer = document.querySelector(
+      `[data-family-display-container][data-person-id="${personId}"]`
+    );
+    const familyDisplay = displayContainer?.querySelector(
+      ".person-family-display"
+    );
+    const relationDisplay = displayContainer?.querySelector(
+      ".person-relation-display"
+    );
 
-    if (!familySelect || !relationSelect) {
+    if (!familySelect || !relationSelect || !displayContainer) {
       return;
     }
 
     reorderFamilyOptions(familySelect, personSurname);
 
-    const statusElements = document.querySelectorAll(
-      `[data-family-status][data-person-id="${personId}"]`
-    );
+    let originalFamily = familySelect.value || "";
+    let originalRelation = relationSelect.value || "";
 
     const toggleRelationState = () => {
       if (!familySelect.value) {
@@ -69,12 +90,81 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     };
 
+    const updateSaveVisibility = () => {
+      const hasChanges =
+        familySelect.value !== originalFamily ||
+        relationSelect.value !== originalRelation;
+      if (hasChanges) {
+        saveButton.classList.remove("d-none");
+      } else {
+        saveButton.classList.add("d-none");
+      }
+    };
+
     toggleRelationState();
-    familySelect.addEventListener("change", toggleRelationState);
+    updateSaveVisibility();
+
+    const closeEditor = () => {
+      form.classList.add("d-none");
+      displayContainer.classList.remove("d-none");
+      setFeedback(feedbackEl, "");
+      familySelect.value = originalFamily;
+      relationSelect.value = originalRelation;
+      toggleRelationState();
+      saveButton.classList.add("d-none");
+    };
+
+    const openEditor = (focusTarget) => {
+      displayContainer.classList.add("d-none");
+      form.classList.remove("d-none");
+      toggleRelationState();
+      updateSaveVisibility();
+      if (focusTarget === "relation" && !familySelect.value) {
+        familySelect.focus();
+        return;
+      }
+      if (focusTarget === "relation") {
+        relationSelect.focus();
+      } else {
+        familySelect.focus();
+      }
+    };
+
+    familyDisplay?.addEventListener("click", () => openEditor("family"));
+    familyDisplay?.addEventListener("keypress", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openEditor("family");
+      }
+    });
+
+    relationDisplay?.addEventListener("click", () => openEditor("relation"));
+    relationDisplay?.addEventListener("keypress", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openEditor("relation");
+      }
+    });
+
+    familySelect.addEventListener("change", () => {
+      toggleRelationState();
+      updateSaveVisibility();
+    });
+    relationSelect.addEventListener("change", updateSaveVisibility);
+
+    form.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeEditor();
+      }
+    });
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       setFeedback(feedbackEl, "");
+      if (saveButton) {
+        saveButton.disabled = true;
+      }
 
       const formData = new FormData(form);
       try {
@@ -91,32 +181,48 @@ document.addEventListener("DOMContentLoaded", () => {
           const errorMessage =
             payload?.errors?.join(". ") ||
             "Не удалось обновить связь с семьёй.";
-          setFeedback(feedbackEl, errorMessage, "danger");
+          setFeedback(feedbackEl, errorMessage);
           return;
         }
 
-        if (payload.membership) {
-          statusElements.forEach((element) => {
-            element.textContent = `${payload.membership.family_name} — ${payload.membership.relation_display}`;
-          });
-          if (payload.membership.relation) {
-            relationSelect.value = payload.membership.relation;
+        const membership = payload.membership;
+        if (membership) {
+          originalFamily = membership.family_id.toString();
+          originalRelation = membership.relation || "";
+          if (familyDisplay) {
+            familyDisplay.textContent = `Семья: ${membership.family_name}`;
           }
+          if (relationDisplay) {
+            relationDisplay.textContent = `Родство: ${membership.relation_display}`;
+          }
+          familySelect.value = originalFamily;
+          relationSelect.value = originalRelation;
         } else {
-          statusElements.forEach((element) => {
-            element.textContent = "Семья не указана";
-          });
+          originalFamily = "";
+          originalRelation = "";
+          familySelect.value = "";
+          relationSelect.value = "";
+          if (familyDisplay) {
+            familyDisplay.textContent = "Семья: не указана";
+          }
+          if (relationDisplay) {
+            relationDisplay.textContent = "Родство: не указано";
+          }
         }
 
         toggleRelationState();
-        setFeedback(feedbackEl, payload.message || "Связь обновлена.", "success");
+        closeEditor();
+        showToast(payload.message || "Связь обновлена.");
       } catch (error) {
         console.error("Assign family failed:", error);
         setFeedback(
           feedbackEl,
-          "Произошла ошибка при обновлении. Повторите попытку позже.",
-          "danger"
+          "Произошла ошибка при обновлении. Повторите попытку позже."
         );
+      } finally {
+        if (saveButton) {
+          saveButton.disabled = false;
+        }
       }
     });
   });
@@ -156,7 +262,7 @@ document.addEventListener("DOMContentLoaded", () => {
             payload?.errors?.join(". ") ||
             "Не удалось обновить статус. Попробуйте позже.";
           console.error("Toggle athlete failed:", errorMessage);
-          alert(errorMessage);
+          showToast(errorMessage, "danger");
           return;
         }
 
@@ -175,9 +281,14 @@ document.addEventListener("DOMContentLoaded", () => {
           toggleButton.classList.remove("btn-outline-secondary");
           toggleButton.classList.add("btn-outline-success");
         }
+
+        showToast(payload.message || "Статус обновлён.");
       } catch (error) {
         console.error("Toggle athlete failed:", error);
-        alert("Не удалось сменить статус. Проверьте соединение и повторите попытку.");
+        showToast(
+          "Не удалось сменить статус. Проверьте соединение и повторите попытку.",
+          "danger"
+        );
       } finally {
         toggleButton.disabled = false;
       }

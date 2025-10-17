@@ -146,10 +146,6 @@ class FamilyForm(StyleFormMixin, forms.ModelForm):
             "family_name",
             "contact_person",
             "status",
-            "base_monthly_fee",
-            "discount_type",
-            "discount_value",
-            "current_month_paid",
             "comment",
         ]
         widgets = {

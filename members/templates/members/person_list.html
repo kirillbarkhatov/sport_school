@@ -12,7 +12,7 @@
     </div>
     <div class="btn-toolbar mb-2 mb-md-0 gap-2">
         {% if user.is_staff %}
-        <a class="btn btn-primary" href="{% url 'members:members_create'%}">Добавить участника</a>
+            <a class="btn btn-primary" href="{% url 'members:members_create' %}">Добавить участника</a>
         {% endif %}
     </div>
 </div>
@@ -25,154 +25,192 @@
             <th scope="col">Фото</th>
             <th scope="col">Фамилия, Имя</th>
             <th scope="col" class="text-center">Контакты</th>
-            <th scope="col" style="min-width: 22rem;">Семья</th>
-            <th scope="col" class="text-end" style="min-width: 26rem;">Действия</th>
+            <th scope="col" class="text-end" style="min-width: 24rem;">Действия</th>
         </tr>
         </thead>
         <tbody>
         {% for person in object_list %}
-        <tr>
-            <td>{{ forloop.counter }}</td>
-            <td><img src="{{ person.get_photo_url }}" alt="{{ person }}" class="rounded-circle" style="width:40px;height:40px;object-fit:cover;"></td>
-            <td>
-                <div class="d-flex align-items-center gap-2 flex-nowrap text-truncate" style="max-width: 18rem;">
-                    <a href="{% url 'members:members_detail' person.pk%}" class="link-underline link-underline-opacity-0 text-truncate">
-                        {{ person.surname }} {{ person.name }}
-                    </a>
-                    <span class="badge {% if person.is_athlete %}text-bg-success{% else %}text-bg-secondary{% endif %}"
-                          data-person-status-badge
-                          data-person-id="{{ person.pk }}">
-                        {% if person.is_athlete %}Спортсмен{% else %}Член семьи{% endif %}
-                    </span>
-                </div>
-            </td>
-            <td>
-                {% if person.phone or person.email or person.telegram %}
-                    <div class="d-flex justify-content-center justify-content-md-start gap-2">
-                        {% if person.phone %}
-                            <a class="text-body" href="tel:{{ person.phone|urlencode }}"
-                               data-bs-toggle="tooltip" data-bs-placement="top" title="{{ person.phone }}"
-                               aria-label="Телефон {{ person.phone }}">
-                                <i class="bi bi-telephone-fill"></i>
-                            </a>
-                        {% endif %}
-                        {% if person.email %}
-                            <a class="text-body" href="mailto:{{ person.email }}"
-                               data-bs-toggle="tooltip" data-bs-placement="top" title="{{ person.email }}"
-                               aria-label="Email {{ person.email }}">
-                                <i class="bi bi-envelope-fill"></i>
-                            </a>
-                        {% endif %}
-                        {% if person.telegram %}
-                            {% with handle=person.telegram|cut:"@" %}
-                                <a class="text-body" href="https://t.me/{{ handle }}"
-                                   target="_blank" rel="noopener"
-                                   data-bs-toggle="tooltip" data-bs-placement="top" title="@{{ handle }}"
-                                   aria-label="Telegram @{{ handle }}">
-                                    <i class="bi bi-telegram"></i>
-                                </a>
-                            {% endwith %}
-                        {% endif %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>
+                    <img src="{{ person.get_photo_url }}" alt="{{ person }}" class="rounded-circle"
+                         style="width:40px;height:40px;object-fit:cover;">
+                </td>
+                <td>
+                    <div class="d-flex align-items-center gap-2 flex-nowrap text-truncate" style="max-width: 18rem;">
+                        <a href="{% url 'members:members_detail' person.pk %}"
+                           class="link-underline link-underline-opacity-0 text-truncate">
+                            {{ person.surname }} {{ person.name }}
+                        </a>
+                        <span class="badge {% if person.is_athlete %}text-bg-success{% else %}text-bg-secondary{% endif %}"
+                              data-person-status-badge
+                              data-person-id="{{ person.pk }}">
+                            {% if person.is_athlete %}Спортсмен{% else %}Член семьи{% endif %}
+                        </span>
                     </div>
-                {% else %}
-                    <span class="text-muted">—</span>
-                {% endif %}
-            </td>
-            <td>
-                {% with memberships=person.familymember_set.all %}
-                    {% with membership=memberships.0 %}
-                        {% if can_manage_people %}
-                            <div class="d-flex flex-column gap-2">
+                    {% with memberships=person.familymember_set.all %}
+                        {% with membership=memberships.0 %}
+                            {% if can_manage_people %}
+                                <div class="mt-1 d-flex flex-column gap-1 small text-muted"
+                                     data-family-display-container
+                                     data-person-id="{{ person.pk }}">
+                                    <span class="person-family-display link-offset-1"
+                                          role="button"
+                                          tabindex="0"
+                                          data-person-id="{{ person.pk }}"
+                                          data-target="family"
+                                          style="cursor: pointer;">
+                                        Семья:
+                                        {% if membership %}
+                                            {{ membership.family.family_name|default:'не указана' }}
+                                        {% else %}
+                                            не указана
+                                        {% endif %}
+                                    </span>
+                                    <span class="person-relation-display link-offset-1"
+                                          role="button"
+                                          tabindex="0"
+                                          data-person-id="{{ person.pk }}"
+                                          data-target="relation"
+                                          style="cursor: pointer;">
+                                        Родство:
+                                        {% if membership %}
+                                            {{ membership.get_relation_display }}
+                                        {% else %}
+                                            не указано
+                                        {% endif %}
+                                    </span>
+                                </div>
                                 <form method="post"
                                       action="{% url 'members:person_assign_family' person.pk %}"
-                                      class="person-family-form d-flex flex-wrap gap-2 align-items-center"
+                                      class="person-family-form d-none mt-2"
                                       data-person-id="{{ person.pk }}"
                                       data-person-surname="{{ person.surname }}">
                                     {% csrf_token %}
                                     <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                    <select name="family_id"
-                                            class="form-select form-select-sm flex-grow-1"
-                                            style="min-width: 18rem;">
-                                        <option value="">Без семьи</option>
-                                        {% for family in families %}
-                                            <option value="{{ family.pk }}" {% if membership and membership.family_id == family.pk %}selected{% endif %}>
-                                                {{ family.family_name|default:'Без названия' }}
-                                            </option>
-                                        {% endfor %}
-                                    </select>
-                                    <select name="relation"
-                                            class="form-select form-select-sm"
-                                            style="min-width: 12rem;"
-                                            {% if not membership %}disabled{% endif %}>
-                                        <option value="" {% if not membership %}selected{% endif %} hidden>Сын/дочь/мать/отец…</option>
-                                        {% for value, label in relation_choices %}
-                                            <option value="{{ value }}" {% if membership and membership.relation == value %}selected{% endif %}>
-                                                {{ label }}
-                                            </option>
-                                        {% endfor %}
-                                    </select>
-                                    <button type="submit" class="btn btn-outline-primary btn-sm">Ок</button>
-                                    <div class="align-self-center small text-muted" data-form-feedback style="min-width: 8rem;"></div>
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <select name="family_id"
+                                                class="form-select form-select-sm w-auto"
+                                                data-role="family-select">
+                                            <option value="">Без семьи</option>
+                                            {% for family in families %}
+                                                <option value="{{ family.pk }}" {% if membership and membership.family_id == family.pk %}selected{% endif %}>
+                                                    {{ family.family_name|default:'Без названия' }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                        <select name="relation"
+                                                class="form-select form-select-sm w-auto"
+                                                data-role="relation-select"
+                                                {% if not membership %}disabled{% endif %}>
+                                            <option value="" {% if not membership %}selected{% endif %} hidden>Сын/дочь/мать/отец…</option>
+                                            {% for value, label in relation_choices %}
+                                                <option value="{{ value }}" {% if membership and membership.relation == value %}selected{% endif %}>
+                                                    {{ label }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="submit"
+                                                class="btn btn-primary btn-sm d-none"
+                                                data-role="family-save">
+                                            Ок
+                                        </button>
+                                    </div>
+                                    <div class="small text-danger mt-1 d-none" data-form-feedback></div>
                                 </form>
-                                <div class="small text-muted"
-                                     data-family-status
-                                     data-person-id="{{ person.pk }}">
+                            {% else %}
+                                <div class="mt-1 small text-muted">
+                                    Семья:
                                     {% if membership %}
-                                        {{ membership.family.family_name|default:'Семья не указана' }} — {{ membership.get_relation_display }}
+                                        {{ membership.family.family_name|default:'не указана' }}
                                     {% else %}
-                                        Семья не указана
+                                        не указана
+                                    {% endif %}
+                                    <br>
+                                    Родство:
+                                    {% if membership %}
+                                        {{ membership.get_relation_display }}
+                                    {% else %}
+                                        не указано
                                     {% endif %}
                                 </div>
-                            </div>
-                        {% else %}
-                            <div class="small text-muted"
-                                 data-family-status
-                                 data-person-id="{{ person.pk }}">
-                                {% if membership %}
-                                    {{ membership.family.family_name|default:'Семья не указана' }} — {{ membership.get_relation_display }}
-                                {% else %}
-                                    Семья не указана
-                                {% endif %}
-                            </div>
-                        {% endif %}
-                    {% endwith %}
-                {% endwith %}
-            </td>
-            <td class="text-end">
-                <div class="d-flex justify-content-end gap-2 flex-nowrap">
-                    {% if can_manage_people %}
-                        <form method="post"
-                              action="{% url 'members:person_toggle_athlete' person.pk %}"
-                              class="m-0 person-status-toggle"
-                              data-person-id="{{ person.pk }}">
-                            {% csrf_token %}
-                            <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                            {% if person.is_athlete %}
-                                <button type="submit" class="btn btn-outline-secondary btn-sm"
-                                        style="min-width: 11rem;"
-                                        data-role="status-toggle-button">
-                                    Сделать членом семьи
-                                </button>
-                            {% else %}
-                                <button type="submit" class="btn btn-outline-success btn-sm"
-                                        style="min-width: 11rem;"
-                                        data-role="status-toggle-button">
-                                    Сделать спортсменом
-                                </button>
                             {% endif %}
-                        </form>
+                        {% endwith %}
+                    {% endwith %}
+                </td>
+                <td>
+                    {% if person.phone or person.email or person.telegram %}
+                        <div class="d-flex justify-content-center justify-content-md-start gap-2">
+                            {% if person.phone %}
+                                <a class="text-body" href="tel:{{ person.phone|urlencode }}"
+                                   data-bs-toggle="tooltip" data-bs-placement="top" title="{{ person.phone }}"
+                                   aria-label="Телефон {{ person.phone }}">
+                                    <i class="bi bi-telephone-fill"></i>
+                                </a>
+                            {% endif %}
+                            {% if person.email %}
+                                <a class="text-body" href="mailto:{{ person.email }}"
+                                   data-bs-toggle="tooltip" data-bs-placement="top" title="{{ person.email }}"
+                                   aria-label="Email {{ person.email }}">
+                                    <i class="bi bi-envelope-fill"></i>
+                                </a>
+                            {% endif %}
+                            {% if person.telegram %}
+                                {% with handle=person.telegram|cut:"@" %}
+                                    <a class="text-body" href="https://t.me/{{ handle }}"
+                                       target="_blank" rel="noopener"
+                                       data-bs-toggle="tooltip" data-bs-placement="top" title="@{{ handle }}"
+                                       aria-label="Telegram @{{ handle }}">
+                                        <i class="bi bi-telegram"></i>
+                                    </a>
+                                {% endwith %}
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <span class="text-muted">—</span>
                     {% endif %}
-                    <a class="btn btn-outline-primary btn-sm" style="min-width: 11rem;" href="{% url 'members:members_update' person.pk%}">Изменить</a>
-                    {% if user.is_staff %}
-                        <a class="btn btn-outline-danger btn-sm" style="min-width: 11rem;" href="{% url 'members:members_delete' person.pk%}">Удалить</a>
-                    {% endif %}
-                </div>
-            </td>
-        </tr>
+                </td>
+                <td class="text-end">
+                    <div class="d-flex justify-content-end gap-2 flex-nowrap">
+                        {% if can_manage_people %}
+                            <form method="post"
+                                  action="{% url 'members:person_toggle_athlete' person.pk %}"
+                                  class="m-0 person-status-toggle"
+                                  data-person-id="{{ person.pk }}">
+                                {% csrf_token %}
+                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                                {% if person.is_athlete %}
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm"
+                                            style="min-width: 11rem;"
+                                            data-role="status-toggle-button">
+                                        Сделать членом семьи
+                                    </button>
+                                {% else %}
+                                    <button type="submit" class="btn btn-outline-success btn-sm"
+                                            style="min-width: 11rem;"
+                                            data-role="status-toggle-button">
+                                        Сделать спортсменом
+                                    </button>
+                                {% endif %}
+                            </form>
+                        {% endif %}
+                        <a class="btn btn-outline-primary btn-sm" style="min-width: 11rem;"
+                           href="{% url 'members:members_update' person.pk %}">
+                            Изменить
+                        </a>
+                        {% if user.is_staff %}
+                            <a class="btn btn-outline-danger btn-sm" style="min-width: 11rem;"
+                               href="{% url 'members:members_delete' person.pk %}">
+                                Удалить
+                            </a>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
         {% empty %}
-        <tr>
-            <td colspan="6" class="text-center text-muted py-4">Нет доступных участников.</td>
-        </tr>
+            <tr>
+                <td colspan="5" class="text-center text-muted py-4">Нет доступных участников.</td>
+            </tr>
         {% endfor %}
         </tbody>
     </table>

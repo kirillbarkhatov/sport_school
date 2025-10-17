@@ -450,29 +450,6 @@ class Family(models.Model):
         default=STATUS_ACTIVE,
         verbose_name="Статус семьи",
     )
-    base_monthly_fee = models.DecimalField(
-        max_digits=9,
-        decimal_places=2,
-        default=Decimal("0.00"),
-        verbose_name="Базовая стоимость месяца",
-        help_text="Используется как значение по умолчанию для спортсменов семьи",
-    )
-    discount_type = models.CharField(
-        max_length=20,
-        choices=DiscountType.choices,
-        default=DiscountType.NONE,
-        verbose_name="Тип скидки семьи",
-    )
-    discount_value = models.DecimalField(
-        max_digits=7,
-        decimal_places=2,
-        default=Decimal("0.00"),
-        verbose_name="Размер скидки семьи",
-    )
-    current_month_paid = models.BooleanField(
-        default=False,
-        verbose_name="Оплата текущего месяца получена",
-    )
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
     def __str__(self):
