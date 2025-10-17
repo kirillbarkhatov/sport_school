@@ -20,7 +20,7 @@
     <h5 class="text-muted">Действующие члены клуба</h5>
     <div class="row g-3">
         {% for family in active_families %}
-            <div class="col-1">
+            <div class="col-2">
                 <div class="card shadow-sm">
                     <div class="card-body">
                         <h5 class="mb-2 text-truncate">{{ family.family_name|default:'Без названия' }}</h5>
@@ -35,7 +35,7 @@
             </div>
             {% include 'members/includes/family_modal.html' with family=family %}
         {% empty %}
-            <div class="col-1">
+            <div class="col-12">
                 <div class="alert alert-info mb-0">Нет действующих семей.</div>
             </div>
         {% endfor %}
@@ -46,7 +46,7 @@
     <h5 class="text-muted">Бывшие члены клуба</h5>
     <div class="row g-3">
         {% for family in alumni_families %}
-            <div class="col-12">
+            <div class="col-2">
                 <div class="card shadow-sm border border-warning-subtle">
                     <div class="card-body">
                         <h5 class="mb-2 text-truncate">{{ family.family_name|default:'Без названия' }}</h5>
