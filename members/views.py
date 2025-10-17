@@ -48,7 +48,6 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
         if can_manage:
             context["families"] = list(Family.objects.order_by("family_name"))
             context["relation_choices"] = FamilyMember.FAMILY_RELATION
-            context["person_create_form"] = PersonForm()
         return context
 
 
@@ -131,6 +130,9 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
         )
         if self.request.user.is_staff or self.request.user.is_superuser:
             self._attach_candidate_people(families)
+            context["all_families"] = families
+            context["relation_choices"] = FamilyMember.FAMILY_RELATION
+            context["person_form"] = PersonForm()
         return context
 
     def post(self, request, *args, **kwargs):

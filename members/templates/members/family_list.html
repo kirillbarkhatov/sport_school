@@ -10,9 +10,14 @@
         <p class="text-muted mb-0">Управление действующими и бывшими членами клуба.</p>
     </div>
     {% if user.is_staff %}
-        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#familyCreateModal">
-            Добавить семью
-        </button>
+        <div class="btn-group">
+            <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#familyCreateModal">
+                Добавить семью
+            </button>
+            <button class="btn btn-outline-primary" type="button" data-action="open-add-member">
+                Добавить участника
+            </button>
+        </div>
     {% endif %}
 </div>
 
@@ -20,78 +25,23 @@
     <h5 class="text-muted">Действующие члены клуба</h5>
     <div class="row g-3">
         {% for family in active_families %}
-            <div class="col-lg-4 col-md-6">
-                <div class="card h-100 shadow-sm">
-                    <div class="card-body d-flex flex-column">
-                        <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
-                            <div>
-                                <h5 class="card-title mb-1">{{ family.family_name|default:'Без названия' }}</h5>
-                                <p class="text-muted small mb-1">Контакт: {{ family.contact_person }}</p>
-                                {% if family.comment %}
-                                    <p class="small text-muted mb-0">{{ family.comment }}</p>
-                                {% endif %}
-                            </div>
-                            {% if user.is_staff %}
-                                <form method="post"
-                                      action="{% url 'members:family_toggle_status' family.pk %}"
-                                      class="ms-auto">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                    <button type="submit" class="btn btn-outline-warning btn-sm">
-                                        Исключить из клуба
-                                    </button>
-                                </form>
-                            {% endif %}
-                        </div>
-                        <ul class="list-unstyled small flex-grow-1" data-family-member-list>
-                            {% for membership in family.members.all %}
-                                {% include 'members/includes/family_member_item.html' with membership=membership %}
-                            {% empty %}
-                                <li class="text-muted" data-family-empty>Нет связанных членов семьи</li>
-                            {% endfor %}
-                        </ul>
-                        {% if user.is_staff %}
-                            <form method="post" action="{% url 'members:family_add_member' family.pk %}" class="mt-2 family-add-member-form" data-family-id="{{ family.pk }}">
-                                {% csrf_token %}
-                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                <div class="row g-2">
-                                    <div class="col-12">
-                                        <select name="person_id" class="form-select form-select-sm">
-                                            <option value="">Добавить участника…</option>
-                                            {% for person in family.candidate_people %}
-                                                <option value="{{ person.pk }}">{{ person.surname }} {{ person.name }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div class="col-12">
-                                        <select name="relation" class="form-select form-select-sm">
-                                            {% for value, label in family.relation_choices %}
-                                                <option value="{{ value }}">{{ label }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div class="col-12 d-grid">
-                                        <button type="submit" class="btn btn-outline-primary btn-sm">Добавить</button>
-                                    </div>
-                                    <div class="col-12">
-                                        <div class="small" data-form-feedback></div>
-                                    </div>
-                                </div>
-                            </form>
-                        {% endif %}
-                        <div class="mt-3 d-flex gap-2 flex-wrap">
-                            <a class="btn btn-outline-primary btn-sm flex-fill" href="{% url 'members:family_detail' family.pk %}">Подробнее</a>
-                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_finance' family.pk %}">Финансы</a>
-                            {% if user.is_staff %}
-                                <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_update' family.pk %}">Редактировать</a>
-                            {% endif %}
-                        </div>
+            <div class="col-12 col-sm-6 col-md-4 col-lg-3 col-xl-2 col-xxl-1">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h5 class="mb-2 text-truncate">{{ family.family_name|default:'Без названия' }}</h5>
+                        <button type="button"
+                                class="btn btn-outline-primary btn-sm"
+                                data-bs-toggle="modal"
+                                data-bs-target="#familyModal{{ family.pk }}">
+                            Подробнее…
+                        </button>
                     </div>
                 </div>
             </div>
+            {% include 'members/includes/family_modal.html' with family=family %}
         {% empty %}
             <div class="col-12">
-                <div class="alert alert-light">Нет семей в статусе «бывшие».</div>
+                <div class="alert alert-info mb-0">Нет действующих семей.</div>
             </div>
         {% endfor %}
     </div>
@@ -101,70 +51,23 @@
     <h5 class="text-muted">Бывшие члены клуба</h5>
     <div class="row g-3">
         {% for family in alumni_families %}
-            <div class="col-lg-4 col-md-6">
-                <div class="card h-100 shadow-sm">
-                    <div class="card-body d-flex flex-column">
-                        <div class="mb-2">
-                            <h5 class="card-title mb-1">{{ family.family_name|default:'Без названия' }}</h5>
-                            <p class="text-muted small mb-1">Контакт: {{ family.contact_person }}</p>
-                            {% if family.comment %}
-                                <p class="small text-muted mb-0">{{ family.comment }}</p>
-                            {% endif %}
-                        </div>
-                        <ul class="list-unstyled small flex-grow-1" data-family-member-list>
-                            {% for membership in family.members.all %}
-                                {% include 'members/includes/family_member_item.html' with membership=membership %}
-                            {% empty %}
-                                <li class="text-muted" data-family-empty>Нет связанных членов семьи</li>
-                            {% endfor %}
-                        </ul>
-                        {% if user.is_staff %}
-                            <form method="post" action="{% url 'members:family_add_member' family.pk %}" class="mt-2 family-add-member-form" data-family-id="{{ family.pk }}">
-                                {% csrf_token %}
-                                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                <div class="row g-2">
-                                    <div class="col-12">
-                                        <select name="person_id" class="form-select form-select-sm">
-                                            <option value="">Добавить участника…</option>
-                                            {% for person in family.candidate_people %}
-                                                <option value="{{ person.pk }}">{{ person.surname }} {{ person.name }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div class="col-12">
-                                        <select name="relation" class="form-select form-select-sm">
-                                            {% for value, label in family.relation_choices %}
-                                                <option value="{{ value }}">{{ label }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div class="col-12 d-grid">
-                                        <button type="submit" class="btn btn-outline-primary btn-sm">Добавить</button>
-                                    </div>
-                                    <div class="col-12">
-                                        <div class="small" data-form-feedback></div>
-                                    </div>
-                                </div>
-                            </form>
-                        {% endif %}
-                        <div class="mt-3 d-flex gap-2 flex-wrap">
-                            <a class="btn btn-outline-primary btn-sm flex-fill" href="{% url 'members:family_detail' family.pk %}">Подробнее</a>
-                            {% if user.is_staff %}
-                                <a class="btn btn-outline-secondary btn-sm" href="{% url 'members:family_update' family.pk %}">Редактировать</a>
-                                <form method="post" action="{% url 'members:family_toggle_status' family.pk %}"
-                                      class="d-inline">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                                    <button type="submit" class="btn btn-outline-success btn-sm">Сделать действующими</button>
-                                </form>
-                            {% endif %}
-                        </div>
+            <div class="col-12 col-sm-6 col-md-4 col-lg-3 col-xl-2 col-xxl-1">
+                <div class="card shadow-sm border border-warning-subtle">
+                    <div class="card-body">
+                        <h5 class="mb-2 text-truncate">{{ family.family_name|default:'Без названия' }}</h5>
+                        <button type="button"
+                                class="btn btn-outline-primary btn-sm"
+                                data-bs-toggle="modal"
+                                data-bs-target="#familyModal{{ family.pk }}">
+                            Подробнее…
+                        </button>
                     </div>
                 </div>
             </div>
+            {% include 'members/includes/family_modal.html' with family=family %}
         {% empty %}
             <div class="col-12">
-                <div class="alert alert-light">Нет семей в статусе «бывшие».</div>
+                <div class="alert alert-light mb-0">Нет семей в статусе «бывшие».</div>
             </div>
         {% endfor %}
     </div>
@@ -181,20 +84,31 @@
             <form method="post" action="" novalidate>
                 <div class="modal-body">
                     {% csrf_token %}
+                    {% if family_form.non_field_errors %}
+                        <div class="alert alert-danger mb-3">
+                            {% for error in family_form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
                     <div class="row g-3">
-                        {% for field in family_form %}
-                            <div class="col-12 col-md-6">
-                                <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                                {{ field }}
-                                {% if field.help_text %}
-                                    <div class="form-text">{{ field.help_text }}</div>
-                                {% endif %}
-                                {% for error in field.errors %}
-                                    <div class="text-danger small">{{ error }}</div>
-                                {% endfor %}
-                            </div>
-                        {% endfor %}
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="{{ family_form.family_name.id_for_label }}">{{ family_form.family_name.label }}</label>
+                            {{ family_form.family_name }}
+                            {% for error in family_form.family_name.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="{{ family_form.contact_person.id_for_label }}">{{ family_form.contact_person.label }}</label>
+                            {{ family_form.contact_person }}
+                            {% for error in family_form.contact_person.errors %}
+                                <div class="text-danger small">{{ error }}</div>
+                            {% endfor %}
+                        </div>
                     </div>
+                    {{ family_form.status.as_hidden }}
+                    {{ family_form.comment.as_hidden }}
                     <hr class="my-3">
                     <h6>Члены семьи</h6>
                     {% if member_formset.non_form_errors %}
@@ -244,6 +158,87 @@
         });
     </script>
     {% endif %}
+
+<div class="modal fade" id="familyMemberCreateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Добавить участника</h5>
+                <span class="small text-muted ms-3 d-none" data-selected-family-container>
+                    В семью: <span data-selected-family>не выбрана</span>
+                </span>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post"
+                  action="{% url 'members:family_member_create' %}"
+                  enctype="multipart/form-data"
+                  data-member-create-form>
+                <div class="modal-body">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        {% for field in person_form %}
+                            {% if field.field.widget.input_type != 'hidden' %}
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                    {{ field }}
+                                    {% if field.help_text %}
+                                        <div class="form-text">{{ field.help_text }}</div>
+                                    {% endif %}
+                                    {% if field.errors %}
+                                        <div class="text-danger small">{{ field.errors.0 }}</div>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                {{ field }}
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    <hr class="my-3">
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="id_member_family">Семья</label>
+                            <select name="family_id"
+                                    class="form-select"
+                                    id="id_member_family"
+                                    data-role="family-select">
+                                <option value="">Выберите семью…</option>
+                                {% for family in all_families %}
+                                    <option value="{{ family.pk }}">{{ family.family_name|default:'Без названия' }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="id_member_relation">Родство</label>
+                            <select name="relation"
+                                    class="form-select"
+                                    id="id_member_relation"
+                                    data-role="relation-select"
+                                    disabled>
+                                <option value="" selected hidden>Сын/дочь/мать/отец…</option>
+                                {% for value, label in relation_choices %}
+                                    <option value="{{ value }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="on" id="id_member_make_contact" name="make_contact">
+                                <label class="form-check-label" for="id_member_make_contact">
+                                    Сделать контактом в семье
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3 small text-danger d-none" data-form-feedback></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Добавить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endif %}
 {% endblock %}
 
