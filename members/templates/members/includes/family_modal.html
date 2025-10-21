@@ -38,7 +38,7 @@
                         </div>
                         <ul class="list-unstyled small flex-grow-1" data-family-member-list>
                             {% for membership in family.members.all %}
-                                {% include 'members/includes/family_member_item.html' with membership=membership %}
+                                {% include 'members/includes/family_member_item.html' with membership=membership persons_with_accounts=persons_with_accounts %}
                             {% empty %}
                                 <li class="text-muted" data-family-empty>Нет связанных членов семьи</li>
                             {% endfor %}

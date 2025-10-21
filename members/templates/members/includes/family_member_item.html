@@ -5,4 +5,7 @@
         <span class="text-muted fst-italic">Пользователь удалён</span>
     {% endif %}
     <span class="text-muted">— {{ membership.get_relation_display }}</span>
+    {% if persons_with_accounts and membership.person_id in persons_with_accounts %}
+        <span class="badge text-bg-primary ms-2 align-middle">Telegram</span>
+    {% endif %}
 </li>

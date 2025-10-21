@@ -125,7 +125,12 @@
                             {% else %}
                                 <strong class="text-muted fst-italic">Пользователь удалён</strong>
                             {% endif %}
-                            <div class="text-muted small">{{ membership.get_relation_display }}</div>
+                            <div class="text-muted small">
+                                {{ membership.get_relation_display }}
+                                {% if membership.person_id in persons_with_accounts %}
+                                    <span class="badge text-bg-primary ms-2 align-middle">Telegram</span>
+                                {% endif %}
+                            </div>
                         </div>
                         {% if membership.person %}
                             <div class="btn-group btn-group-sm">
@@ -146,19 +151,37 @@
         <div class="card shadow-sm h-100">
             <div class="card-header bg-body-tertiary">Аккаунты доступа</div>
             <ul class="list-group list-group-flush">
-                {% for user_link in object.users.all %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <div>
-                            <strong>{{ user_link.display_name }}</strong>
-                            <div class="small text-muted">email: {{ user_link.email|default:'—' }}</div>
-                        </div>
-                        <span class="badge rounded-pill {% if user_link.is_approved %}text-bg-success{% else %}text-bg-warning{% endif %}">
-                            {% if user_link.is_approved %}подтверждён{% else %}ожидает{% endif %}
-                        </span>
-                    </li>
-                {% empty %}
+                {% if linked_account_rows %}
+                    {% for row in linked_account_rows %}
+                        {% for user_link in row.users %}
+                            {% with person=row.membership.person %}
+                            <li class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-start gap-3">
+                                    <div>
+                                        <strong>{{ user_link.display_name }}</strong>
+                                        <div class="small text-muted">
+                                            Персона:
+                                            {% if person %}
+                                                {{ person.surname }} {{ person.name }}
+                                            {% else %}
+                                                <span class="fst-italic text-muted">удалена</span>
+                                            {% endif %}
+                                            ({{ row.membership.get_relation_display }})
+                                        </div>
+                                        <div class="small text-muted">Email: {{ user_link.email|default:'—' }}</div>
+                                        <div class="small text-muted">Telegram: {% if user_link.tg_username %}@{{ user_link.tg_username }}{% elif user_link.tg_id %}ID {{ user_link.tg_id }}{% else %}—{% endif %}</div>
+                                    </div>
+                                    <span class="badge rounded-pill {% if user_link.is_approved %}text-bg-success{% else %}text-bg-warning{% endif %}">
+                                        {% if user_link.is_approved %}подтверждён{% else %}ожидает{% endif %}
+                                    </span>
+                                </div>
+                            </li>
+                            {% endwith %}
+                        {% endfor %}
+                    {% endfor %}
+                {% else %}
                     <li class="list-group-item text-muted">Для этой семьи ещё нет привязанных аккаунтов.</li>
-                {% endfor %}
+                {% endif %}
             </ul>
         </div>
     </div>

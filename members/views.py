@@ -31,6 +31,23 @@ from school.services import (
     get_month_range,
 )
 
+
+def _group_users_by_person(person_ids):
+    if not person_ids:
+        return {}
+    from users.models import User
+
+    users = (
+        User.objects.select_related("person")
+        .filter(person_id__in=person_ids)
+        .order_by("person__surname", "person__name", "pk")
+    )
+    grouped = {}
+    for user in users:
+        grouped.setdefault(user.person_id, []).append(user)
+    return grouped
+
+
 # CRUD для модели "Person"
 class PersonListView(ApprovedUserRequiredMixin, ListView):
     """Контроллер для работы с БД членов клуба - список"""
@@ -39,7 +56,10 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
     template_name = "members/person_list.html"
 
     def get_queryset(self):
-        return get_person_queryset_for_user(self.request.user).prefetch_related("familymember_set__family")
+        return (
+            get_person_queryset_for_user(self.request.user)
+            .prefetch_related("familymember_set__family", "linked_users")
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -194,7 +214,7 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
     template_name = "members/family_list.html"
 
     def get_queryset(self):
-        base_qs = Family.objects.prefetch_related("members__person", "users")
+        base_qs = Family.objects.prefetch_related("members__person")
         if self.request.user.is_staff or self.request.user.is_superuser:
             return base_qs.order_by("family_name")
         family_ids = self.request.user.get_accessible_family_ids()
@@ -211,6 +231,14 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
             "member_formset",
             FamilyMemberInlineFormSet(prefix="members"),
         )
+        person_ids = {
+            membership.person_id
+            for family in families
+            for membership in family.members.all()
+            if membership.person_id
+        }
+        linked_map = _group_users_by_person(person_ids)
+        context["persons_with_accounts"] = list(linked_map.keys())
         if self.request.user.is_staff or self.request.user.is_superuser:
             self._attach_candidate_people(families)
         return context
@@ -301,7 +329,7 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
     template_name = "members/family_detail.html"
 
     def get_queryset(self):
-        base = Family.objects.prefetch_related("members__person", "users")
+        base = Family.objects.prefetch_related("members__person")
         if self.request.user.is_staff or self.request.user.is_superuser:
             return base
         return base.filter(id__in=self.request.user.get_accessible_family_ids())
@@ -309,8 +337,9 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         family: Family = self.object
+        memberships = list(family.members.select_related("person"))
         # ensure profiles exist для семейных спортсменов
-        for membership in family.members.select_related("person"):
+        for membership in memberships:
             person = membership.person
             if hasattr(person, "athlete"):
                 profile, _ = FamilyAthleteProfile.objects.get_or_create(
@@ -327,6 +356,17 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
             .select_related("athlete__person")
             .prefetch_related("services__payments", "contracts")
         )
+
+        person_ids = {m.person_id for m in memberships if m.person_id}
+        linked_map = _group_users_by_person(person_ids)
+        linked_account_rows = [
+            {
+                "membership": membership,
+                "users": linked_map.get(membership.person_id, []),
+            }
+            for membership in memberships
+            if membership.person_id and linked_map.get(membership.person_id)
+        ]
 
         today = timezone.now().date()
         month_start, _, next_month = get_month_range(today)
@@ -412,6 +452,8 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
         context.update(
             athlete_rows=athlete_rows,
             service_rows=service_rows,
+            linked_account_rows=linked_account_rows,
+            persons_with_accounts=list(linked_map.keys()),
         )
         if self.request.user.is_staff or self.request.user.is_superuser:
             context["contact_people"] = Person.objects.order_by("surname", "name")

@@ -44,25 +44,31 @@
                 <td>
                     {% with memberships=person.familymember_set.all %}
                         {% with membership=memberships.0 %}
-                            <div class="d-flex align-items-center gap-2 flex-nowrap text-truncate" style="max-width: 18rem;">
-                                <a href="{% url 'members:members_detail' person.pk %}"
-                                   class="link-underline link-underline-opacity-0 text-truncate">
-                                    {{ person.surname }} {{ person.name }}
-                                </a>
-                                <span class="badge {% if person.is_athlete %}text-bg-success{% else %}text-bg-secondary{% endif %}"
-                                      data-person-status-badge
-                                      data-person-id="{{ person.pk }}"
-                                      {% if not person.is_athlete and membership %}
-                                          data-relation-code="{{ membership.relation|default_if_none:'' }}"
-                                          data-relation-display="{{ membership.get_relation_display|default_if_none:'' }}"
-                                      {% endif %}>
-                                    {% if person.is_athlete %}
-                                        Спортсмен
-                                    {% else %}
-                                        Член семьи{% if membership %} - {{ membership.get_relation_display }}{% endif %}
-                                    {% endif %}
-                                </span>
-                            </div>
+                            <div class="d-flex flex-column gap-1" style="max-width: 24rem;">
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <a href="{% url 'members:members_detail' person.pk %}"
+                                       class="link-underline link-underline-opacity-0">
+                                        {{ person.surname }} {{ person.name }}
+                                    </a>
+                                    <span class="badge {% if person.is_athlete %}text-bg-success{% else %}text-bg-secondary{% endif %}"
+                                          data-person-status-badge
+                                          data-person-id="{{ person.pk }}"
+                                          {% if not person.is_athlete and membership %}
+                                              data-relation-code="{{ membership.relation|default_if_none:'' }}"
+                                              data-relation-display="{{ membership.get_relation_display|default_if_none:'' }}"
+                                          {% endif %}>
+                                        {% if person.is_athlete %}
+                                            Спортсмен
+                                        {% else %}
+                                            Член семьи{% if membership %} — {{ membership.get_relation_display }}{% endif %}
+                                        {% endif %}
+                                    </span>
+                                {% if person.linked_users.all %}
+                                    <span class="badge text-bg-primary d-inline-flex align-items-center px-2">
+                                        Telegram
+                                    </span>
+                                {% endif %}
+                                </div>
                             {% if can_manage_people %}
                                 <div class="mt-1 d-flex flex-column gap-1 small text-muted"
                                      data-family-display-container
