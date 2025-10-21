@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from functools import wraps
 
 import django
 from telegram import Update
@@ -48,6 +49,41 @@ from tg_bot.services.audience import chat_member_entry, track_audience_entry  # 
 
 AUDIENCE_TRACKING_GROUP = -2
 CHAT_MEMBER_TRACKING_GROUP = -1
+CALLBACK_LOGGER = logging.getLogger("tg_bot.callbacks")
+
+
+def trace_callback(name, callback):
+    @wraps(callback)
+    async def wrapper(update: Update, context):
+        query = getattr(update, "callback_query", None)
+        data = query.data if query else None
+        CHAT_ID = getattr(update.effective_chat, "id", None)
+        USER_ID = getattr(update.effective_user, "id", None)
+        CALLBACK_LOGGER.info(
+            "Callback received: data=%s chat_id=%s user_id=%s handler=%s",
+            data,
+            CHAT_ID,
+            USER_ID,
+            name,
+        )
+        return await callback(update, context)
+
+    return wrapper
+
+
+async def log_unmatched_callback(update: Update, context):
+    query = getattr(update, "callback_query", None)
+    data = query.data if query else None
+    CHAT_ID = getattr(update.effective_chat, "id", None)
+    USER_ID = getattr(update.effective_user, "id", None)
+    CALLBACK_LOGGER.warning(
+        "Unmatched callback: data=%s chat_id=%s user_id=%s",
+        data,
+        CHAT_ID,
+        USER_ID,
+    )
+    if query:
+        await query.answer("Действие временно недоступно.", show_alert=True)
 
 
 def build_application():
@@ -80,9 +116,16 @@ def build_application():
     application.add_handler(CommandHandler("adminpanel", admin_panel))
     application.add_handler(CommandHandler("coach", coach_panel))
 
-    application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern=r"^admin:"))
-    application.add_handler(CallbackQueryHandler(handle_coach_callback, pattern=r"^coach:"))
-    application.add_handler(CallbackQueryHandler(handle_user_callback, pattern=r"^user:"))
+    application.add_handler(CallbackQueryHandler(trace_callback("handle_admin_callback", handle_admin_callback), pattern=r"^admin"))
+    application.add_handler(CallbackQueryHandler(trace_callback("handle_coach_callback", handle_coach_callback), pattern=r"^coach:"))
+    application.add_handler(CallbackQueryHandler(trace_callback("handle_user_callback", handle_user_callback), pattern=r"^user:"))
+    application.add_handler(
+        CallbackQueryHandler(
+            log_unmatched_callback,
+            pattern=r"^(?!(admin|coach|user)).+",
+        ),
+        group=1,
+    )
 
     application.add_handler(InlineQueryHandler(inline_caps))
     application.add_handler(

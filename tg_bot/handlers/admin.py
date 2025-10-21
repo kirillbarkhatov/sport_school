@@ -12,6 +12,7 @@ from tg_bot.handlers.auth import build_authenticated_keyboard, _format_login_ins
 from tg_bot.services.notifications import (
     notify_admins_context,
     user_is_admin,
+    user_is_manager,
 )
 from school.models import Person
 from users.models import User, UserPersonLink, UserPersonLinkStatus
@@ -30,6 +31,17 @@ async def _ensure_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> b
         )
         return False
     return True
+
+
+async def _ensure_approver(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    tg_id = update.effective_user.id if update.effective_user else None
+    if await user_is_admin(tg_id) or await user_is_manager(tg_id):
+        return True
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="У вас нет прав для выполнения этого действия.",
+    )
+    return False
 
 
 async def _notify_user_approved(bot, user: User) -> None:
@@ -313,12 +325,19 @@ async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not await _ensure_admin(update, context):
+    query = update.callback_query
+    data = query.data if query else None
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    logger.debug(
+        "handle_admin_callback received callback: data=%s chat_id=%s user_id=%s",
+        data,
+        chat_id,
+        update.effective_user.id if update.effective_user else None,
+    )
+    if not await _ensure_approver(update, context):
         return
 
-    query = update.callback_query
-
-    data = query.data or ""
+    data = data or ""
     if data == "admin:noop":
         await query.answer()
         return
