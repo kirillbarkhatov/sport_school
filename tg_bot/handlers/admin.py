@@ -151,14 +151,6 @@ def _reject_link_sync(user_id: int, admin_user_id: Optional[int]) -> tuple[User,
     return user, link
 
 
-def _list_person_candidates_sync(user: User) -> list[Person]:
-    surname = (user.last_name or user.tg_last_name or user.first_name or "").strip()
-    queryset = Person.objects.order_by("surname", "name")
-    if surname:
-        queryset = queryset.filter(surname__icontains=surname)
-    return list(queryset[:10])
-
-
 async def _confirm_suggested_link(user_id: int, admin_user_id: Optional[int]) -> tuple[User, UserPersonLink]:
     return await sync_to_async(
         _confirm_suggested_link_sync,
@@ -180,16 +172,28 @@ async def _reject_link(user_id: int, admin_user_id: Optional[int]) -> tuple[User
     )(user_id, admin_user_id)
 
 
-async def _person_candidates_keyboard(user: User) -> InlineKeyboardMarkup:
-    persons = await sync_to_async(_list_person_candidates_sync, thread_sensitive=True)(user)
+async def _search_persons_by_surname(surname: str, limit: int = 20) -> list[Person]:
+    normalized = surname.strip()
+    if not normalized:
+        return []
+    queryset = (
+        Person.objects.filter(surname__icontains=normalized)
+        .filter(linked_users__isnull=True)
+        .order_by("surname", "name")
+        .distinct()
+    )
+    return await sync_to_async(list, thread_sensitive=True)(queryset[:limit])
+
+
+def _build_person_keyboard(user_id: int, persons: list[Person]) -> InlineKeyboardMarkup:
     if not persons:
-        rows = [[InlineKeyboardButton("Нет подходящих вариантов", callback_data="admin:noop")]]
+        rows = [[InlineKeyboardButton("Ничего не найдено", callback_data="admin:noop")]]
     else:
         rows = [
             [
                 InlineKeyboardButton(
                     text=f"{person.surname} {person.name} ({person.pk})",
-                    callback_data=f"admin_link:set_person:{user.pk}:{person.pk}",
+                    callback_data=f"admin_link:set_person:{user_id}:{person.pk}",
                 )
             ]
             for person in persons
@@ -345,6 +349,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
 
     if data == "admin:refresh":
+        context.user_data.pop("pending_person_search", None)
         await _update_pending_overview(query.message)
         return
 
@@ -369,6 +374,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             except ValueError as exc:
                 await query.answer(str(exc), show_alert=True)
                 return
+            context.user_data.pop("pending_person_search", None)
             await query.answer("Связь подтверждена", show_alert=False)
             await notify_admins_context(
                 context,
@@ -379,14 +385,13 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         if action == "select":
-            user_obj = await sync_to_async(
-                User.objects.select_related("link").get,
-                thread_sensitive=True,
-            )(pk=user_id)
-            keyboard = await _person_candidates_keyboard(user_obj)
+            context.user_data["pending_person_search"] = {
+                "user_id": user_id,
+                "initiator_id": update.effective_user.id if update.effective_user else None,
+            }
             await query.message.reply_text(
-                f"Выберите членa клуба для {user_obj.display_name()} (id={user_obj.pk}):",
-                reply_markup=keyboard,
+                "Введите фамилию члена клуба для поиска. "
+                "Будут показаны только участники без привязанных аккаунтов.",
             )
             return
 
@@ -404,6 +409,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             except Person.DoesNotExist:
                 await query.answer("Персона не найдена", show_alert=True)
                 return
+            context.user_data.pop("pending_person_search", None)
             await query.message.reply_text(
                 f"Связь пользователя {user.display_name()} установлена с {link.suggested_person}.",
             )
@@ -417,6 +423,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         if action == "reject":
             user, link = await _reject_link(user_id, admin_user_id)
+            context.user_data.pop("pending_person_search", None)
             await query.message.reply_text(
                 f"Заявка пользователя {user.display_name()} отклонена.",
             )
@@ -428,6 +435,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         if action == "create":
+            context.user_data.pop("pending_person_search", None)
             url = settings.SITE_BASE_URL.rstrip("/") + "/members/person/create/"
             await query.message.reply_text(
                 "Создайте нового члена клуба в административном интерфейсе: "
@@ -464,3 +472,42 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     await query.answer("Неизвестное действие", show_alert=True)
+
+
+async def handle_person_search_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    state = context.user_data.get("pending_person_search")
+    if not state:
+        return
+
+    user_id = state.get("user_id")
+    initiator_id = state.get("initiator_id")
+    if not user_id:
+        context.user_data.pop("pending_person_search", None)
+        return
+
+    current_user_id = update.effective_user.id if update.effective_user else None
+    if initiator_id and current_user_id != initiator_id:
+        return
+
+    if not (await user_is_admin(current_user_id) or await user_is_manager(current_user_id)):
+        return
+
+    surname = update.message.text if update.message else ""
+    persons = await _search_persons_by_surname(surname or "")
+    keyboard = _build_person_keyboard(user_id, persons)
+
+    if persons:
+        await update.message.reply_text(
+            f"Найдено {len(persons)} кандидатов. Выберите нужного:",
+            reply_markup=keyboard,
+        )
+        context.user_data["pending_person_search"] = {
+            "user_id": user_id,
+            "initiator_id": initiator_id,
+        }
+    else:
+        await update.message.reply_text(
+            "Не удалось найти подходящих кандидатов. "
+            "Введите другую фамилию или нажмите кнопку «⬅️ Назад».",
+            reply_markup=keyboard,
+        )

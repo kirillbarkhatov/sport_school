@@ -32,7 +32,12 @@ logging.basicConfig(
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
-from tg_bot.handlers.admin import approve, admin_panel, handle_admin_callback  # noqa: E402
+from tg_bot.handlers.admin import (  # noqa: E402
+    approve,
+    admin_panel,
+    handle_admin_callback,
+    handle_person_search_message,
+)
 from tg_bot.handlers.coach import coach_panel, handle_coach_callback  # noqa: E402
 from tg_bot.handlers.auth import confirm, register, start  # noqa: E402
 from tg_bot.handlers.general import (  # noqa: E402
@@ -128,6 +133,12 @@ def build_application():
     )
 
     application.add_handler(InlineQueryHandler(inline_caps))
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND),
+            handle_person_search_message,
+        )
+    )
     application.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND),
