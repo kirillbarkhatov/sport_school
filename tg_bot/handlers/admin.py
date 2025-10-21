@@ -5,6 +5,7 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from tg_bot.handlers.auth import build_authenticated_keyboard, _format_login_instructions
@@ -238,10 +239,16 @@ async def _update_pending_overview(message) -> None:
         if link and link.user_comment:
             text_lines.append(f"  Комментарий: {link.user_comment}")
 
-    await message.edit_text(
-        "\n".join(text_lines),
-        reply_markup=_pending_keyboard(pending_users),
-    )
+    try:
+        await message.edit_text(
+            "\n".join(text_lines),
+            reply_markup=_pending_keyboard(pending_users),
+        )
+    except BadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            logger.debug("Пропуск обновления списка: сообщение не изменилось")
+            return
+        raise
 
 
 async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

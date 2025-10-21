@@ -76,7 +76,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_manager = await user_is_manager(tg_user.id)
 
     if created and not (is_admin or is_coach or is_manager):
-        schedule_pending_user_notifications(user.id)
+        baseline = link.updated_at.timestamp() if link and link.updated_at else None
+        schedule_pending_user_notifications(user.id, baseline=baseline)
 
     greeting_name = user.tg_first_name or user.first_name or "друг"
     lines = [f"Привет, {greeting_name}!"]

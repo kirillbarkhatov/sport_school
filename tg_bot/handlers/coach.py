@@ -39,12 +39,17 @@ async def coach_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Сегодня", f"{COACH_CALLBACK_PREFIX}:list:today"),
-                InlineKeyboardButton("Завтра", f"{COACH_CALLBACK_PREFIX}:list:tomorrow"),
+                InlineKeyboardButton(
+                    "Сегодня", callback_data=f"{COACH_CALLBACK_PREFIX}:list:today"
+                ),
+                InlineKeyboardButton(
+                    "Завтра", callback_data=f"{COACH_CALLBACK_PREFIX}:list:tomorrow"
+                ),
             ],
             [
                 InlineKeyboardButton(
-                    "Необработанные (7 дней)", f"{COACH_CALLBACK_PREFIX}:list:pending"
+                    "Необработанные (7 дней)",
+                    callback_data=f"{COACH_CALLBACK_PREFIX}:list:pending",
                 )
             ],
         ]

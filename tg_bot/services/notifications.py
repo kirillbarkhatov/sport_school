@@ -61,7 +61,12 @@ async def _fetch_group_chat_ids(group_name: str) -> list[int]:
     return await sync_to_async(list, thread_sensitive=True)(queryset)
 
 
-async def _resolve_recipient_ids(group_name: str, env_ids: Sequence[str]) -> list[int]:
+async def _resolve_recipient_ids(
+    group_name: str,
+    env_ids: Sequence[str],
+    *,
+    exclude: set[int] | None = None,
+) -> list[int]:
     recipients: set[int] = set()
 
     for raw_id in env_ids:
@@ -73,6 +78,8 @@ async def _resolve_recipient_ids(group_name: str, env_ids: Sequence[str]) -> lis
     for chat_id in await _fetch_group_chat_ids(group_name):
         recipients.add(int(chat_id))
 
+    if exclude:
+        recipients.difference_update(exclude)
     return list(recipients)
 
 
@@ -126,7 +133,15 @@ async def notify_coaches_bot(bot: Bot, message: str, reply_markup=None) -> None:
 
 
 async def notify_managers_bot(bot: Bot, message: str, reply_markup=None) -> None:
-    for chat_id in await _resolve_recipient_ids(MANAGER_GROUP_NAME, get_manager_env_chat_ids()):
+    admin_ids = set(
+        await _resolve_recipient_ids(ADMIN_GROUP_NAME, get_admin_env_chat_ids())
+    )
+    manager_ids = await _resolve_recipient_ids(
+        MANAGER_GROUP_NAME,
+        get_manager_env_chat_ids(),
+        exclude=admin_ids,
+    )
+    for chat_id in manager_ids:
         try:
             await bot.send_message(chat_id=chat_id, text=message, reply_markup=reply_markup)
         except TelegramError as exc:

@@ -85,7 +85,11 @@ def _compose_daily_digest(pending_links) -> str:
 
 
 @shared_task
-def notify_pending_user_task(user_id: int, reason: str = "initial") -> bool:
+def notify_pending_user_task(
+    user_id: int,
+    reason: str = "initial",
+    baseline: float | None = None,
+) -> bool:
     if not BOT_TOKEN:
         logger.debug("BOT_TOKEN отсутствует, уведомление не отправлено.")
         return False
@@ -101,10 +105,18 @@ def notify_pending_user_task(user_id: int, reason: str = "initial") -> bool:
         logger.info("Пользователь %s больше не ожидает подтверждения, уведомление пропущено", user_id)
         return False
 
-    bot = Bot(token=BOT_TOKEN)
+    if baseline is not None and link.updated_at and link.updated_at.timestamp() > baseline:
+        logger.info(
+            "Уведомление о пользователе %s (reason=%s) пропущено: данные обновлены позже %.2f",
+            user_id,
+            reason,
+            baseline,
+        )
+        return False
+
     message, markup = _compose_pending_message(user, link, reason)
-    async_to_sync(notify_admins_bot)(bot, message, reply_markup=markup)
-    async_to_sync(notify_managers_bot)(bot, message, reply_markup=markup)
+    async_to_sync(notify_admins_bot)(Bot(token=BOT_TOKEN), message, reply_markup=markup)
+    async_to_sync(notify_managers_bot)(Bot(token=BOT_TOKEN), message, reply_markup=markup)
 
     logger.info("Отправлено уведомление о пользователе %s (reason=%s)", user_id, reason)
     return True
@@ -123,19 +135,20 @@ def notify_pending_users_daily_task() -> int:
     if not pending_links:
         return 0
 
-    bot = Bot(token=BOT_TOKEN)
     digest = _compose_daily_digest(pending_links)
-    async_to_sync(notify_admins_bot)(bot, digest)
-    async_to_sync(notify_managers_bot)(bot, digest)
+    async_to_sync(notify_admins_bot)(Bot(token=BOT_TOKEN), digest)
+    async_to_sync(notify_managers_bot)(Bot(token=BOT_TOKEN), digest)
     return len(pending_links)
 
 
-def schedule_pending_user_notifications(user_id: int) -> None:
+def schedule_pending_user_notifications(user_id: int, baseline: float | None = None) -> None:
     notify_pending_user_task.apply_async(
-        args=[user_id, "через 1 минуту после /start"],
+        args=[user_id],
+        kwargs={"reason": "через 1 минуту после /start", "baseline": baseline},
         countdown=60,
     )
     notify_pending_user_task.apply_async(
-        args=[user_id, "через 1 час после /start"],
+        args=[user_id],
+        kwargs={"reason": "через 1 час после /start", "baseline": baseline},
         countdown=3600,
     )
