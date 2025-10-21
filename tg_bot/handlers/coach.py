@@ -1,5 +1,7 @@
 import logging
 from datetime import timedelta
+from typing import Optional
+
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
