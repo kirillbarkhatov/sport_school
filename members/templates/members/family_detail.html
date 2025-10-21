@@ -120,15 +120,21 @@
                 {% for membership in object.members.all %}
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>{{ membership.person.surname }} {{ membership.person.name }}</strong>
+                            {% if membership.person %}
+                                <strong>{{ membership.person.surname }} {{ membership.person.name }}</strong>
+                            {% else %}
+                                <strong class="text-muted fst-italic">Пользователь удалён</strong>
+                            {% endif %}
                             <div class="text-muted small">{{ membership.get_relation_display }}</div>
                         </div>
-                        <div class="btn-group btn-group-sm">
-                            <a class="btn btn-outline-primary" href="{% url 'members:members_detail' membership.person.pk %}">Профиль</a>
-                            {% if user.is_staff %}
-                                <a class="btn btn-outline-secondary" href="{% url 'members:members_update' membership.person.pk %}">Изменить</a>
-                            {% endif %}
-                        </div>
+                        {% if membership.person %}
+                            <div class="btn-group btn-group-sm">
+                                <a class="btn btn-outline-primary" href="{% url 'members:members_detail' membership.person.pk %}">Профиль</a>
+                                {% if user.is_staff %}
+                                    <a class="btn btn-outline-secondary" href="{% url 'members:members_update' membership.person.pk %}">Изменить</a>
+                                {% endif %}
+                            </div>
+                        {% endif %}
                     </li>
                 {% empty %}
                     <li class="list-group-item text-muted">Члены семьи не добавлены.</li>

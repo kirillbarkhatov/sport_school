@@ -1,5 +1,8 @@
 <style>
     .sidebar { min-height: 100vh; }
+    @media (max-width: 767.98px) {
+        .sidebar { min-height: auto; }
+    }
     .nav-section-title {
         font-size: 0.75rem;
         letter-spacing: .08em;
@@ -11,7 +14,7 @@
     }
 </style>
 
-<div class="sidebar border border-right col-md-3 col-lg-2 p-0 bg-body-tertiary">
+<div class="sidebar border border-right col-md-3 col-lg-2 p-0 bg-body-tertiary order-2 order-md-1">
     <div class="offcanvas-md offcanvas-end bg-body-tertiary" tabindex="-1" id="sidebarMenu"
          aria-labelledby="sidebarMenuLabel">
         <div class="offcanvas-header">

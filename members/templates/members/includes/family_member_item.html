@@ -1,4 +1,8 @@
 <li class="mb-1" id="family-member-{{ membership.pk }}" data-family-member-id="{{ membership.pk }}">
-    {{ membership.person.surname }} {{ membership.person.name }}
+    {% if membership.person %}
+        {{ membership.person.surname }} {{ membership.person.name }}
+    {% else %}
+        <span class="text-muted fst-italic">Пользователь удалён</span>
+    {% endif %}
     <span class="text-muted">— {{ membership.get_relation_display }}</span>
 </li>

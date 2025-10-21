@@ -176,6 +176,11 @@ class FamilyMemberForm(forms.ModelForm):
         model = FamilyMember
         fields = ["person", "relation"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        is_placeholder = bool(getattr(self.instance, "pk", None) and not getattr(self.instance, "person_id", None))
+        self.fields["person"].required = not is_placeholder
+
 
 class FamilyMemberInlineForm(forms.Form):
     existing_person = forms.ModelChoiceField(

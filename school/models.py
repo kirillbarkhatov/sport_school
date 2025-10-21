@@ -431,7 +431,7 @@ class Family(models.Model):
 
     contact_person = models.ForeignKey(
         Person,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="families",
         verbose_name="Контактное лицо",
         blank=True,
@@ -486,13 +486,20 @@ class FamilyMember(models.Model):
     family = models.ForeignKey(
         Family, on_delete=models.CASCADE, related_name="members", verbose_name="Семья"
     )
-    person = models.ForeignKey(Person, on_delete=models.CASCADE, verbose_name="Человек")
+    person = models.ForeignKey(
+        Person,
+        on_delete=models.SET_NULL,
+        verbose_name="Человек",
+        null=True,
+        blank=True,
+    )
     relation = models.CharField(
         max_length=50, choices=FAMILY_RELATION, verbose_name="Отношение"
     )
 
     def __str__(self):
-        return f"{self.person} - {self.relation}"
+        person_display = str(self.person) if self.person else "Удалённый участник"
+        return f"{person_display} - {self.relation}"
 
     class Meta:
         verbose_name = "Член семьи"
