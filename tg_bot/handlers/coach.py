@@ -1,7 +1,5 @@
 import logging
 from datetime import timedelta
-from typing import Optional
-
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -17,19 +15,13 @@ from classes.telegram import (
 )
 from school.choices import ClassCoachStatus, TrainingKind, TrainingLocation
 from school.models import Class
-from tg_bot.services.notifications import get_coach_chat_ids
+from tg_bot.services.notifications import user_is_coach
 
 logger = logging.getLogger(__name__)
 
 
-def _is_coach(user_id: Optional[int]) -> bool:
-    if not user_id:
-        return False
-    return str(user_id) in get_coach_chat_ids()
-
-
 async def _ensure_coach(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if _is_coach(update.effective_user.id):
+    if await user_is_coach(update.effective_user.id):
         return True
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -99,7 +91,7 @@ async def handle_coach_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     await query.answer()
 
-    if not _is_coach(update.effective_user.id):
+    if not await user_is_coach(update.effective_user.id):
         await query.edit_message_text("У вас нет прав тренера.")
         return
 
