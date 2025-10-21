@@ -7,6 +7,8 @@ from httpx import request
 from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
 from telegram.ext import ContextTypes
 
+from tg_bot.handlers.user import handle_comment_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,10 +23,12 @@ async def person(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.effective_message
-    text = message.text or ""
-    print(f"echo: {text}", flush=True)
-    await message.reply_text(text)
+    if await handle_comment_message(update, context):
+        return
+    logger.debug(
+        "Игнорируем текстовое сообщение без команды от tg_id=%s",
+        update.effective_user.id if update.effective_user else "unknown",
+    )
 
 
 async def caps(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

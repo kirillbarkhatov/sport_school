@@ -1,0 +1,9 @@
+ADMIN_GROUP_NAME = "Администратор"
+COACH_GROUP_NAME = "Тренер"
+MANAGER_GROUP_NAME = "Менеджер"
+
+CORE_GROUP_NAMES = (
+    ADMIN_GROUP_NAME,
+    COACH_GROUP_NAME,
+    MANAGER_GROUP_NAME,
+)

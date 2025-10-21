@@ -10,6 +10,7 @@ from telegram.error import TelegramError
 
 from bot.models import TelegramChat, TelegramParticipant
 from tg_bot.services.notifications import notify_admins_bot
+from tg_bot.services.user_sync import sync_existing_user_async
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,7 @@ async def _register_user_interaction(message: Message) -> None:
             status=status,
             message=message,
         )
+        await sync_existing_user_async(message.from_user)
 
     if message.new_chat_members:
         for member in message.new_chat_members:

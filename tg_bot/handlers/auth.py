@@ -3,12 +3,18 @@ from typing import Optional
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from telegram import Update
-from telegram.constants import ParseMode
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from tg_bot.services.notifications import notify_admins_context
-from users.models import User
+from tg_bot.services.notifications import (
+    notify_admins_context,
+    user_is_admin,
+    user_is_coach,
+    user_is_manager,
+)
+from tg_bot.services.user_sync import ensure_user_for_start_async
+from users.models import User, UserPersonLinkStatus
+from users.tasks import notify_pending_user_task, schedule_pending_user_notifications
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +35,16 @@ def _format_login_instructions(token: Optional[str]) -> str:
     return "\n".join(instructions)
 
 
+def build_authenticated_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📅 Расписание на неделю", callback_data="user:schedule")],
+            [InlineKeyboardButton("👪 Моя семья", callback_data="user:family")],
+            [InlineKeyboardButton("✏️ Редактировать данные семьи", callback_data="user:family_edit")],
+        ]
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     token = context.args[0] if context.args else None
     tg_user = update.effective_user
@@ -38,53 +54,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         tg_user.id,
         token[-6:] if token else "нет",
     )
-    await notify_admins_context(
-        context,
-        "🔔 /start\n"
-        f"id={tg_user.id}\n"
-        f"username=@{tg_user.username or '-'}\n"
-        f"name: {tg_user.first_name or ''} {tg_user.last_name or ''}\n"
-        f"token={token or '-'}",
-    )
-
-    response = [
-        f"Привет, {tg_user.first_name or 'друг'}!",
-        _format_login_instructions(token),
-    ]
-    await update.effective_message.reply_html(
-        "\n".join(response),
-        disable_web_page_preview=True,
-    )
-    logger.info("Приветственное сообщение отправлено пользователю %s", tg_user.id)
-
     try:
-        defaults = {
-            "email": f"{tg_user.id}@autogen.local",
-            "tg_first_name": tg_user.first_name or "",
-            "tg_last_name": tg_user.last_name or "",
-            "tg_username": tg_user.username or "",
-        }
-        if token:
-            defaults["token"] = token
-
-        user, created = await sync_to_async(User.objects.get_or_create)(
-            tg_id=tg_user.id,
-            defaults=defaults,
-        )
-
-        user.tg_first_name = tg_user.first_name or ""
-        user.tg_last_name = tg_user.last_name or ""
-        user.tg_username = tg_user.username or ""
-        if token:
-            user.token = token
-        await sync_to_async(user.save)(
-            update_fields=["tg_first_name", "tg_last_name", "tg_username", "token"]
-        )
-
-        await notify_admins_context(
-            context,
-            f"✅ Пользователь tg_id={tg_user.id} сохранён. created={created}",
-        )
+        user, created, link = await ensure_user_for_start_async(tg_user, token)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Ошибка при выполнении /start для tg_id=%s", tg_user.id)
         await notify_admins_context(
@@ -98,6 +69,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"Текст ошибки: {exc}"
             ),
         )
+        return
+
+    is_admin = await user_is_admin(tg_user.id)
+    is_coach = await user_is_coach(tg_user.id)
+    is_manager = await user_is_manager(tg_user.id)
+
+    if created and not (is_admin or is_coach or is_manager):
+        schedule_pending_user_notifications(user.id)
+
+    greeting_name = user.tg_first_name or user.first_name or "друг"
+    lines = [f"Привет, {greeting_name}!"]
+    reply_markup = None
+
+    if is_admin or is_coach or is_manager:
+        roles = []
+        if is_admin:
+            roles.append("администратор")
+        if is_manager:
+            roles.append("менеджер")
+        if is_coach:
+            roles.append("тренер")
+        role_text = ", ".join(roles)
+        lines.append(f"Вы вошли как {role_text}.")
+        lines.append("Используйте /adminpanel или /coach для работы.")
+    elif user.person_id and link.status == UserPersonLinkStatus.APPROVED:
+        lines.append("Ваш доступ к системе клуба подтверждён.")
+        lines.append(_format_login_instructions(token))
+        lines.append("Выберите дальнейшее действие:")
+        reply_markup = build_authenticated_keyboard()
+    else:
+        if link.status == UserPersonLinkStatus.REJECTED:
+            status_line = "Администратор пока не предоставил вам доступ."
+        else:
+            status_line = "Ваш статус: на одобрении у администратора."
+
+        lines.append(status_line)
+        if link.suggested_person_id:
+            suggested = link.suggested_person
+            lines.append(
+                "Мы предполагаем, что вы член клуба "
+                f"{suggested.surname} {suggested.name}. Администратор подтвердит эту информацию."
+            )
+        lines.append(
+            "Вы можете дополнить информацию о себе — так администратор быстрее определит,"
+            " являетесь ли вы членом нашего клуба."
+        )
+        reply_markup = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("Оставить комментарий администратору", callback_data="user:comment")],
+            ]
+        )
+        if link.status == UserPersonLinkStatus.REJECTED:
+            notify_pending_user_task.delay(user.id, reason="пользователь повторно запросил доступ")
+
+    await update.effective_message.reply_html(
+        "\n\n".join(lines),
+        disable_web_page_preview=True,
+        reply_markup=reply_markup,
+    )
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -42,6 +42,7 @@ from tg_bot.handlers.general import (  # noqa: E402
     person,
     unknown,
 )
+from tg_bot.handlers.user import handle_user_callback  # noqa: E402
 from tg_bot.services.audience import chat_member_entry, track_audience_entry  # noqa: E402
 
 
@@ -81,9 +82,15 @@ def build_application():
 
     application.add_handler(CallbackQueryHandler(handle_admin_callback, pattern=r"^admin:"))
     application.add_handler(CallbackQueryHandler(handle_coach_callback, pattern=r"^coach:"))
+    application.add_handler(CallbackQueryHandler(handle_user_callback, pattern=r"^user:"))
 
     application.add_handler(InlineQueryHandler(inline_caps))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND),
+            echo,
+        )
+    )
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
 
 
