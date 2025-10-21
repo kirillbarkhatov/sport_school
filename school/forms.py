@@ -59,6 +59,7 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
         fields = "__all__"
         widgets = {
             "date_of_birth": forms.DateInput(
+                format="%Y-%m-%d",
                 attrs={
                     "type": "date",
                     "class": "form-control",
@@ -75,6 +76,13 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
             self.fields["gender"].widget.attrs["class"] = "form-select"
         if "photo" in self.fields:
             self.fields["photo"].widget.attrs.setdefault("class", "form-control")
+        if "date_of_birth" in self.fields:
+            self.fields["date_of_birth"].required = False
+            self.fields["date_of_birth"].input_formats = ["%Y-%m-%d"]
+            if self.instance and self.instance.date_of_birth:
+                self.initial.setdefault(
+                    "date_of_birth", self.instance.date_of_birth.strftime("%Y-%m-%d")
+                )
 
 
 class ClassForm(StyleFormMixin, forms.ModelForm):

@@ -55,7 +55,11 @@ class Person(models.Model):
     middlename = models.CharField(
         max_length=100, blank=True, null=True, verbose_name="Отчество"
     )
-    date_of_birth = models.DateField(default="1970-01-01", verbose_name="Дата рождения")
+    date_of_birth = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name="Дата рождения",
+    )
     email = models.EmailField(blank=True, null=True, verbose_name="Электронная почта")
     phone = models.CharField(
         max_length=15, blank=True, null=True, verbose_name="Телефон"
@@ -70,7 +74,8 @@ class Person(models.Model):
     gender = models.CharField(max_length=6, choices=GENDER_CHOICES, verbose_name="Пол")
 
     def __str__(self):
-        return f"{self.surname} {self.name} - {self.date_of_birth}"
+        parts = [self.surname, self.name]
+        return " ".join(part for part in parts if part)
 
     def get_absolute_url(self):
         return reverse("members:members_detail", args=[self.pk])
