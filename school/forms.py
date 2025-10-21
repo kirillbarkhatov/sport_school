@@ -334,10 +334,22 @@ class AthleteContractForm(StyleFormMixin, forms.ModelForm):
                     self.fields["number"].initial = next_number
         for field in ["issue_date", "start_date", "end_date"]:
             if field in self.fields:
-                self.fields[field].widget.attrs.setdefault("data-contract-date", "true")
-                value = self.initial.get(field, self.fields[field].initial)
-                if value:
-                    iso_value = value.isoformat() if hasattr(value, "isoformat") else str(value)
+                self.fields[field].input_formats = ["%Y-%m-%d"]
+                self.fields[field].widget = forms.DateInput(
+                    attrs={"type": "date", "data-contract-date": "true"},
+                    format="%Y-%m-%d",
+                )
+                value = None
+                if field in self.initial:
+                    value = self.initial[field]
+                elif self.instance and getattr(self.instance, field, None):
+                    value = getattr(self.instance, field)
+                elif self.fields[field].initial:
+                    value = self.fields[field].initial
+                if value and not self.is_bound:
+                    iso_value = value.strftime("%Y-%m-%d") if hasattr(value, "strftime") else str(value)
+                    self.initial[field] = iso_value
+                    self.fields[field].initial = iso_value
                     self.fields[field].widget.attrs["data-default-date"] = iso_value
 
     class Meta:
@@ -351,9 +363,9 @@ class AthleteContractForm(StyleFormMixin, forms.ModelForm):
             "discount_value",
         ]
         widgets = {
-            "issue_date": forms.DateInput(attrs={"type": "date"}),
-            "start_date": forms.DateInput(attrs={"type": "date"}),
-            "end_date": forms.DateInput(attrs={"type": "date"}),
+            "issue_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "start_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "end_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
         }
 
 
