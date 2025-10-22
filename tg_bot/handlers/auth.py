@@ -13,6 +13,11 @@ from tg_bot.services.notifications import (
     user_is_manager,
 )
 from tg_bot.services.user_sync import ensure_user_for_start_async
+from tg_bot.services.training_overview import (
+    build_attendance_lines,
+    build_training_brief_lines,
+    get_upcoming_trainings_for_user,
+)
 from users.models import User, UserPersonLinkStatus
 from users.tasks import notify_pending_user_task, schedule_pending_user_notifications
 
@@ -29,7 +34,7 @@ def _format_login_instructions(token: Optional[str]) -> str:
     if token:
         callback_url = f"{base_url}/telegram-callback/{token}/"
         instructions.append(
-            "Для завершения авторизации на сайте перейдите по"
+            "Для завершения авторизации на сайте перейдите по "
             f'<a href="{callback_url}">ссылке</a>'
         )
     return "\n".join(instructions)
@@ -38,9 +43,11 @@ def _format_login_instructions(token: Optional[str]) -> str:
 def build_authenticated_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
+            [InlineKeyboardButton("📝 Сообщить о планах на тренировку", callback_data="user:plan")],
             [InlineKeyboardButton("📅 Расписание на неделю", callback_data="user:schedule")],
+            [InlineKeyboardButton("🏕 План по сборам (в разработке)", callback_data="user:camps")],
             [InlineKeyboardButton("👪 Моя семья", callback_data="user:family")],
-            [InlineKeyboardButton("✏️ Редактировать данные семьи", callback_data="user:family_edit")],
+            [InlineKeyboardButton("💳 Данные по оплате (в разработке)", callback_data="user:payments")],
         ]
     )
 
@@ -97,7 +104,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append(f"Вы вошли как {role_text}.")
         lines.append("Используйте /adminpanel или /coach для работы.")
     elif user.person_id and link.status == UserPersonLinkStatus.APPROVED:
-        lines.append("Тут надо выводить ближайшую тренировку.")
+        upcoming = await sync_to_async(
+            get_upcoming_trainings_for_user,
+            thread_sensitive=True,
+        )(user, limit=1)
+
+        if upcoming:
+            summary = upcoming[0]
+            lines.append("Ближайшая тренировка:")
+            details_lines = build_training_brief_lines(summary) + [""] + build_attendance_lines(summary)
+            lines.append("\n".join(line for line in details_lines if line))
+        else:
+            lines.append("Ближайшие тренировки пока не запланированы.")
         lines.append(_format_login_instructions(token))
         lines.append("Вам также доступны следующие действия:")
         reply_markup = build_authenticated_keyboard()
