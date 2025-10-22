@@ -23,14 +23,14 @@ def _format_login_instructions(token: Optional[str]) -> str:
     base_url = settings.SITE_BASE_URL.rstrip("/")
     login_page = f"{base_url}/"
     instructions = [
-        "Чтобы войти на сайт, откройте страницу авторизации и нажмите «Войти через Telegram».",
-        f"Ссылка для входа: {login_page}",
+        # "Чтобы войти на сайт, откройте страницу авторизации и нажмите «Войти через Telegram».",
+        # f"Ссылка для входа: {login_page}",
     ]
     if token:
         callback_url = f"{base_url}/telegram-callback/{token}/"
         instructions.append(
-            "Либо нажмите прямо сейчас: "
-            f'<a href="{callback_url}">Подтвердить авторизацию</a>'
+            "Для завершения авторизации на сайте перейдите по : "
+            f'<a href="{callback_url}">ссылке</a>'
         )
     return "\n".join(instructions)
 
@@ -95,9 +95,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append(f"Вы вошли как {role_text}.")
         lines.append("Используйте /adminpanel или /coach для работы.")
     elif user.person_id and link.status == UserPersonLinkStatus.APPROVED:
-        lines.append("Ваш доступ к системе клуба подтверждён.")
+        lines.append("Тут надо выводить ближайшую тренировку.")
         lines.append(_format_login_instructions(token))
-        lines.append("Выберите дальнейшее действие:")
+        lines.append("Вам также доступны следующие действия:")
         reply_markup = build_authenticated_keyboard()
     else:
         if link.status == UserPersonLinkStatus.REJECTED:
