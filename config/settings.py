@@ -229,6 +229,14 @@ CSRF_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
 SESSION_COOKIE_SAMESITE = "None" if not DEBUG else "Lax"
 
 
+LOG_DIR = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
+DJANGO_LOG_FILE = LOG_DIR / "django.log"
+
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -242,20 +250,27 @@ LOGGING = {
             "class": "logging.StreamHandler",
             "formatter": "standard",
         },
+        "file": {
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "formatter": "standard",
+            "filename": str(DJANGO_LOG_FILE),
+            "when": "midnight",
+            "backupCount": 7,
+        },
     },
     "loggers": {
         "django": {
-            "handlers": ["console"],
+            "handlers": ["console", "file"],
             "level": "WARNING",
             "propagate": False,
         },
         "auth.telegram": {
-            "handlers": ["console"],
+            "handlers": ["console", "file"],
             "level": "INFO",
             "propagate": False,
         },
         "bot.telegram": {
-            "handlers": ["console"],
+            "handlers": ["console", "file"],
             "level": "INFO",
             "propagate": False,
         },
@@ -264,7 +279,7 @@ LOGGING = {
 
 if BOT_TOKEN and TELEGRAM_LOG_CHAT_ID:
     LOGGING["handlers"]["telegram"] = {
-        "level": "INFO",
+        "level": "ERROR",
         "class": "config.logging_handlers.TelegramLogHandler",
         "chat_id": TELEGRAM_LOG_CHAT_ID,
         "formatter": "standard",
