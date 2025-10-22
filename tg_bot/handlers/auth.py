@@ -3,7 +3,7 @@ from typing import Optional
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from tg_bot.services.notifications import (
@@ -150,6 +150,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "\n\n".join(lines),
         disable_web_page_preview=True,
         reply_markup=reply_markup,
+    )
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Нажмите кнопку «Начать работу» внизу, чтобы быстро открыть меню.",
+        reply_markup=ReplyKeyboardMarkup([["Начать работу"]], resize_keyboard=True),
     )
 
 

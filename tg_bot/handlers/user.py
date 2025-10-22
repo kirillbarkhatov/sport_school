@@ -7,7 +7,7 @@ from typing import Sequence
 
 from asgiref.sync import sync_to_async
 from django.utils import timezone
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
@@ -171,6 +171,18 @@ async def _clear_family_prompt_keyboard(bot, state: dict | None) -> None:
         await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
     except BadRequest:
         pass
+
+
+async def _send_main_menu(bot, chat_id: int, user: User) -> None:
+    await bot.send_message(
+        chat_id=chat_id,
+        text="Выберите действие:",
+        reply_markup=build_authenticated_keyboard(),
+    )
+
+
+def _get_editor_messages_store(context: ContextTypes.DEFAULT_TYPE) -> dict[int, dict[str, int]]:
+    return context.user_data.setdefault("family_editor_messages", {})
 
 
 def _normalize_level_choice(raw_value: str) -> str | None:
@@ -379,27 +391,73 @@ async def _apply_family_edit(user: User, person_id: int, field_key: str, raw_val
     return True, success_message
 
 
-async def _send_family_member_editor(query, user: User, person_id: int, *, edit: bool = False) -> None:
+async def _send_family_member_editor(
+    query,
+    user: User,
+    person_id: int,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    edit: bool = False,
+) -> None:
     person, text, markup = await _get_member_editor_data(user, person_id)
     if not person:
         if query and query.message:
             await query.message.reply_text("Не удалось найти этого члена семьи.")
         return
 
+    editor_messages = _get_editor_messages_store(context)
+
     if edit and query.message:
         await query.message.edit_text(text, reply_markup=markup)
+        editor_messages[person_id] = {
+            "chat_id": query.message.chat_id,
+            "message_id": query.message.message_id,
+        }
     else:
         await _clear_query_keyboard(query)
-        await query.message.reply_text(text, reply_markup=markup)
+        message = await query.message.reply_text(text, reply_markup=markup)
+        editor_messages[person_id] = {
+            "chat_id": message.chat_id,
+            "message_id": message.message_id,
+        }
 
 
-async def _send_family_member_editor_to_chat(bot, chat_id: int, user: User, person_id: int) -> None:
+async def _update_family_member_editor_card(
+    bot,
+    context: ContextTypes.DEFAULT_TYPE,
+    user: User,
+    person_id: int,
+    chat_id: int,
+) -> None:
     person, text, markup = await _get_member_editor_data(user, person_id)
     if not person:
-        await bot.send_message(chat_id=chat_id, text="Не удалось найти этого члена семьи.")
         return
 
-    await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+    editor_messages = _get_editor_messages_store(context)
+    meta = editor_messages.get(person_id)
+    target_chat = chat_id
+    target_message_id = None
+    if meta:
+        target_chat = meta.get("chat_id", chat_id)
+        target_message_id = meta.get("message_id")
+
+    if target_message_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=target_chat,
+                message_id=target_message_id,
+                text=text,
+                reply_markup=markup,
+            )
+            return
+        except BadRequest:
+            pass
+
+    message = await bot.send_message(chat_id=target_chat, text=text, reply_markup=markup)
+    editor_messages[person_id] = {
+        "chat_id": message.chat_id,
+        "message_id": message.message_id,
+    }
 
 def _format_schedule_list_text(trainings) -> str:
     if not trainings:
@@ -591,11 +649,17 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     if data == "user:menu":
-        context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+        state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+        await _clear_family_prompt_keyboard(context.bot, state)
+        context.user_data.pop("family_editor_messages", None)
         await _clear_query_keyboard(query)
-        await query.message.reply_text(
-            "Выберите действие:", reply_markup=build_authenticated_keyboard()
-        )
+        user = await _load_user(tg_id)
+        if not user:
+            await query.message.reply_text(
+                "Не удалось найти ваш профиль. Нажмите /start и попробуйте снова."
+            )
+            return
+        await _send_main_menu(context.bot, query.message.chat_id, user)
         return
 
     actionable = (
@@ -676,7 +740,9 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
         if data == "user:family":
-            context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+            state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+            await _clear_family_prompt_keyboard(context.bot, state)
+            context.user_data.pop("family_editor_messages", None)
             await _send_family_overview(query, user)
             return
 
@@ -686,9 +752,10 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             except (ValueError, IndexError):
                 await query.answer("Не удалось распознать члена семьи.", show_alert=True)
                 return
-            context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+            state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+            await _clear_family_prompt_keyboard(context.bot, state)
             context.user_data.pop(COMMENT_STATE_KEY, None)
-            await _send_family_member_editor(query, user, person_id)
+            await _send_family_member_editor(query, user, person_id, context)
             return
 
         if data.startswith("family:field:"):
@@ -707,6 +774,9 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             if not config:
                 await query.answer("Поле недоступно.", show_alert=True)
                 return
+
+            existing_state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+            await _clear_family_prompt_keyboard(context.bot, existing_state)
 
             person, _, _ = await _get_member_editor_data(user, person_id)
             if not person:
@@ -742,14 +812,20 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if data == "user:camps":
             await _clear_query_keyboard(query)
             await query.message.reply_text(
-                "Скоро появится возможность просматривать план сборов и предварительно записываться. Следите за обновлениями!"
+                "Скоро появится возможность просматривать план сборов и предварительно записываться. Следите за обновлениями!",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🏠 Главное меню", callback_data="user:menu")]]
+                ),
             )
             return
 
         if data == "user:payments":
             await _clear_query_keyboard(query)
             await query.message.reply_text(
-                "Раздел с данными по оплате находится в разработке. Мы сообщим, когда он станет доступен."
+                "Раздел с данными по оплате находится в разработке. Мы сообщим, когда он станет доступен.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🏠 Главное меню", callback_data="user:menu")]]
+                ),
             )
             return
 
@@ -787,11 +863,12 @@ async def handle_family_edit_message(update: Update, context: ContextTypes.DEFAU
         await _clear_family_prompt_keyboard(context.bot, state)
         context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
         await update.effective_message.reply_text(message)
-        await _send_family_member_editor_to_chat(
+        await _update_family_member_editor_card(
             context.bot,
-            update.effective_chat.id,
+            context,
             user,
             state["person_id"],
+            update.effective_chat.id,
         )
     else:
         await update.effective_message.reply_text(message)
@@ -826,4 +903,23 @@ async def handle_comment_message(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data.pop(COMMENT_STATE_KEY, None)
     await update.effective_message.reply_text("Комментарий передан администратору.")
     logger.info("Пользователь %s оставил комментарий для администратора", user.id)
+    return True
+
+
+async def handle_main_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    message = update.effective_message
+    text = (message.text or "").strip().lower()
+    if text not in {"начать работу", "главное меню"}:
+        return False
+
+    state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+    await _clear_family_prompt_keyboard(context.bot, state)
+    context.user_data.pop("family_editor_messages", None)
+
+    user = await _load_user(update.effective_user.id)
+    if not user:
+        await message.reply_text("Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
+        return True
+
+    await _send_main_menu(context.bot, update.effective_chat.id, user)
     return True

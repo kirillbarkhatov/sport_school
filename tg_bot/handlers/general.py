@@ -7,7 +7,11 @@ from httpx import request
 from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
 from telegram.ext import ContextTypes
 
-from tg_bot.handlers.user import handle_comment_message, handle_family_edit_message
+from tg_bot.handlers.user import (
+    handle_comment_message,
+    handle_family_edit_message,
+    handle_main_menu_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,8 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if await handle_family_edit_message(update, context):
         return
     if await handle_comment_message(update, context):
+        return
+    if await handle_main_menu_text(update, context):
         return
     logger.debug(
         "Игнорируем текстовое сообщение без команды от tg_id=%s",
