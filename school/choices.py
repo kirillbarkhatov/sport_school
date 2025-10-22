@@ -12,6 +12,8 @@ class TrainingKind(models.TextChoices):
     GIANT_SLALOM = ("giant_slalom", "Гигантский слалом")
     BIKE = ("bike", "Велотренировка")
     SKITECH = ("skitech", "Тренажер SkiTech")
+    TRAMPOLINE = ("trampoline", "Батут")
+    MANEZH = ("manezh", "Манеж")
     OTHER = ("other", "Уточняется")
 
 
