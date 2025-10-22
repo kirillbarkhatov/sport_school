@@ -29,7 +29,7 @@ def _format_login_instructions(token: Optional[str]) -> str:
     if token:
         callback_url = f"{base_url}/telegram-callback/{token}/"
         instructions.append(
-            "Для завершения авторизации на сайте перейдите по : "
+            "Для завершения авторизации на сайте перейдите по"
             f'<a href="{callback_url}">ссылке</a>'
         )
     return "\n".join(instructions)
@@ -83,7 +83,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines = [f"Привет, {greeting_name}!"]
     reply_markup = None
 
-    if is_admin or is_coach or is_manager:
+    if token and user.person_id and link.status == UserPersonLinkStatus.APPROVED:
+        lines.append(_format_login_instructions(token))
+    elif is_admin or is_coach or is_manager:
         roles = []
         if is_admin:
             roles.append("администратор")
