@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "notifications",
     "bot",
     "whatsapp",
+    "assistant",
 ]
 
 MIDDLEWARE = [
@@ -298,4 +299,24 @@ CELERY_BEAT_SCHEDULE = {
         "task": "users.tasks.notify_pending_users_daily_task",
         "schedule": crontab(hour=12, minute=0),
     },
+    "assistant-sync-members-daily": {
+        "task": "assistant.tasks.send_members_snapshot_task",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    "assistant-sync-taxonomy-daily": {
+        "task": "assistant.tasks.send_taxonomy_snapshot_task",
+        "schedule": crontab(hour=3, minute=2),
+    },
+    "assistant-sync-trainings-daily": {
+        "task": "assistant.tasks.send_upcoming_trainings_snapshot_task",
+        "schedule": crontab(hour=3, minute=4),
+    },
 }
+
+AI_ASSISTANT_ENABLED = os.getenv("AI_ASSISTANT_ENABLED", "False") == "True"
+AI_ASSISTANT_BASE_URL = os.getenv("AI_ASSISTANT_BASE_URL", "http://109.207.171.231")
+AI_ASSISTANT_TIMEOUT = float(os.getenv("AI_ASSISTANT_TIMEOUT", "10"))
+AI_ASSISTANT_SERVICE_ACCOUNT_SLUG = os.getenv("AI_ASSISTANT_SERVICE_ACCOUNT_SLUG", "ai-assistant")
+AI_ASSISTANT_ENDPOINT_MEMBERS = os.getenv("AI_ASSISTANT_ENDPOINT_MEMBERS", "/api/v1/sync/members/")
+AI_ASSISTANT_ENDPOINT_TAXONOMY = os.getenv("AI_ASSISTANT_ENDPOINT_TAXONOMY", "/api/v1/sync/taxonomy/")
+AI_ASSISTANT_ENDPOINT_TRAININGS = os.getenv("AI_ASSISTANT_ENDPOINT_TRAININGS", "/api/v1/sync/trainings/")

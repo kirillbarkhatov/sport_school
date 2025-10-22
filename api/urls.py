@@ -9,6 +9,11 @@ from .views import (
     UserViewSet,
     WhatsAppChatSyncView,
 )
+from assistant.views import (
+    AssistantTrainingAttendanceView,
+    AssistantTrainingUpdatesView,
+    AssistantUnmatchedParticipantsView,
+)
 
 app_name = ApiConfig.name
 
@@ -28,5 +33,20 @@ urlpatterns = router_person.urls + router_user.urls + [
         "assistant/upcoming-trainings/",
         AssistantUpcomingTrainingsView.as_view(),
         name="assistant-upcoming-trainings",
+    ),
+    path(
+        "assistant/trainings/updates/",
+        AssistantTrainingUpdatesView.as_view(),
+        name="assistant-training-updates",
+    ),
+    path(
+        "assistant/trainings/attendance/",
+        AssistantTrainingAttendanceView.as_view(),
+        name="assistant-training-attendance",
+    ),
+    path(
+        "assistant/trainings/unmatched-participants/",
+        AssistantUnmatchedParticipantsView.as_view(),
+        name="assistant-unmatched-participants",
     ),
 ]

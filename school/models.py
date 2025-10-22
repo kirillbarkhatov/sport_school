@@ -268,6 +268,11 @@ class Class(models.Model):
         null=True,
         verbose_name="Комментарий тренера",
     )
+    assistant_comment = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Комментарий ассистента",
+    )
 
     def __str__(self):
         local_dt = timezone.localtime(self.date)
@@ -314,6 +319,17 @@ class Class(models.Model):
 class ClassEnrollment(models.Model):
     """Модель «Запись на занятие»"""
 
+    ASSISTANT_STATUS_UNKNOWN = "unknown"
+    ASSISTANT_STATUS_CONFIRMED = "confirmed"
+    ASSISTANT_STATUS_DECLINED = "declined"
+    ASSISTANT_STATUS_PENDING = "pending"
+    ASSISTANT_STATUS_CHOICES = [
+        (ASSISTANT_STATUS_UNKNOWN, "Неизвестно"),
+        (ASSISTANT_STATUS_CONFIRMED, "Придёт"),
+        (ASSISTANT_STATUS_DECLINED, "Не придёт"),
+        (ASSISTANT_STATUS_PENDING, "Ожидает подтверждения"),
+    ]
+
     athlete = models.ForeignKey(
         Athlete,
         on_delete=models.CASCADE,
@@ -327,6 +343,18 @@ class ClassEnrollment(models.Model):
         verbose_name="Занятие",
     )
     confirmed = models.BooleanField(default=False, verbose_name="Подтверждено")
+    assistant_status = models.CharField(
+        max_length=16,
+        choices=ASSISTANT_STATUS_CHOICES,
+        default=ASSISTANT_STATUS_UNKNOWN,
+        verbose_name="Статус от ассистента",
+    )
+    assistant_comment = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Комментарий ассистента",
+    )
 
     def __str__(self):
         return f"{self.athlete.person.surname} - {self.class_instance.id}"
