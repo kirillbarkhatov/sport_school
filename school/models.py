@@ -504,11 +504,11 @@ class FamilyMember(models.Model):
     """Модель «Член семьи»"""
 
     FAMILY_RELATION = [
-        ("mother", "Мать"),
-        ("father", "Отец"),
+        ("mother", "Мама"),
+        ("father", "Папа"),
         ("son", "Сын"),
         ("daughter", "Дочь"),
-        ("grandfather", "Дед"),
+        ("grandfather", "Дедушка"),
         ("grandmother", "Бабушка"),
         ("representative", "Представитель"),
         ("guardian", "Опекун"),

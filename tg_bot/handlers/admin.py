@@ -50,8 +50,9 @@ async def _notify_user_approved(bot, user: User) -> None:
     message = "\n\n".join(
         [
             "🎉 Ваша заявка подтверждена!",
-            _format_login_instructions(None),
-            "Доступные действия:",
+            "Теперь вы можете пользоваться нашим ботом 🔥🔥🔥",
+            # _format_login_instructions(None), # типовые инструкции со ссылкой на сайт - пока не даем
+            "Вот что он умеет 😉",
         ]
     )
     try:
