@@ -7,7 +7,7 @@ from httpx import request
 from telegram import InlineQueryResultArticle, InputTextMessageContent, Update
 from telegram.ext import ContextTypes
 
-from tg_bot.handlers.user import handle_comment_message
+from tg_bot.handlers.user import handle_comment_message, handle_family_edit_message
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,8 @@ async def person(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if await handle_family_edit_message(update, context):
+        return
     if await handle_comment_message(update, context):
         return
     logger.debug(

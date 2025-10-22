@@ -123,11 +123,16 @@ def build_application():
 
     application.add_handler(CallbackQueryHandler(trace_callback("handle_admin_callback", handle_admin_callback), pattern=r"^admin"))
     application.add_handler(CallbackQueryHandler(trace_callback("handle_coach_callback", handle_coach_callback), pattern=r"^coach:"))
-    application.add_handler(CallbackQueryHandler(trace_callback("handle_user_callback", handle_user_callback), pattern=r"^user:"))
+    application.add_handler(
+        CallbackQueryHandler(
+            trace_callback("handle_user_callback", handle_user_callback),
+            pattern=r"^(user|schedule|attendance|family):",
+        )
+    )
     application.add_handler(
         CallbackQueryHandler(
             log_unmatched_callback,
-            pattern=r"^(?!(admin|coach|user)).+",
+            pattern=r"^(?!(admin|coach|user|schedule|attendance|family)).+",
         ),
         group=1,
     )

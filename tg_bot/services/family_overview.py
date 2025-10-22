@@ -48,13 +48,15 @@ def _build_member_extra(member: FamilyMember) -> str | None:
         return None
 
     athlete = person.athlete
-    parts: list[str] = ["спортсмен"]
+    parts: list[str] = []
     if hasattr(athlete, "get_level_display"):
         level_display = athlete.get_level_display()
         if level_display:
-            parts.append(f"уровень: {level_display}")
+            parts.append(f"катается с сезона {level_display}")
     if athlete.rank:
         parts.append(f"разряд: {athlete.rank}")
+    if athlete.comment:
+        parts.append(athlete.comment)
     return ", ".join(parts)
 
 
