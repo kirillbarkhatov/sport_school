@@ -43,7 +43,8 @@ def _format_login_instructions(token: Optional[str]) -> str:
 def build_authenticated_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("📝 Сообщить о планах на тренировку", callback_data="user:plan")],
+            [InlineKeyboardButton("ℹ️ Ближайшая тренировка", callback_data="user:plan")],
+            [InlineKeyboardButton("📝 Сообщить о планах семьи", callback_data="user:plan")],
             [InlineKeyboardButton("📅 Расписание на неделю", callback_data="user:schedule")],
             [InlineKeyboardButton("🏕 План по сборам (в разработке)", callback_data="user:camps")],
             [InlineKeyboardButton("👪 Моя семья", callback_data="user:family")],
@@ -116,6 +117,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             lines.append("\n".join(line for line in details_lines if line))
         else:
             lines.append("Ближайшие тренировки пока не запланированы.")
+        lines.append("Нажмите кнопку «ℹ️ Ближайшая тренировка», чтобы получить подробности.")
         lines.append(_format_login_instructions(token))
         lines.append("Вам также доступны следующие действия:")
         reply_markup = build_authenticated_keyboard()

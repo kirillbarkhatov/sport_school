@@ -8,6 +8,7 @@ from typing import Sequence
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from school.models import Athlete as AthleteModel
@@ -56,7 +57,7 @@ PERSON_FIELD_CONFIG = {
         "attr": "middlename",
         "type": "text",
         "allow_clear": True,
-        "prompt": "Введите новое отчество (сейчас: {current}). Отправьте '-' чтобы очистить значение.",
+        "prompt": "Введите новое отчество (сейчас: {current}).",
         "success": "Обновили отчество: {value}.",
         "model": "person",
     },
@@ -66,7 +67,7 @@ PERSON_FIELD_CONFIG = {
         "attr": "date_of_birth",
         "type": "date",
         "allow_clear": True,
-        "prompt": "Введите дату рождения в формате ДД.ММ.ГГГГ (сейчас: {current}). Отправьте '-' чтобы очистить значение.",
+        "prompt": "Введите дату рождения в формате ДД.ММ.ГГГГ (сейчас: {current}).",
         "success": "Дата рождения обновлена: {value}.",
         "model": "person",
     },
@@ -76,7 +77,7 @@ PERSON_FIELD_CONFIG = {
         "attr": "email",
         "type": "email",
         "allow_clear": True,
-        "prompt": "Введите новую почту (сейчас: {current}). Отправьте '-' чтобы очистить значение.",
+        "prompt": "Введите новую почту (сейчас: {current}).",
         "success": "Почта обновлена: {value}.",
         "model": "person",
     },
@@ -86,7 +87,7 @@ PERSON_FIELD_CONFIG = {
         "attr": "phone",
         "type": "phone",
         "allow_clear": True,
-        "prompt": "Введите телефон, например +7 921 123-45-67 (сейчас: {current}). Отправьте '-' чтобы очистить значение.",
+        "prompt": "Введите телефон, например +7 921 123-45-67 (сейчас: {current}).",
         "success": "Телефон обновлён: {value}.",
         "model": "person",
     },
@@ -119,7 +120,7 @@ ATHLETE_FIELD_CONFIG = {
         "attr": "rank",
         "type": "text",
         "allow_clear": True,
-        "prompt": "Введите спортивный разряд (сейчас: {current}). Отправьте '-' чтобы очистить значение.",
+        "prompt": "Введите спортивный разряд (сейчас: {current}).",
         "success": "Разряд обновлён: {value}.",
         "model": "athlete",
     },
@@ -129,7 +130,7 @@ ATHLETE_FIELD_CONFIG = {
         "attr": "comment",
         "type": "multiline",
         "allow_clear": True,
-        "prompt": "Введите комментарий по спортсмену (сейчас: {current}). Отправьте '-' чтобы очистить значение.",
+        "prompt": "Введите комментарий по спортсмену (сейчас: {current}).",
         "success": "Комментарий обновлён.",
         "model": "athlete",
     },
@@ -148,6 +149,28 @@ async def _load_user(tg_id: int) -> User | None:
         User.objects.select_related("person").filter(tg_id=tg_id).first,
         thread_sensitive=True,
     )()
+
+
+async def _clear_query_keyboard(query) -> None:
+    if not query or not query.message:
+        return
+    try:
+        await query.message.edit_reply_markup(reply_markup=None)
+    except BadRequest:
+        pass
+
+
+async def _clear_family_prompt_keyboard(bot, state: dict | None) -> None:
+    if not state:
+        return
+    chat_id = state.get("chat_id")
+    message_id = state.get("prompt_message_id")
+    if not chat_id or not message_id:
+        return
+    try:
+        await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+    except BadRequest:
+        pass
 
 
 def _normalize_level_choice(raw_value: str) -> str | None:
@@ -366,6 +389,7 @@ async def _send_family_member_editor(query, user: User, person_id: int, *, edit:
     if edit and query.message:
         await query.message.edit_text(text, reply_markup=markup)
     else:
+        await _clear_query_keyboard(query)
         await query.message.reply_text(text, reply_markup=markup)
 
 
@@ -465,6 +489,7 @@ async def _send_schedule_overview(query, user: User, *, edit: bool = False) -> N
     if edit and query.message:
         await query.message.edit_text(text, reply_markup=markup)
     else:
+        await _clear_query_keyboard(query)
         await query.message.reply_text(text, reply_markup=markup)
 
 
@@ -508,6 +533,7 @@ async def _send_training_detail(
     if edit and query.message:
         await query.message.edit_text(text, reply_markup=markup)
     else:
+        await _clear_query_keyboard(query)
         await query.message.reply_text(text, reply_markup=markup)
 
 
@@ -546,6 +572,7 @@ async def _send_family_overview(query, user: User) -> None:
     keyboard_rows.append([InlineKeyboardButton("🏠 Главное меню", callback_data="user:menu")])
 
     text = "\n\n".join(text_blocks)
+    await _clear_query_keyboard(query)
     await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard_rows))
 
 
@@ -565,6 +592,7 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data == "user:menu":
         context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+        await _clear_query_keyboard(query)
         await query.message.reply_text(
             "Выберите действие:", reply_markup=build_authenticated_keyboard()
         )
@@ -692,22 +720,34 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             target = person if config.get("model") == "person" else person.athlete
             current_value = getattr(target, config["attr"], None)
             prompt = config["prompt"].format(current=_format_value_for_display(current_value, config))
+            context.user_data.pop(COMMENT_STATE_KEY, None)
+            instructions = [prompt]
+            if config.get("allow_clear", True):
+                instructions.append("Отправьте «-», чтобы очистить значение.")
+            instructions.append("Или нажмите «↩️ Вернуться назад», чтобы отменить изменение.")
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↩️ Вернуться назад", callback_data=f"family:edit:{person_id}")]]
+            )
+            await _clear_query_keyboard(query)
+            prompt_message = await query.message.reply_text("\n".join(instructions), reply_markup=keyboard)
             context.user_data[FAMILY_EDIT_STATE_KEY] = {
                 "person_id": person_id,
                 "field": field_key,
+                "prompt_message_id": prompt_message.message_id,
+                "chat_id": prompt_message.chat_id,
             }
-            context.user_data.pop(COMMENT_STATE_KEY, None)
-            await query.message.reply_text(f"{prompt}\nНапишите /cancel, чтобы отменить.")
             await query.answer("Жду новое значение")
             return
 
         if data == "user:camps":
+            await _clear_query_keyboard(query)
             await query.message.reply_text(
                 "Скоро появится возможность просматривать план сборов и предварительно записываться. Следите за обновлениями!"
             )
             return
 
         if data == "user:payments":
+            await _clear_query_keyboard(query)
             await query.message.reply_text(
                 "Раздел с данными по оплате находится в разработке. Мы сообщим, когда он станет доступен."
             )
@@ -728,12 +768,14 @@ async def handle_family_edit_message(update: Update, context: ContextTypes.DEFAU
 
     text = message_text.strip()
     if text.lower() in {"/cancel", "cancel", "отмена"}:
+        await _clear_family_prompt_keyboard(context.bot, state)
         context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
         await update.effective_message.reply_text("Изменение отменено.")
         return True
 
     user = await _load_user(update.effective_user.id)
     if not user:
+        await _clear_family_prompt_keyboard(context.bot, state)
         context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
         await update.effective_message.reply_text(
             "Не удалось найти ваш профиль. Нажмите /start и попробуйте снова."
@@ -742,6 +784,7 @@ async def handle_family_edit_message(update: Update, context: ContextTypes.DEFAU
 
     success, message = await _apply_family_edit(user, state["person_id"], state["field"], message_text)
     if success:
+        await _clear_family_prompt_keyboard(context.bot, state)
         context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
         await update.effective_message.reply_text(message)
         await _send_family_member_editor_to_chat(
@@ -754,6 +797,7 @@ async def handle_family_edit_message(update: Update, context: ContextTypes.DEFAU
         await update.effective_message.reply_text(message)
         lowered = message.lower()
         if "не удалось найти" in lowered or "нет данных спортсмена" in lowered:
+            await _clear_family_prompt_keyboard(context.bot, state)
             context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
 
     return True
