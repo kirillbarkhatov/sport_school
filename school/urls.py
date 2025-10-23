@@ -12,6 +12,11 @@ urlpatterns = [
     path("", views.IndexView.as_view(), name="index"),
     path("athlete/", views.AthleteListView.as_view(), name="athlete_list"),
     path('athlete/<int:athlete_id>/edit/', views.edit_athlete, name='edit_athlete'),
+    path(
+        "athlete/<int:pk>/inline-update/",
+        views.AthleteInlineUpdateView.as_view(),
+        name="athlete_inline_update",
+    ),
 ]
 
 if settings.DEBUG:

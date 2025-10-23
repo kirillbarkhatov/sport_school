@@ -1,37 +1,174 @@
 {% extends 'school/base.html' %}
+{% load static %}
 
 {% block title %}Группы{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h2>Группы</h2>
-    <div class="btn-toolbar mb-2 mb-md-0">
-        <a class="btn btn-outline-primary" href="{% url 'groups:group_create' %}">Добавить</a>
+<div class="d-flex flex-wrap justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom gap-3">
+    <div>
+        <h2 class="mb-1">Спортивные группы</h2>
+        <p class="text-muted mb-0">Просмотр состава и быстрые изменения прямо со списка.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-primary" href="{% url 'groups:group_create' %}">Создать группу</a>
     </div>
 </div>
 
-<div class="table-responsive small">
-    <table class="table table-striped table-sm">
-        <thead>
-        <tr>
-            <th>#</th>
-            <th>Название группы</th>
-            <th>Уровень подготовки</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for group in object_list %}
-        <tr>
-            <td>{{ forloop.counter }}</td>
-            <td><a href="{% url 'groups:group_detail' group.pk %}">{{ group.name }}</a></td>
-            <td>{{ group.level }}</td>
-            <td class="text-end" style="width: 20vh;">
-                <a class="btn btn-outline-primary" href="{% url 'groups:group_update' group.pk %}">Изменить</a>
-                <a class="btn btn-outline-danger" href="{% url 'groups:group_delete' group.pk %}">Удалить</a>
-            </td>
-        </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+<div class="row g-4">
+    {% for group in object_list %}
+        <div class="col-12">
+            <div
+                class="card shadow-sm"
+                data-group-card
+                data-group-id="{{ group.pk }}"
+                data-update-url="{% url 'groups:group_membership' group.pk %}"
+            >
+                <div class="card-header bg-body-tertiary">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                        <div>
+                            <h5 class="mb-0">{{ group.name }}</h5>
+                            <div class="text-muted small">
+                                {% if group.level %}
+                                    Уровень подготовки: {{ group.level }}
+                                {% else %}
+                                    Уровень не указан
+                                {% endif %}
+                                · Участников: <span class="fw-semibold" data-member-count>{{ group.athletes.count }}</span>
+                            </div>
+                            {% if group.coaches.all %}
+                                <div class="small mt-1">
+                                    Тренеры:
+                                    {% for coach in group.coaches.all %}
+                                        {{ coach.person.surname }} {{ coach.person.name }}{% if not forloop.last %}, {% endif %}
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a class="btn btn-outline-primary btn-sm" href="{% url 'groups:group_update' group.pk %}">
+                                Настроить группу
+                            </a>
+                            <a class="btn btn-outline-danger btn-sm" href="{% url 'groups:group_delete' group.pk %}">
+                                Удалить
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-4">
+                        <div class="col-lg-6">
+                            <h6 class="mb-3">Состав группы</h6>
+                            <ul class="list-group list-group-flush" data-member-list>
+                                {% for athlete in group.athletes.all %}
+                                    {% with person=athlete.person %}
+                                    <li
+                                        class="list-group-item d-flex justify-content-between align-items-start gap-3"
+                                        data-member-item
+                                        data-athlete-id="{{ athlete.pk }}"
+                                    >
+                                        <div>
+                                            <div class="fw-semibold">
+                                                {% if person %}
+                                                    {{ person.surname }} {{ person.name }}
+                                                {% else %}
+                                                    Спортсмен #{{ athlete.pk }}
+                                                {% endif %}
+                                            </div>
+                                            <div class="small text-muted">
+                                                {% if athlete.level %}
+                                                    Сезон: {{ athlete.level }}
+                                                {% endif %}
+                                                {% if athlete.rank %}
+                                                    · Разряд: {{ athlete.rank }}
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="btn btn-outline-danger btn-sm"
+                                            data-action="remove-member"
+                                            data-athlete-id="{{ athlete.pk }}"
+                                        >
+                                            Удалить
+                                        </button>
+                                    </li>
+                                    {% endwith %}
+                                {% empty %}
+                                    <li class="list-group-item text-muted" data-empty-state>
+                                        В группу пока никто не добавлен.
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        <div class="col-lg-6">
+                            <h6 class="mb-3">Добавить спортсменов</h6>
+                            <div class="mb-2">
+                                <input
+                                    type="text"
+                                    class="form-control form-control-sm"
+                                    placeholder="Поиск по имени или году"
+                                    data-available-search
+                                >
+                            </div>
+                            <select
+                                class="form-select form-select-sm"
+                                size="10"
+                                multiple
+                                data-available-select
+                            >
+                                {% for athlete in available_athletes %}
+                                    {% with person=athlete.person %}
+                                    <option value="{{ athlete.pk }}">
+                                        {% if person %}
+                                            {{ person.surname }} {{ person.name }}
+                                            {% if person.date_of_birth %}
+                                                · {{ person.date_of_birth|date:"Y" }}
+                                            {% endif %}
+                                        {% else %}
+                                            Спортсмен #{{ athlete.pk }}
+                                        {% endif %}
+                                        {% if athlete.level %} · {{ athlete.level }}{% endif %}
+                                    </option>
+                                    {% endwith %}
+                                {% endfor %}
+                            </select>
+                            <div class="form-text small text-muted">
+                                Можно выбрать нескольких спортсменов сразу (Ctrl/Cmd + клик).
+                            </div>
+                            <div class="d-flex flex-wrap gap-2 mt-3">
+                                <button
+                                    type="button"
+                                    class="btn btn-primary btn-sm"
+                                    data-action="add-athletes"
+                                >
+                                    Добавить выбранных
+                                </button>
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-secondary btn-sm"
+                                    data-action="clear-selection"
+                                >
+                                    Очистить выбор
+                                </button>
+                            </div>
+                            <div class="small text-muted mt-2" data-feedback></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <div class="col-12">
+            <div class="alert alert-info mb-0">
+                Группы пока не созданы. Нажмите «Создать группу», чтобы начать работу.
+            </div>
+        </div>
+    {% endfor %}
 </div>
+
+{% endblock %}
+
+{% block content_2 %}
+    {{ block.super }}
+    <script src="{% static 'js/group_manager.js' %}"></script>
 {% endblock %}
