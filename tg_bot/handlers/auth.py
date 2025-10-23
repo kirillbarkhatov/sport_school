@@ -35,7 +35,7 @@ def _format_login_instructions(token: Optional[str]) -> str:
     if token:
         callback_url = f"{base_url}/telegram-callback/{token}/"
         instructions.append(
-            "Для завершения авторизации на сайте перейдите по "
+            "🔐 Для завершения авторизации на сайте перейдите по "
             f'<a href="{callback_url}">ссылке</a>'
         )
     return "\n".join(instructions)
@@ -89,11 +89,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         schedule_pending_user_notifications(user.id, baseline=baseline)
 
     greeting_name = user.tg_first_name or user.first_name or "друг"
-    lines = [f"Привет, {greeting_name}!"]
+    lines = [f"👋 Привет, {greeting_name}!"]
     reply_markup = None
+    link_status = link.status if link else None
+    is_confirmed = bool(user.person_id and link_status == UserPersonLinkStatus.APPROVED)
+    show_quick_commands = is_admin or is_coach or is_manager or is_confirmed
+    login_instructions = _format_login_instructions(token)
 
-    if token and user.person_id and link.status == UserPersonLinkStatus.APPROVED:
-        lines.append(_format_login_instructions(token))
+    if token and is_confirmed and login_instructions:
+        lines.append(login_instructions)
     elif is_admin or is_coach or is_manager:
         roles = []
         if is_admin:
@@ -103,9 +107,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if is_coach:
             roles.append("тренер")
         role_text = ", ".join(roles)
-        lines.append(f"Вы вошли как {role_text}.")
-        lines.append("Используйте /adminpanel или /coach для работы.")
-    elif user.person_id and link.status == UserPersonLinkStatus.APPROVED:
+        lines.append(f"🛠️ Вы вошли как {role_text}.")
+        lines.append("⚙️ Используйте /adminpanel или /coach для работы.")
+    elif is_confirmed:
         upcoming = await sync_to_async(
             get_upcoming_trainings_for_user,
             thread_sensitive=True,
@@ -113,38 +117,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         if upcoming:
             summary = upcoming[0]
-            lines.append("Ближайшая тренировка:")
+            lines.append("🏋️ Ближайшая тренировка:")
             details_lines = build_training_brief_lines(summary) + [""] + build_attendance_lines(summary)
             lines.append("\n".join(line for line in details_lines if line))
         else:
-            lines.append("Ближайшие тренировки пока не запланированы.")
-        lines.append("Нажмите кнопку «ℹ️ Ближайшая тренировка», чтобы получить подробности.")
-        lines.append(_format_login_instructions(token))
-        lines.append("Вам также доступны следующие действия:")
+            lines.append("📭 Ближайшие тренировки пока не запланированы.")
+        lines.append("ℹ️ Нажмите кнопку «ℹ️ Ближайшая тренировка», чтобы получить подробности.")
+        if login_instructions:
+            lines.append(login_instructions)
+        lines.append("🧭 Вам также доступны следующие действия:")
         reply_markup = build_authenticated_keyboard()
     else:
-        if link.status == UserPersonLinkStatus.REJECTED:
-            status_line = "Администратор пока не предоставил вам доступ."
+        if link_status == UserPersonLinkStatus.REJECTED:
+            status_line = "🚫 Администратор пока не предоставил вам доступ."
         else:
-            status_line = "Ваш статус: на одобрении у администратора."
+            status_line = "⏳ Ваш статус: на одобрении у администратора."
 
         lines.append(status_line)
-        if link.suggested_person_id:
+        if link and link.suggested_person_id:
             suggested = link.suggested_person
             lines.append(
-                "Мы предполагаем, что вы член клуба "
+                "🔎 Мы предполагаем, что вы член клуба "
                 f"{suggested.surname} {suggested.name}. Администратор подтвердит эту информацию."
             )
         lines.append(
-            "Вы можете дополнить информацию о себе — так администратор быстрее определит,"
+            "📝 Вы можете дополнить информацию о себе — так администратор быстрее определит,"
             " являетесь ли вы членом нашего клуба."
         )
         reply_markup = InlineKeyboardMarkup(
             [
-                [InlineKeyboardButton("Оставить комментарий администратору", callback_data="user:comment")],
+                [InlineKeyboardButton("💬 Оставить комментарий администратору", callback_data="user:comment")],
             ]
         )
-        if link.status == UserPersonLinkStatus.REJECTED:
+        if link_status == UserPersonLinkStatus.REJECTED:
             notify_pending_user_task.delay(user.id, reason="пользователь повторно запросил доступ")
 
     await update.effective_message.reply_html(
@@ -153,29 +158,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=reply_markup,
     )
 
-    quick_commands_markup = build_persistent_reply_keyboard(
-        show_manager=is_admin or is_manager,
-        show_coach=is_coach,
-    )
+    if show_quick_commands:
+        quick_commands_markup = build_persistent_reply_keyboard(
+            show_manager=is_admin or is_manager,
+            show_coach=is_coach,
+        )
 
-    prompt_lines = ["Внизу доступно меню быстрых команд."]
-    if is_admin or is_manager or is_coach:
-        role_hints: list[str] = []
-        if is_admin or is_manager:
-            role_hints.append("«Менеджер (/manager)»")
-        if is_coach:
-            role_hints.append("«Тренер (/coach)»")
-        if role_hints:
-            prompt_lines.append(
-                f"Используйте {', '.join(role_hints)} для перехода в рабочие панели."
-            )
-    prompt_lines.append("Кнопка «Начать работу (/start)» откроет главное меню.")
+        prompt_lines = ["⬇️ Внизу доступно меню быстрых команд."]
+        if is_admin or is_manager or is_coach:
+            role_hints: list[str] = []
+            if is_admin or is_manager:
+                role_hints.append("«Менеджер (/manager)»")
+            if is_coach:
+                role_hints.append("«Тренер (/coach)»")
+            if role_hints:
+                prompt_lines.append(
+                    f"⚙️ Используйте {', '.join(role_hints)} для перехода в рабочие панели."
+                )
+        prompt_lines.append("🔁 Кнопка «Начать работу (/start)» откроет главное меню.")
 
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="\n".join(prompt_lines),
-        reply_markup=quick_commands_markup,
-    )
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="\n".join(prompt_lines),
+            reply_markup=quick_commands_markup,
+        )
 
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

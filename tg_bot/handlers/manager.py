@@ -19,7 +19,7 @@ from tg_bot.services.training_overview import (
     get_upcoming_trainings_for_user,
     update_attendance_status,
 )
-from users.models import User
+from users.models import User, UserPersonLinkStatus
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ async def _search_families(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[
 
 
 def _format_family_header(family: Family) -> str:
-    parts = [family.family_name or f"Семья #{family.id}"]
+    parts = [family.family_name or "Семья без названия"]
     if family.status:
         parts.append(f"Статус: {family.get_status_display()}")
     return "\n".join(parts)
@@ -182,7 +182,7 @@ async def _send_family_search_results(update: Update, context: ContextTypes.DEFA
     lines = ["Найденные семьи:"]
     keyboard_rows: list[list[InlineKeyboardButton]] = []
     for family in families:
-        lines.append(f"• {family.family_name or 'Семья без названия'} (#{family.id})")
+        lines.append(f"• {family.family_name or 'Семья без названия'}")
         keyboard_rows.append(
             [
                 InlineKeyboardButton(
@@ -312,45 +312,55 @@ async def _search_users(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[Use
 
 
 def _format_user_details(user: User) -> str:
-    lines = [f"{user.display_name()} (id={user.id})"]
-    if user.email:
-        lines.append(f"Email: {user.email}")
-    if user.phone:
-        lines.append(f"Телефон: {user.phone}")
+    lines = [user.display_name()]
+    contact_parts: list[str] = []
     if user.tg_username:
-        lines.append(f"Telegram: @{user.tg_username}")
-    if user.tg_id:
-        lines.append(f"TG ID: {user.tg_id}")
+        contact_parts.append(f"@{user.tg_username}")
+    if user.phone:
+        contact_parts.append(user.phone)
+    if contact_parts:
+        lines.append(f"📞 Контакты: {', '.join(contact_parts)}")
+    if user.email:
+        lines.append(f"📧 Email: {user.email}")
 
     link = getattr(user, "link", None)
     if link:
-        lines.append(f"Статус подтверждения: {link.get_status_display()}")
+        status_emoji = {
+            UserPersonLinkStatus.APPROVED: "✅",
+            UserPersonLinkStatus.PENDING: "⏳",
+            UserPersonLinkStatus.REJECTED: "🚫",
+        }.get(link.status, "ℹ️")
+        lines.append(f"{status_emoji} Статус подтверждения: {link.get_status_display()}")
         if link.suggested_person_id and link.suggested_person:
-            lines.append(f"Связан с: {link.suggested_person}")
+            lines.append(f"👥 Связан с: {link.suggested_person}")
         if link.user_comment:
-            lines.append(f"Комментарий пользователя: {link.user_comment}")
+            lines.append(f"💬 Комментарий пользователя: {link.user_comment}")
     elif user.is_approved:
-        lines.append("Статус подтверждения: подтверждён вручную.")
+        lines.append("✅ Статус подтверждения: подтверждён вручную.")
     else:
-        lines.append("Статус подтверждения: не подтверждён.")
+        lines.append("⏳ Статус подтверждения: не подтверждён.")
 
     if user.person:
         person = user.person
         lines.append("")
         lines.append("Персона:")
         parts = [person.surname, person.name, person.middlename]
-        lines.append(f"• {' '.join(p for p in parts if p) or 'Без имени'} (id={person.id})")
+        lines.append(f"• {' '.join(p for p in parts if p) or 'Без имени'}")
+        contact_details: list[str] = []
         if person.phone:
-            lines.append(f"  Телефон: {person.phone}")
+            contact_details.append(f"📞 {person.phone}")
         if person.email:
-            lines.append(f"  Email: {person.email}")
+            contact_details.append(f"📧 {person.email}")
+        for detail in contact_details:
+            lines.append(f"  {detail}")
         athlete = getattr(person, "athlete", None)
         if athlete:
             lines.append("  Спортсмен:")
-            if athlete.level:
-                lines.append(f"    Сезон: {athlete.level}")
+            level_display = athlete.get_level_display() if hasattr(athlete, "get_level_display") else athlete.level
+            if level_display:
+                lines.append(f"    • Сезон: {level_display}")
             if athlete.rank:
-                lines.append(f"    Разряд: {athlete.rank}")
+                lines.append(f"    • Разряд: {athlete.rank}")
     return "\n".join(lines)
 
 
@@ -380,7 +390,7 @@ async def _prompt_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE
     _set_manager_state(context, {"mode": "user_search"})
     text = (
         "Введите имя, фамилию, email или телефон пользователя.\n"
-        "Можно указать telegram @username, tg id или id в системе."
+        "Можно указать telegram @username для поиска."
     )
     keyboard = InlineKeyboardMarkup(
         [
@@ -409,7 +419,13 @@ async def _send_user_search_results(update: Update, context: ContextTypes.DEFAUL
     lines = ["Найденные пользователи:"]
     keyboard_rows: list[list[InlineKeyboardButton]] = []
     for user in users:
-        lines.append(f"• {user.display_name()} (id={user.id}, tg=@{user.tg_username or '-'})")
+        contact_parts: list[str] = []
+        if user.tg_username:
+            contact_parts.append(f"@{user.tg_username}")
+        if user.phone:
+            contact_parts.append(user.phone)
+        contact_text = f" — {', '.join(contact_parts)}" if contact_parts else ""
+        lines.append(f"• {user.display_name()}{contact_text}")
         keyboard_rows.append(
             [
                 InlineKeyboardButton(
@@ -458,7 +474,7 @@ async def _send_user_details(update: Update, context: ContextTypes.DEFAULT_TYPE,
 # ---------------------------------------------------------------------------
 
 async def _send_pending_overview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    overview_text, keyboard = await build_pending_overview_payload()
+    overview_text, keyboard = await build_pending_overview_payload(include_ids=False)
     if not overview_text:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -513,19 +529,25 @@ def _format_athlete_overview(athlete: Athlete) -> str:
     person = athlete.person
     parts = [person.surname, person.name, person.middlename]
     title = " ".join(part for part in parts if part) or "Без имени"
-    lines = [f"{title} (id={athlete.id})"]
+    lines = [title]
+    contact_parts: list[str] = []
+    if person.phone:
+        contact_parts.append(person.phone)
+    if person.email:
+        contact_parts.append(person.email)
+    if contact_parts:
+        lines.append(f"Контакты: {', '.join(contact_parts)}")
     if athlete.level:
-        lines.append(f"Сезон старта: {athlete.get_level_display() if hasattr(athlete, 'get_level_display') else athlete.level}")
+        level_display = athlete.get_level_display() if hasattr(athlete, "get_level_display") else athlete.level
+        lines.append(f"Сезон старта: {level_display}")
     if athlete.rank:
         lines.append(f"Разряд: {athlete.rank}")
-    if person.phone:
-        lines.append(f"Телефон: {person.phone}")
     groups = list(athlete.groups.all())
     lines.append("")
     if groups:
         lines.append("Состоит в группах:")
         for group in groups:
-            lines.append(f"• {group.name} (#{group.id})")
+            lines.append(f"• {group.name}")
     else:
         lines.append("Не состоит ни в одной группе.")
     return "\n".join(lines)
@@ -587,8 +609,8 @@ async def _send_transfer_search_results(update: Update, context: ContextTypes.DE
     keyboard_rows: list[list[InlineKeyboardButton]] = []
     for athlete in athletes:
         person = athlete.person
-        title = " ".join(filter(None, [person.surname, person.name])) or f"Атлет #{athlete.id}"
-        lines.append(f"• {title} (#{athlete.id})")
+        title = " ".join(filter(None, [person.surname, person.name])) or "Атлет"
+        lines.append(f"• {title}")
         keyboard_rows.append(
             [
                 InlineKeyboardButton(
@@ -1125,7 +1147,7 @@ async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         rows: list[list[InlineKeyboardButton]] = []
         for athlete in athletes:
             person = athlete.person
-            title = " ".join(filter(None, [person.surname, person.name])) or f"Атлет #{athlete.id}"
+            title = " ".join(filter(None, [person.surname, person.name])) or "Атлет"
             rows.append(
                 [
                     InlineKeyboardButton(
@@ -1224,8 +1246,8 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
         lines = ["Спортсмены семьи:"]
         for athlete in athletes:
             person = athlete.person
-            title = " ".join(filter(None, [person.surname, person.name])) or f"Атлет #{athlete.id}"
-            lines.append(f"• {title} (#{athlete.id})")
+            title = " ".join(filter(None, [person.surname, person.name])) or "Атлет"
+            lines.append(f"• {title}")
             rows.append(
                 [
                     InlineKeyboardButton(

@@ -15,25 +15,26 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-def _format_user_brief(user) -> str:
+def _format_user_brief(user, *, include_ids: bool = True) -> str:
     tg_username = f"@{user.tg_username}" if user.tg_username else "—"
     full_name = user.get_full_name() or f"{user.tg_first_name or ''} {user.tg_last_name or ''}".strip() or "—"
     phone = user.phone or "—"
-    return (
-        f"id={user.id}, tg_id={user.tg_id}\n"
-        f"Имя: {full_name}\n"
-        f"Телефон: {phone}\n"
-        f"Username: {tg_username}"
-    )
+    lines = []
+    # if include_ids:
+    #     lines.append(f"id={user.id}, tg_id={user.tg_id}")
+    lines.append(f"Имя: {full_name}")
+    lines.append(f"Телефон: {phone}")
+    lines.append(f"Username: {tg_username}")
+    return "\n".join(lines)
 
 
-def _format_link_summary(link: UserPersonLink) -> str:
+def _format_link_summary(link: UserPersonLink, *, include_reasons: bool = True) -> str:
     if link.suggested_person_id:
         reasons = ", ".join(link.matched_reasons or [])
+        reason_suffix = f" (совпадения: {reasons})" if include_reasons and reasons else ""
         return (
             "Предварительно установлена связь с членом клуба: "
-            f"{link.suggested_person.surname} {link.suggested_person.name}"
-            + (f" (совпадения: {reasons})" if reasons else "")
+            f"{link.suggested_person.surname} {link.suggested_person.name}{reason_suffix}"
         )
     return "Предварительная связь не установлена."
 
@@ -56,29 +57,37 @@ def build_decision_keyboard(user_id: int, link: UserPersonLink) -> InlineKeyboar
     return InlineKeyboardMarkup(buttons)
 
 
-def _compose_pending_message(user, link, reason: str) -> tuple[str, InlineKeyboardMarkup | None]:
+def build_pending_message_text(
+    user,
+    link,
+    *,
+    include_ids: bool,
+    include_reason: bool,
+    reason: str | None,
+    include_reasons: bool,
+) -> str:
     comment = link.user_comment or "Комментарий отсутствует"
     parts = [
         "⚠️ Пользователь ожидает подтверждения доступа",
         "",
-        _format_user_brief(user),
+        _format_user_brief(user, include_ids=include_ids),
         "",
-        _format_link_summary(link),
+        _format_link_summary(link, include_reasons=include_reasons),
         "",
         f"Комментарий пользователя: {comment}",
-        f"Основание уведомления: {reason}",
     ]
-    markup = build_decision_keyboard(user.id, link)
-    return "\n".join(parts), markup
+    # if include_reason and reason:
+    #     parts.append(f"Основание уведомления: {reason}")
+    return "\n".join(parts)
 
 
-def _compose_daily_digest(pending_links) -> str:
+def _compose_daily_digest(pending_links, *, include_ids: bool, include_reasons: bool) -> str:
     lines = ["🗓️ Список пользователей на одобрении:"]
     for link in pending_links:
         user = link.user
         lines.append("")
-        lines.append(_format_user_brief(user))
-        lines.append(_format_link_summary(link))
+        lines.append(_format_user_brief(user, include_ids=include_ids))
+        lines.append(_format_link_summary(link, include_reasons=include_reasons))
         if link.user_comment:
             lines.append(f"Комментарий: {link.user_comment}")
     return "\n".join(lines)
@@ -114,9 +123,25 @@ def notify_pending_user_task(
         )
         return False
 
-    message, markup = _compose_pending_message(user, link, reason)
-    async_to_sync(notify_admins_bot)(Bot(token=BOT_TOKEN), message, reply_markup=markup)
-    async_to_sync(notify_managers_bot)(Bot(token=BOT_TOKEN), message, reply_markup=markup)
+    markup = build_decision_keyboard(user.id, link)
+    admin_message = build_pending_message_text(
+        user,
+        link,
+        include_ids=True,
+        include_reason=True,
+        reason=reason,
+        include_reasons=True,
+    )
+    manager_message = build_pending_message_text(
+        user,
+        link,
+        include_ids=False,
+        include_reason=False,
+        reason=reason,
+        include_reasons=False,
+    )
+    async_to_sync(notify_admins_bot)(Bot(token=BOT_TOKEN), admin_message, reply_markup=markup)
+    async_to_sync(notify_managers_bot)(Bot(token=BOT_TOKEN), manager_message, reply_markup=markup)
 
     logger.info("Отправлено уведомление о пользователе %s (reason=%s)", user_id, reason)
     return True
@@ -135,9 +160,10 @@ def notify_pending_users_daily_task() -> int:
     if not pending_links:
         return 0
 
-    digest = _compose_daily_digest(pending_links)
-    async_to_sync(notify_admins_bot)(Bot(token=BOT_TOKEN), digest)
-    async_to_sync(notify_managers_bot)(Bot(token=BOT_TOKEN), digest)
+    digest_admin = _compose_daily_digest(pending_links, include_ids=True, include_reasons=True)
+    digest_manager = _compose_daily_digest(pending_links, include_ids=False, include_reasons=False)
+    async_to_sync(notify_admins_bot)(Bot(token=BOT_TOKEN), digest_admin)
+    async_to_sync(notify_managers_bot)(Bot(token=BOT_TOKEN), digest_manager)
     return len(pending_links)
 
 

@@ -23,7 +23,8 @@ from tg_bot.services.training_overview import (
     get_upcoming_trainings_for_user,
     update_attendance_status,
 )
-from tg_bot.handlers.auth import build_authenticated_keyboard
+from tg_bot.handlers.auth import build_authenticated_keyboard, start as start_command
+from tg_bot.services.notifications import user_is_admin, user_is_coach, user_is_manager
 from users.utils import get_person_queryset_for_user
 from users.services import normalize_phone
 
@@ -146,7 +147,7 @@ logger = logging.getLogger(__name__)
 
 async def _load_user(tg_id: int) -> User | None:
     return await sync_to_async(
-        User.objects.select_related("person").filter(tg_id=tg_id).first,
+        User.objects.select_related("person", "link").filter(tg_id=tg_id).first,
         thread_sensitive=True,
     )()
 
@@ -644,7 +645,7 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if data == "user:comment":
         context.user_data[COMMENT_STATE_KEY] = True
         await query.message.reply_text(
-            "Напишите сообщение – мы передадим его администратору."
+            "💬 Напишите сообщение – мы передадим его администратору."
         )
         return
 
@@ -886,7 +887,7 @@ async def handle_comment_message(update: Update, context: ContextTypes.DEFAULT_T
 
     comment = (update.effective_message.text or "").strip()
     if not comment:
-        await update.effective_message.reply_text("Пожалуйста, отправьте текстовый комментарий.")
+        await update.effective_message.reply_text("⚠️ Пожалуйста, отправьте текстовый комментарий.")
         return True
 
     user = await sync_to_async(
@@ -894,14 +895,14 @@ async def handle_comment_message(update: Update, context: ContextTypes.DEFAULT_T
         thread_sensitive=True,
     )()
     if not user:
-        await update.effective_message.reply_text("Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
+        await update.effective_message.reply_text("⚠️ Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
         context.user_data.pop(COMMENT_STATE_KEY, None)
         return True
 
     await update_user_comment_async(user, comment)
     notify_pending_user_task.delay(user.id, reason="пользователь обновил комментарий")
     context.user_data.pop(COMMENT_STATE_KEY, None)
-    await update.effective_message.reply_text("Комментарий передан администратору.")
+    await update.effective_message.reply_text("✅ Комментарий передан администратору.")
     logger.info("Пользователь %s оставил комментарий для администратора", user.id)
     return True
 
@@ -930,7 +931,15 @@ async def handle_main_menu_text(update: Update, context: ContextTypes.DEFAULT_TY
 
     user = await _load_user(update.effective_user.id)
     if not user:
-        await message.reply_text("Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
+        await message.reply_text("⚠️ Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
+        return True
+
+    link = user.person_link
+    is_confirmed = bool(user.is_approved and user.person_id)
+    is_privileged = await user_is_admin(update.effective_user.id) or await user_is_manager(update.effective_user.id) or await user_is_coach(update.effective_user.id)
+
+    if not is_confirmed and not is_privileged:
+        await start_command(update, context)
         return True
 
     await _send_main_menu(context.bot, update.effective_chat.id, user)

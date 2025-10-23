@@ -203,13 +203,28 @@ def _build_person_keyboard(user_id: int, persons: list[Person]) -> InlineKeyboar
     return InlineKeyboardMarkup(rows)
 
 
-def _build_pending_overview_lines(pending_users: Iterable[User]) -> list[str]:
+def _build_pending_overview_lines(pending_users: Iterable[User], *, include_ids: bool = True) -> list[str]:
     text_lines = ["Ожидают подтверждения:"]
     for user in pending_users:
         link = getattr(user, "link", None)
-        text_lines.append(
-            f"• {user.display_name()} (id={user.pk}, tg=@{user.tg_username or '-'}, телефон={user.phone or '-'})"
-        )
+        contact_parts: list[str] = []
+        if include_ids:
+            contact_parts.extend(
+                [
+                    f"id={user.pk}",
+                    f"tg=@{user.tg_username or '-'}",
+                    f"телефон={user.phone or '-'}",
+                ]
+            )
+        else:
+            if user.tg_username:
+                contact_parts.append(f"@{user.tg_username}")
+            if user.phone:
+                contact_parts.append(user.phone)
+        summary_line = f"• {user.display_name()}"
+        if contact_parts:
+            summary_line += f" ({', '.join(contact_parts)})"
+        text_lines.append(summary_line)
         if link and link.suggested_person_id:
             suggested = link.suggested_person
             text_lines.append(
@@ -220,11 +235,11 @@ def _build_pending_overview_lines(pending_users: Iterable[User]) -> list[str]:
     return text_lines
 
 
-async def build_pending_overview_payload() -> tuple[str | None, InlineKeyboardMarkup | None]:
+async def build_pending_overview_payload(*, include_ids: bool = True) -> tuple[str | None, InlineKeyboardMarkup | None]:
     pending_users = await _fetch_pending_users()
     if not pending_users:
         return None, None
-    lines = _build_pending_overview_lines(pending_users)
+    lines = _build_pending_overview_lines(pending_users, include_ids=include_ids)
     return "\n".join(lines), _pending_keyboard(pending_users)
 
 
@@ -472,23 +487,23 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer("Неизвестное действие", show_alert=True)
 
 
-async def handle_person_search_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_person_search_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     state = context.user_data.get("pending_person_search")
     if not state:
-        return
+        return False
 
     user_id = state.get("user_id")
     initiator_id = state.get("initiator_id")
     if not user_id:
         context.user_data.pop("pending_person_search", None)
-        return
+        return False
 
     current_user_id = update.effective_user.id if update.effective_user else None
     if initiator_id and current_user_id != initiator_id:
-        return
+        return False
 
     if not (await user_is_admin(current_user_id) or await user_is_manager(current_user_id)):
-        return
+        return False
 
     surname = update.message.text if update.message else ""
     persons = await _search_persons_by_surname(surname or "")
@@ -509,3 +524,4 @@ async def handle_person_search_message(update: Update, context: ContextTypes.DEF
             "Введите другую фамилию или нажмите кнопку «⬅️ Назад».",
             reply_markup=keyboard,
         )
+    return True
