@@ -146,6 +146,7 @@ def build_application():
         MessageHandler(
             filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND),
             handle_person_search_message,
+            block=False,
         )
     )
     application.add_handler(
