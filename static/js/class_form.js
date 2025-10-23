@@ -170,18 +170,9 @@
       });
     }
 
-    function getAllowedTraining(locationValue) {
-      if (!locationValue) {
-        return null;
-      }
-      const allowed = allowedTrainingMap[locationValue];
-      return Array.isArray(allowed) ? allowed : null;
-    }
-
     function refreshTrainingOptions() {
       const locationValue = locationSelect.value;
       const currentValue = trainingSelect.value;
-      const allowed = getAllowedTraining(locationValue);
 
       if (!locationValue) {
         trainingSelect.disabled = true;
@@ -192,43 +183,29 @@
       trainingSelect.disabled = false;
       setHintVisibility(trainingHintLocked, false);
 
-      const nextOptions = [];
-      const seen = new Set();
-
-      function pushOption(choice) {
-        if (!choice || seen.has(choice.value)) {
-          return;
-        }
-        seen.add(choice.value);
-        nextOptions.push(choice);
+      let availableChoices = [];
+      const allowedValues = allowedTrainingMap[locationValue];
+      if (Array.isArray(allowedValues) && allowedValues.length) {
+        availableChoices = allowedValues
+          .map((value) => trainingChoiceMap.get(value))
+          .filter(Boolean);
       }
-
-      if (allowed && allowed.length) {
-        allowed.forEach((value) => pushOption(trainingChoiceMap.get(value)));
-      } else {
-        trainingChoices.forEach(pushOption);
-      }
-
-      if (currentValue && !seen.has(currentValue)) {
-        const existing = trainingChoiceMap.get(currentValue);
-        if (existing) {
-          nextOptions.unshift(existing);
-        }
+      if (!availableChoices.length) {
+        availableChoices = trainingChoices.slice();
       }
 
       trainingSelect.innerHTML = "";
-      nextOptions.forEach((choice) => {
+      availableChoices.forEach((choice) => {
         const option = document.createElement("option");
         option.value = choice.value;
         option.textContent = choice.label;
         trainingSelect.appendChild(option);
       });
 
+      const allowedSet = new Set(availableChoices.map((choice) => choice.value));
       let nextValue = currentValue;
-      if (!nextOptions.length) {
-        nextValue = "";
-      } else if (!nextValue || !seen.has(nextValue)) {
-        nextValue = nextOptions[0].value;
+      if (!nextValue || !allowedSet.has(nextValue)) {
+        nextValue = availableChoices.length ? availableChoices[0].value : "";
       }
 
       if (trainingSelect.value !== nextValue) {
@@ -359,36 +336,36 @@
           const { presetType, presetLocation, presetTraining, presetEquipment } =
             button.dataset;
 
-          if (presetType && typeSelect) {
-            typeSelect.value = presetType;
-            typeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      if (presetType && typeSelect) {
+        typeSelect.value = presetType;
+        typeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (presetLocation && locationSelect) {
+        locationSelect.value = presetLocation;
+        locationSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (presetTraining && trainingSelect) {
+        const hasPresetOption = Array.from(trainingSelect.options).some(
+          (option) => option.value === presetTraining
+        );
+        if (!hasPresetOption) {
+          const presetChoice = trainingChoiceMap.get(presetTraining);
+          if (presetChoice) {
+            const option = document.createElement("option");
+            option.value = presetChoice.value;
+            option.textContent = presetChoice.label;
+            trainingSelect.appendChild(option);
           }
-          if (presetLocation && locationSelect) {
-            locationSelect.value = presetLocation;
-            locationSelect.dispatchEvent(new Event("change", { bubbles: true }));
-          }
-          if (presetTraining && trainingSelect) {
-            const hasPresetOption = Array.from(trainingSelect.options).some(
-              (option) => option.value === presetTraining
-            );
-            if (!hasPresetOption) {
-              const presetChoice = trainingChoiceMap.get(presetTraining);
-              if (presetChoice) {
-                const option = document.createElement("option");
-                option.value = presetChoice.value;
-                option.textContent = presetChoice.label;
-                trainingSelect.appendChild(option);
-              }
-            }
-            trainingSelect.value = presetTraining;
-            trainingSelect.dispatchEvent(new Event("change", { bubbles: true }));
-          } else {
-            updateEquipmentControls();
-          }
+        }
+        trainingSelect.value = presetTraining;
+        trainingSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        updateEquipmentControls();
+      }
 
-          const equipmentValues = (presetEquipment || "")
-            .split(",")
-            .map((value) => value.trim())
+      const equipmentValues = (presetEquipment || "")
+        .split(",")
+        .map((value) => value.trim())
             .filter(Boolean);
           equipmentSelection = new Set(equipmentValues);
           equipmentModifiedByUser = true;
