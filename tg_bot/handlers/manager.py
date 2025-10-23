@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import Sequence
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -24,6 +25,7 @@ from tg_bot.services.notifications import user_is_admin, user_is_manager
 from tg_bot.services.training_overview import (
     ATTENDANCE_STATUS_ICONS,
     COACH_STATUS_HINTS,
+    TRAINING_TYPE_EMOJI,
     get_training_summary,
     get_upcoming_trainings_for_user,
     update_attendance_status,
@@ -39,6 +41,7 @@ TRAINING_SCOPE_DEFAULT_LIMIT = 8
 
 TRAINING_KIND_LABELS = dict(TrainingKind.choices)
 TRAINING_EQUIPMENT_LABELS = dict(TrainingEquipment.choices)
+TRAINING_LOCATION_LABELS = dict(TrainingLocation.choices)
 
 
 def _build_manager_menu_keyboard() -> InlineKeyboardMarkup:
@@ -952,24 +955,6 @@ def _build_training_edit_keyboard(summary) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                "📍 Изменить локацию",
-                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_location:{class_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🏷 Изменить вид тренировки",
-                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_type:{class_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "🎒 Изменить экипировку",
-                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_equipment:{class_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 "💬 Изменить комментарий",
                 callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_comment:{class_id}",
             )
@@ -992,8 +977,8 @@ def _build_training_edit_prompt_keyboard(class_id: int) -> InlineKeyboardMarkup:
         [
             [
                 InlineKeyboardButton(
-                    "⬅️ Назад к редактированию",
-                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit:{class_id}",
+                    "⬅️ Назад к дополнительным параметрам",
+                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:advanced:{class_id}",
                 )
             ],
             [InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")],
@@ -1110,6 +1095,256 @@ def _build_equipment_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
+def _format_training_flow_status(pending: dict) -> str:
+    pieces: list[str] = []
+    location = pending.get("location")
+    if location:
+        pieces.append(f"📍 {TRAINING_LOCATION_LABELS.get(location, location)}")
+    training_type = pending.get("training_type")
+    if training_type:
+        pieces.append(f"🏷 {TRAINING_KIND_LABELS.get(training_type, training_type)}")
+    equipment_values = pending.get("equipment") or []
+    if equipment_values:
+        equipment_text = ", ".join(
+            TRAINING_EQUIPMENT_LABELS.get(value, value) for value in equipment_values
+        )
+        pieces.append(f"🎒 {equipment_text}")
+    return " | ".join(pieces) if pieces else "—"
+
+
+def _compose_flow_text(summary, pending: dict, instruction: str) -> str:
+    selected_training = pending.get("training_type") or summary.training_type
+    emoji = TRAINING_TYPE_EMOJI.get(selected_training, summary.emoji)
+    training_label = TRAINING_KIND_LABELS.get(selected_training, summary.training_type_display)
+    header = [
+        f"{emoji} {training_label}",
+        f"🗓 {summary.start.strftime('%d.%m %H:%M')}",
+        f"👥 {summary.group_name}",
+        f"Текущий выбор: {_format_training_flow_status(pending)}",
+        "",
+        instruction,
+    ]
+    return "\n".join(header)
+
+
+def _build_flow_location_keyboard(class_id: int, selected: str | None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for value, label in TrainingLocation.choices:
+        prefix = "✅ " if value == selected else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{prefix}{label}",
+                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:flow:set_location:{class_id}:{value}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "🚫 Прервать внесение изменений",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:flow:cancel:{class_id}",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def _build_flow_training_keyboard(
+    class_id: int,
+    allowed_types: set[str] | None,
+    selected: str | None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    options: list[str] = []
+    if allowed_types:
+        for value, _ in TrainingKind.choices:
+            if value in allowed_types:
+                options.append(value)
+        if not options:
+            options = sorted(allowed_types)
+    else:
+        options = [value for value, _ in TrainingKind.choices]
+
+    seen: set[str] = set()
+    unique_options: list[str] = []
+    for value in options:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique_options.append(value)
+    options = unique_options or [value for value, _ in TrainingKind.choices]
+
+    for value in options:
+        label = TRAINING_KIND_LABELS.get(value, value)
+        prefix = "✅ " if value == selected else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{prefix}{label}",
+                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:flow:set_type:{class_id}:{value}",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Изменить локацию",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:flow:stage:location:{class_id}",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "🚫 Прервать внесение изменений",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:flow:cancel:{class_id}",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def _build_flow_equipment_keyboard(
+    class_id: int,
+    allowed_equipment: set[str] | None,
+    selected_values: Sequence[str] | None,
+    training_type: str | None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    selected_set = set(selected_values or [])
+
+    if allowed_equipment is None:
+        options = [value for value, _ in TrainingEquipment.choices]
+    else:
+        if allowed_equipment:
+            options = [
+                value for value, _ in TrainingEquipment.choices if value in allowed_equipment
+            ]
+            if not options:
+                options = list(allowed_equipment)
+        else:
+            defaults = get_default_equipment_for_training(training_type)
+            options = defaults or [TrainingEquipment.OTHER]
+
+    seen: set[str] = set()
+    unique_options: list[str] = []
+    for value in options:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique_options.append(value)
+    options = unique_options or [TrainingEquipment.OTHER]
+
+    for value in options:
+        label = TRAINING_EQUIPMENT_LABELS.get(value, value)
+        prefix = "✅ " if value in selected_set else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{prefix}{label}",
+                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:flow:set_equipment:{class_id}:{value}",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Изменить вид тренировки",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:flow:stage:type:{class_id}",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "🚫 Прервать внесение изменений",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:flow:cancel:{class_id}",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def _ensure_training_flow_state(context: ContextTypes.DEFAULT_TYPE, class_id: int, summary) -> dict:
+    state = _get_manager_state(context) or {}
+    if state.get("mode") != "training_edit_flow" or state.get("class_id") != class_id:
+        state = {
+            "mode": "training_edit_flow",
+            "class_id": class_id,
+            "pending": {
+                "location": summary.location,
+                "training_type": summary.training_type,
+                "equipment": list(summary.equipment or []),
+            },
+            "stage": "location",
+        }
+    else:
+        pending = state.setdefault("pending", {})
+        pending.setdefault("location", summary.location)
+        pending.setdefault("training_type", summary.training_type)
+        pending.setdefault("equipment", list(summary.equipment or []))
+    _set_manager_state(context, state)
+    return state
+
+
+async def _show_flow_location_stage(
+    query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict
+) -> None:
+    pending = state.setdefault("pending", {})
+    pending.setdefault("location", summary.location)
+    state["stage"] = "location"
+    _set_manager_state(context, state)
+    text = _compose_flow_text(summary, pending, "Выберите локацию:")
+    await query.edit_message_text(
+        text,
+        reply_markup=_build_flow_location_keyboard(summary.class_id, pending.get("location")),
+    )
+
+
+async def _show_flow_training_stage(
+    query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict
+) -> None:
+    pending = state.setdefault("pending", {})
+    location = pending.get("location") or summary.location
+    pending["location"] = location
+    state["stage"] = "training"
+    _set_manager_state(context, state)
+    allowed_training = get_allowed_training_for_location(location)
+    text = _compose_flow_text(summary, pending, "Выберите тип занятия:")
+    await query.edit_message_text(
+        text,
+        reply_markup=_build_flow_training_keyboard(
+            summary.class_id,
+            allowed_training,
+            pending.get("training_type"),
+        ),
+    )
+
+
+async def _show_flow_equipment_stage(
+    query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict
+) -> None:
+    pending = state.setdefault("pending", {})
+    training_type = pending.get("training_type") or summary.training_type
+    pending["training_type"] = training_type
+    state["stage"] = "equipment"
+    _set_manager_state(context, state)
+    allowed_equipment = get_allowed_equipment(pending.get("location"), training_type)
+    text = _compose_flow_text(summary, pending, "Уточните экипировку:")
+    await query.edit_message_text(
+        text,
+        reply_markup=_build_flow_equipment_keyboard(
+            summary.class_id,
+            allowed_equipment,
+            pending.get("equipment"),
+            training_type,
+        ),
+    )
+
+
 def _build_training_detail_keyboard(summary) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
         [
@@ -1130,6 +1365,14 @@ def _build_training_detail_keyboard(summary) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 "⚙️ Изменить тренировку",
                 callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit:{summary.class_id}",
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "🛠 Доп. параметры",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:advanced:{summary.class_id}",
             )
         ]
     )
@@ -1372,6 +1615,12 @@ async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             chat_id=update.effective_chat.id,
             text="Выберите спортсмена для добавления:",
             reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return True
+
+    if mode == "training_edit_flow":
+        await update.effective_message.reply_text(
+            "Используйте кнопки под сообщением для выбора параметров или нажмите «🚫 Прервать внесение изменений»."
         )
         return True
 
@@ -1630,6 +1879,193 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text("Не удалось определить интервал.")
             return
         await _send_training_list(update, context, scope)
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:advanced:"):
+        try:
+            class_id = int(data.split(":", 3)[3])
+        except (IndexError, ValueError):
+            await query.edit_message_text("Не удалось определить тренировку.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        _set_manager_state(context, None)
+        await query.edit_message_text(
+            f"{_format_training_detail(summary)}\n\nВыберите параметр для изменения:",
+            reply_markup=_build_training_edit_keyboard(summary),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:flow:cancel:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[4])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        _set_manager_state(context, None)
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        await query.answer("Изменения отменены")
+        await query.edit_message_text(
+            _format_training_detail(summary),
+            reply_markup=_build_training_detail_keyboard(summary),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:flow:stage:location:"):
+        parts = data.split(":")
+        if len(parts) != 6:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[5])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        state = _ensure_training_flow_state(context, class_id, summary)
+        await _show_flow_location_stage(query, context, summary, state)
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:flow:stage:type:"):
+        parts = data.split(":")
+        if len(parts) != 6:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[5])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        state = _ensure_training_flow_state(context, class_id, summary)
+        await _show_flow_training_stage(query, context, summary, state)
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:flow:set_location:"):
+        parts = data.split(":")
+        if len(parts) != 6:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[4])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        new_value = parts[5]
+        valid_locations = {value for value, _ in TrainingLocation.choices}
+        if new_value not in valid_locations:
+            await query.answer("Некорректная локация", show_alert=True)
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        state = _ensure_training_flow_state(context, class_id, summary)
+        pending = state.setdefault("pending", {})
+        pending["location"] = new_value
+        pending["training_type"] = None
+        pending["equipment"] = []
+        _set_manager_state(context, state)
+        await query.answer("Локация выбрана")
+        await _show_flow_training_stage(query, context, summary, state)
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:flow:set_type:"):
+        parts = data.split(":")
+        if len(parts) != 6:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[4])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        new_value = parts[5]
+        valid_types = {value for value, _ in TrainingKind.choices}
+        if new_value not in valid_types:
+            await query.answer("Некорректный вид тренировки", show_alert=True)
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        state = _ensure_training_flow_state(context, class_id, summary)
+        pending = state.setdefault("pending", {})
+        location = pending.get("location")
+        allowed_training = get_allowed_training_for_location(location)
+        if allowed_training is not None and new_value not in allowed_training:
+            await query.answer("Для выбранной локации такой вид недоступен.", show_alert=True)
+            return
+        pending["training_type"] = new_value
+        pending["equipment"] = []
+        _set_manager_state(context, state)
+        await query.answer("Вид тренировки выбран")
+        await _show_flow_equipment_stage(query, context, summary, state)
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:flow:set_equipment:"):
+        parts = data.split(":")
+        if len(parts) != 6:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[4])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        equipment_value = parts[5]
+        known_equipment = {value for value, _ in TrainingEquipment.choices}
+        if equipment_value not in known_equipment:
+            await query.answer("Некорректная экипировка", show_alert=True)
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        state = _ensure_training_flow_state(context, class_id, summary)
+        pending = state.setdefault("pending", {})
+        location = pending.get("location") or summary.location
+        training_type = pending.get("training_type") or summary.training_type
+        allowed_equipment = get_allowed_equipment(location, training_type)
+        if allowed_equipment is not None and equipment_value not in allowed_equipment:
+            await query.answer("Эта экипировка недоступна для выбранных параметров.", show_alert=True)
+            return
+        pending["equipment"] = [equipment_value]
+        fields: dict[str, object] = {}
+        if location:
+            fields["location"] = location
+        if training_type:
+            fields["training_type"] = training_type
+        fields["equipment"] = pending["equipment"]
+        success, error_message, _ = await _update_training_fields(class_id, fields)
+        if not success:
+            await query.answer(error_message or "Не удалось обновить тренировку.", show_alert=True)
+            return
+        _set_manager_state(context, None)
+        await query.answer("Тренировка обновлена")
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        await query.edit_message_text(
+            _format_training_detail(summary),
+            reply_markup=_build_training_detail_keyboard(summary),
+        )
         return
 
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_schedule:"):
@@ -1925,11 +2361,8 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
         if error:
             await query.edit_message_text(error)
             return
-        _set_manager_state(context, None)
-        await query.edit_message_text(
-            f"{_format_training_detail(summary)}\n\nВыберите параметр для изменения:",
-            reply_markup=_build_training_edit_keyboard(summary),
-        )
+        state = _ensure_training_flow_state(context, class_id, summary)
+        await _show_flow_location_stage(query, context, summary, state)
         return
 
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:view:"):
