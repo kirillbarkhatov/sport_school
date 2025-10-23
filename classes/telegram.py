@@ -5,6 +5,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from school.choices import ClassCoachStatus, TrainingKind, TrainingLocation
 from school.models import Class
+from tg_bot.services.training_overview import COACH_STATUS_HINTS, TRAINING_TYPE_EMOJI
 
 from .models import Weekday
 
@@ -14,16 +15,21 @@ COACH_CALLBACK_PREFIX = "coach"
 def format_class_summary(class_instance: Class) -> str:
     local_dt = timezone.localtime(class_instance.date)
     weekday_label = Weekday(local_dt.weekday()).label
+    training_emoji = TRAINING_TYPE_EMOJI.get(class_instance.training_type, "🏋️")
     lines = [
-        f"{class_instance.group.name}",
-        f"{weekday_label}, {local_dt:%d.%m %H:%M}",
-        f"Вид: {class_instance.get_training_type_display()}",
-        f"Локация: {class_instance.get_location_display()}",
+        f"{training_emoji} {class_instance.get_training_type_display()}",
+        f"🗓 {weekday_label}, {local_dt:%d.%m %H:%M}",
+        f"📍 Локация: {class_instance.get_location_display()}",
+        f"👥 Группа: {class_instance.group.name}",
     ]
     equipment = class_instance.get_equipment_display()
     if equipment:
-        lines.append(f"Экипировка: {equipment}")
-    lines.append(f"Статус тренера: {class_instance.get_coach_status_display()}")
+        lines.append(f"🎒 Экипировка: {equipment}")
+    coach_hint = COACH_STATUS_HINTS.get(class_instance.coach_status)
+    if coach_hint:
+        lines.append(coach_hint)
+    else:
+        lines.append(f"Статус тренера: {class_instance.get_coach_status_display()}")
     if class_instance.creation_source == "template":
         lines.append("Источник: автоматически по шаблону")
     if class_instance.comment:

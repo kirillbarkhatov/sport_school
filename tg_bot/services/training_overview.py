@@ -35,6 +35,18 @@ COACH_STATUS_HINTS = {
     ClassCoachStatus.CANCELLED: "❌ Тренировка отменена тренером.",
 }
 
+ATTENDANCE_STATUS_ICONS = {
+    "confirmed": "✅",
+    "declined": "❌",
+    "unknown": "⏳",
+}
+
+ATTENDANCE_STATUS_DESCRIPTIONS = {
+    "confirmed": "подтвердил участие",
+    "declined": "не сможет участвовать",
+    "unknown": "ещё не ответил",
+}
+
 
 @dataclasses.dataclass(slots=True)
 class AthleteAttendance:
@@ -53,6 +65,7 @@ class TrainingSummary:
     duration_minutes: int
     training_type: str
     training_type_display: str
+    location: str
     location_display: str
     group_name: str
     coach_status: str
@@ -76,10 +89,12 @@ def _person_short_name(person) -> str:
 def _attendance_status(enrollment: ClassEnrollment) -> tuple[str, str]:
     status = enrollment.assistant_status
     if status == ClassEnrollment.ASSISTANT_STATUS_DECLINED:
-        return "declined", "не сможет поучаствовать в тренировке("
+        key = "declined"
     if status == ClassEnrollment.ASSISTANT_STATUS_CONFIRMED or enrollment.confirmed:
-        return "confirmed", "собирается на тренировку!"
-    return "unknown", "пока не подтверждал участие"
+        key = "confirmed"
+    else:
+        key = "unknown"
+    return key, ATTENDANCE_STATUS_DESCRIPTIONS[key]
 
 
 def _resolve_training_emoji(training_type: str) -> str:
@@ -142,7 +157,7 @@ def _serialize_training(
                         short_name=_person_short_name(person),
                         full_name=_format_person_name(person),
                         status_key="unknown",
-                        status_text="пока не подтверждал участие",
+                        status_text=ATTENDANCE_STATUS_DESCRIPTIONS["unknown"],
                     )
                 )
                 seen_athlete_ids.add(group_athlete.id)
@@ -154,6 +169,7 @@ def _serialize_training(
         duration_minutes=class_instance.duration,
         training_type=class_instance.training_type,
         training_type_display=class_instance.get_training_type_display(),
+        location=class_instance.location,
         location_display=class_instance.get_location_display(),
         group_name=class_instance.group.name,
         coach_status=class_instance.coach_status,
@@ -300,7 +316,8 @@ def build_attendance_lines(summary: TrainingSummary) -> list[str]:
 
     lines = ["Участие вашей семьи:"]
     for attendee in summary.athletes:
-        lines.append(f"• {attendee.short_name} — {attendee.status_text}")
+        icon = ATTENDANCE_STATUS_ICONS.get(attendee.status_key, "•")
+        lines.append(f"{icon} {attendee.short_name} — {attendee.status_text}")
     return lines
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -11,10 +11,13 @@ from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from school.choices import TrainingKind, TrainingLocation
 from school.models import Athlete, Class, ClassEnrollment, Family, FamilyMember, Group
 from tg_bot.handlers.admin import build_pending_overview_payload
 from tg_bot.services.notifications import user_is_admin, user_is_manager
 from tg_bot.services.training_overview import (
+    ATTENDANCE_STATUS_ICONS,
+    COACH_STATUS_HINTS,
     get_training_summary,
     get_upcoming_trainings_for_user,
     update_attendance_status,
@@ -27,12 +30,6 @@ MANAGER_CALLBACK_PREFIX = "manager"
 MANAGER_STATE_KEY = "manager_state"
 MAX_SEARCH_RESULTS = 12
 TRAINING_SCOPE_DEFAULT_LIMIT = 8
-
-TRAINING_STATUS_ICONS = {
-    "confirmed": "✅",
-    "declined": "❌",
-    "unknown": "⏳",
-}
 
 
 def _build_manager_menu_keyboard() -> InlineKeyboardMarkup:
@@ -884,13 +881,17 @@ def _format_training_detail(summary) -> str:
     local_start = summary.start.strftime("%d.%m %H:%M")
     lines = [
         f"{summary.emoji} {summary.training_type_display}",
-        f"Дата: {local_start}",
-        f"Группа: {summary.group_name}",
-        f"Локация: {summary.location_display}",
+        f"🗓 Дата и время: {local_start}",
+        f"📍 Локация: {summary.location_display}",
+        f"👥 Группа: {summary.group_name}",
     ]
     if summary.equipment_display:
-        lines.append(f"Экипировка: {summary.equipment_display}")
-    lines.append(f"Статус тренера: {summary.coach_status_display}")
+        lines.append(f"🎒 Экипировка: {summary.equipment_display}")
+    coach_hint = COACH_STATUS_HINTS.get(summary.coach_status)
+    if coach_hint:
+        lines.append(coach_hint)
+    elif summary.coach_status_display:
+        lines.append(f"Статус тренера: {summary.coach_status_display}")
     if summary.comment:
         lines.append("")
         lines.append(f"Комментарий: {summary.comment}")
@@ -900,12 +901,136 @@ def _format_training_detail(summary) -> str:
         lines.append("")
         lines.append("Записанные спортсмены:")
         for attendee in summary.athletes:
-            icon = TRAINING_STATUS_ICONS.get(attendee.status_key, "•")
+            icon = ATTENDANCE_STATUS_ICONS.get(attendee.status_key, "•")
             lines.append(f"{icon} {attendee.full_name} — {attendee.status_text}")
     else:
         lines.append("")
         lines.append("В тренировке пока нет записанных спортсменов.")
     return "\n".join(lines)
+
+
+async def _update_training_fields(class_id: int, fields: dict[str, object]) -> tuple[bool, str]:
+    if not fields:
+        return False, "Не указаны параметры для обновления."
+
+    def operation():
+        class_instance = Class.objects.filter(id=class_id).first()
+        if not class_instance:
+            return False, "Тренировка не найдена."
+        for field, value in fields.items():
+            setattr(class_instance, field, value)
+        class_instance.save(update_fields=list(fields.keys()))
+        return True, ""
+
+    return await sync_to_async(operation, thread_sensitive=True)()
+
+
+def _build_training_edit_keyboard(summary) -> InlineKeyboardMarkup:
+    class_id = summary.class_id
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                "🗓 Изменить дату и время",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_schedule:{class_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⏱ Изменить длительность",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_duration:{class_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📍 Изменить локацию",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_location:{class_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🏷 Изменить вид тренировки",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_type:{class_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "💬 Изменить комментарий",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_comment:{class_id}",
+            )
+        ],
+    ]
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Назад к тренировке",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:view:{class_id}",
+            )
+        ]
+    )
+    rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _build_training_edit_prompt_keyboard(class_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "⬅️ Назад к редактированию",
+                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit:{class_id}",
+                )
+            ],
+            [InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")],
+        ]
+    )
+
+
+def _build_training_location_keyboard(class_id: int, current_location: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for value, label in TrainingLocation.choices:
+        prefix = "✅ " if value == current_location else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{prefix}{label}",
+                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:set_location:{class_id}:{value}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Назад к редактированию",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit:{class_id}",
+            )
+        ]
+    )
+    rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _build_training_type_keyboard(class_id: int, current_type: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for value, label in TrainingKind.choices:
+        prefix = "✅ " if value == current_type else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{prefix}{label}",
+                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:set_type:{class_id}:{value}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Назад к редактированию",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit:{class_id}",
+            )
+        ]
+    )
+    rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
+    return InlineKeyboardMarkup(rows)
 
 
 def _build_training_detail_keyboard(summary) -> InlineKeyboardMarkup:
@@ -923,6 +1048,14 @@ def _build_training_detail_keyboard(summary) -> InlineKeyboardMarkup:
             )
         ],
     ]
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⚙️ Изменить тренировку",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit:{summary.class_id}",
+            )
+        ]
+    )
     rows.append([InlineKeyboardButton("📋 К списку тренировок", callback_data=f"{MANAGER_CALLBACK_PREFIX}:trainings")])
     rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
     return InlineKeyboardMarkup(rows)
@@ -947,7 +1080,7 @@ async def _send_training_detail(update: Update, context: ContextTypes.DEFAULT_TY
 def _build_enrollment_list_keyboard(class_id: int, summary) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for attendee in summary.athletes:
-        icon = TRAINING_STATUS_ICONS.get(attendee.status_key, "•")
+        icon = ATTENDANCE_STATUS_ICONS.get(attendee.status_key, "•")
         rows.append(
             [
                 InlineKeyboardButton(
@@ -1165,6 +1298,71 @@ async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return True
 
+    if mode == "training_edit_schedule":
+        class_id = state.get("class_id")
+        if not class_id:
+            _set_manager_state(context, None)
+            await update.effective_message.reply_text("Не удалось определить тренировку для изменения.")
+            return True
+        try:
+            new_dt = datetime.strptime(text, "%d.%m.%Y %H:%M")
+        except ValueError:
+            await update.effective_message.reply_text(
+                "Не удалось распознать дату. Используйте формат «ДД.ММ.ГГГГ ЧЧ:ММ»."
+            )
+            return True
+        aware_dt = timezone.make_aware(new_dt, timezone.get_current_timezone())
+        success, error_message = await _update_training_fields(class_id, {"date": aware_dt})
+        if not success:
+            await update.effective_message.reply_text(error_message or "Не удалось обновить дату и время.")
+            return True
+        _set_manager_state(context, None)
+        await update.effective_message.reply_text("Дата и время тренировки обновлены.")
+        await _send_training_detail(update, context, class_id)
+        return True
+
+    if mode == "training_edit_duration":
+        class_id = state.get("class_id")
+        if not class_id:
+            _set_manager_state(context, None)
+            await update.effective_message.reply_text("Не удалось определить тренировку для изменения.")
+            return True
+        try:
+            minutes = int(text)
+        except ValueError:
+            await update.effective_message.reply_text("Укажите длительность числом в минутах.")
+            return True
+        if minutes <= 0 or minutes > 600:
+            await update.effective_message.reply_text("Длительность должна быть от 1 до 600 минут.")
+            return True
+        success, error_message = await _update_training_fields(class_id, {"duration": minutes})
+        if not success:
+            await update.effective_message.reply_text(error_message or "Не удалось обновить длительность.")
+            return True
+        _set_manager_state(context, None)
+        await update.effective_message.reply_text("Длительность тренировки обновлена.")
+        await _send_training_detail(update, context, class_id)
+        return True
+
+    if mode == "training_edit_comment":
+        class_id = state.get("class_id")
+        if not class_id:
+            _set_manager_state(context, None)
+            await update.effective_message.reply_text("Не удалось определить тренировку для изменения.")
+            return True
+        if text == "-":
+            new_comment = None
+        else:
+            new_comment = text
+        success, error_message = await _update_training_fields(class_id, {"comment": new_comment})
+        if not success:
+            await update.effective_message.reply_text(error_message or "Не удалось обновить комментарий.")
+            return True
+        _set_manager_state(context, None)
+        await update.effective_message.reply_text("Комментарий обновлён.")
+        await _send_training_detail(update, context, class_id)
+        return True
+
     return False
 
 
@@ -1180,6 +1378,8 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
 
     if not await _ensure_manager_access(update, context):
         return
+
+    tg_id = update.effective_user.id if update.effective_user else None
 
     data = query.data or ""
     if data == f"{MANAGER_CALLBACK_PREFIX}:menu":
@@ -1353,6 +1553,200 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text("Не удалось определить интервал.")
             return
         await _send_training_list(update, context, scope)
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_schedule:"):
+        try:
+            class_id = int(data.split(":", 3)[3])
+        except (IndexError, ValueError):
+            await query.edit_message_text("Не удалось определить тренировку.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        _set_manager_state(context, {"mode": "training_edit_schedule", "class_id": class_id})
+        current_value = summary.start.strftime("%d.%m.%Y %H:%M")
+        text = (
+            f"{summary.emoji} {summary.training_type_display}\n"
+            f"Текущие дата и время: {current_value}\n\n"
+            "Отправьте новое значение в формате «ДД.ММ.ГГГГ ЧЧ:ММ»."
+        )
+        await query.edit_message_text(
+            text,
+            reply_markup=_build_training_edit_prompt_keyboard(class_id),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_duration:"):
+        try:
+            class_id = int(data.split(":", 3)[3])
+        except (IndexError, ValueError):
+            await query.edit_message_text("Не удалось определить тренировку.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        _set_manager_state(context, {"mode": "training_edit_duration", "class_id": class_id})
+        current_duration = summary.duration_minutes
+        text = (
+            f"{summary.emoji} {summary.training_type_display}\n"
+            f"Текущая длительность: {current_duration} мин.\n\n"
+            "Отправьте новое значение в минутах (целое число)."
+        )
+        await query.edit_message_text(
+            text,
+            reply_markup=_build_training_edit_prompt_keyboard(class_id),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_comment:"):
+        try:
+            class_id = int(data.split(":", 3)[3])
+        except (IndexError, ValueError):
+            await query.edit_message_text("Не удалось определить тренировку.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        _set_manager_state(context, {"mode": "training_edit_comment", "class_id": class_id})
+        current_comment = (summary.comment or "Комментарий отсутствует.").strip()
+        if len(current_comment) > 200:
+            current_comment = current_comment[:200] + "…"
+        text = (
+            f"{summary.emoji} {summary.training_type_display}\n"
+            f"Сейчас: {current_comment}\n\n"
+            "Отправьте новый комментарий. Чтобы очистить поле, отправьте «-»."
+        )
+        await query.edit_message_text(
+            text,
+            reply_markup=_build_training_edit_prompt_keyboard(class_id),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_location:"):
+        try:
+            class_id = int(data.split(":", 3)[3])
+        except (IndexError, ValueError):
+            await query.edit_message_text("Не удалось определить тренировку.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        _set_manager_state(context, None)
+        text = (
+            f"{summary.emoji} {summary.training_type_display}\n"
+            f"Текущая локация: {summary.location_display}\n\n"
+            "Выберите новую локацию:"
+        )
+        await query.edit_message_text(
+            text,
+            reply_markup=_build_training_location_keyboard(class_id, summary.location),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_type:"):
+        try:
+            class_id = int(data.split(":", 3)[3])
+        except (IndexError, ValueError):
+            await query.edit_message_text("Не удалось определить тренировку.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        _set_manager_state(context, None)
+        text = (
+            f"{summary.emoji} {summary.training_type_display}\n"
+            f"Текущий вид: {summary.training_type_display}\n\n"
+            "Выберите новый вид тренировки:"
+        )
+        await query.edit_message_text(
+            text,
+            reply_markup=_build_training_type_keyboard(class_id, summary.training_type),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:set_location:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[3])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        new_value = parts[4]
+        valid_locations = {value for value, _ in TrainingLocation.choices}
+        if new_value not in valid_locations:
+            await query.answer("Некорректная локация", show_alert=True)
+            return
+        success, error_message = await _update_training_fields(class_id, {"location": new_value})
+        if not success:
+            await query.answer(error_message or "Не удалось обновить локацию.", show_alert=True)
+            return
+        _set_manager_state(context, None)
+        await query.answer("Локация обновлена")
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        await query.edit_message_text(
+            _format_training_detail(summary),
+            reply_markup=_build_training_detail_keyboard(summary),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:set_type:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[3])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        new_value = parts[4]
+        valid_types = {value for value, _ in TrainingKind.choices}
+        if new_value not in valid_types:
+            await query.answer("Некорректный вид тренировки", show_alert=True)
+            return
+        success, error_message = await _update_training_fields(class_id, {"training_type": new_value})
+        if not success:
+            await query.answer(error_message or "Не удалось обновить тренировку.", show_alert=True)
+            return
+        _set_manager_state(context, None)
+        await query.answer("Вид тренировки обновлён")
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        await query.edit_message_text(
+            _format_training_detail(summary),
+            reply_markup=_build_training_detail_keyboard(summary),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit:"):
+        try:
+            class_id = int(data.split(":", 3)[3])
+        except (IndexError, ValueError):
+            await query.edit_message_text("Не удалось определить тренировку.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        _set_manager_state(context, None)
+        await query.edit_message_text(
+            f"{_format_training_detail(summary)}\n\nВыберите параметр для изменения:",
+            reply_markup=_build_training_edit_keyboard(summary),
+        )
         return
 
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:view:"):
