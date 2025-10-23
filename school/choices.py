@@ -34,6 +34,7 @@ class TrainingEquipment(models.TextChoices):
     ROLLERS = ("rollers", "Ролики, защита")
     SKATES = ("skates", "Коньки, защита")
     ICE = ("ice", "Коньки")
+    SKI_BOOTS = ("ski_boots", "Горнолыжные ботинки")
     BIKE = ("bike", "Велосипед, защита")
     SLALOM_SKI = ("slalom_ski", "Слаломные лыжи, защита")
     GS_SKI = ("gs_ski", "Лыжи для гигантского слалома, защита")

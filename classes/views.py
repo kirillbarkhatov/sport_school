@@ -10,6 +10,8 @@ from notifications.models import Notification
 from notifications.services import deliver_notification
 from school.forms import ClassForm, AthleteSelectionForm
 from school.models import Class, Athlete, ClassEnrollment, FamilyMember
+from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
+from school.training_rules import build_training_form_config
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
     get_class_queryset_for_user,
@@ -17,6 +19,84 @@ from users.utils import (
     get_athlete_queryset_for_user,
 )
 from users.models import User
+
+
+CLASS_PRESETS = [
+    {
+        "label": "Коньки",
+        "type": "regular",
+        "location": TrainingLocation.SEVER_PARK,
+        "training_type": TrainingKind.ICE,
+        "equipment": [TrainingEquipment.SKATES, TrainingEquipment.ICE],
+    },
+    {
+        "label": "Тренажер",
+        "type": "regular",
+        "location": TrainingLocation.PARK_HOUSE,
+        "training_type": TrainingKind.SKITECH,
+        "equipment": [TrainingEquipment.ATHLETIC, TrainingEquipment.SKI_BOOTS],
+    },
+    {
+        "label": "Манеж",
+        "type": "regular",
+        "location": TrainingLocation.YUKKI,
+        "training_type": TrainingKind.MANEZH,
+        "equipment": [TrainingEquipment.ATHLETIC],
+    },
+    {
+        "label": "Гигант",
+        "type": "regular",
+        "location": TrainingLocation.SNEZHNY,
+        "training_type": TrainingKind.GIANT_SLALOM,
+        "equipment": [TrainingEquipment.GS_SKI],
+    },
+    {
+        "label": "Слалом",
+        "type": "regular",
+        "location": TrainingLocation.SNEZHNY,
+        "training_type": TrainingKind.SLALOM,
+        "equipment": [TrainingEquipment.SLALOM_SKI],
+    },
+    {
+        "label": "Упражнения",
+        "type": "regular",
+        "location": TrainingLocation.SNEZHNY,
+        "training_type": TrainingKind.SKI_DRILLS,
+        "equipment": [TrainingEquipment.SLALOM_SKI],
+    },
+]
+
+
+class ClassFormContextMixin:
+    """Общие элементы контекста для форм занятий."""
+
+    def _augment_class_form_context(self, context):
+        form = context.get("form")
+        athlete_form = context.get("athlete_form")
+        if not form or not athlete_form:
+            return context
+
+        context["training_form_config"] = build_training_form_config()
+        context["class_presets"] = CLASS_PRESETS
+
+        group_field = form.fields.get("group")
+        if not group_field:
+            context["group_athletes_map"] = {}
+            return context
+
+        group_queryset = group_field.queryset
+        athlete_queryset = athlete_form.fields["athletes"].queryset
+        available_athlete_ids = set(athlete_queryset.values_list("pk", flat=True))
+
+        mapping: dict[str, list[int]] = {}
+        for group in group_queryset.prefetch_related("athletes"):
+            athlete_ids = [
+                athlete.pk for athlete in group.athletes.all() if athlete.pk in available_athlete_ids
+            ]
+            mapping[str(group.pk)] = athlete_ids
+
+        context["group_athletes_map"] = mapping
+        return context
 
 
 # CRUD для модели "Class"
@@ -40,7 +120,7 @@ class ClassDetailView(ApprovedUserRequiredMixin, DetailView):
         return get_class_queryset_for_user(self.request.user).select_related("group").prefetch_related("enrollments__athlete__person")
 
 
-class ClassCreateView(ApprovedUserRequiredMixin, CreateView):
+class ClassCreateView(ClassFormContextMixin, ApprovedUserRequiredMixin, CreateView):
     """Контроллер для работы с БД членов клуба - создание"""
 
     model = Class
@@ -60,18 +140,17 @@ class ClassCreateView(ApprovedUserRequiredMixin, CreateView):
         athlete_qs = get_athlete_queryset_for_user(self.request.user)
 
         if self.request.POST:
-            context['athlete_form'] = AthleteSelectionForm(self.request.POST, user=self.request.user)
+            context["athlete_form"] = AthleteSelectionForm(self.request.POST, user=self.request.user)
         else:
-            context['athlete_form'] = AthleteSelectionForm(
+            initial_athletes = athlete_qs.filter(
+                class_enrollments__class_instance=self.object
+            ) if self.object else athlete_qs.none()
+            context["athlete_form"] = AthleteSelectionForm(
                 user=self.request.user,
-                initial={
-                    'athletes': athlete_qs.filter(
-                        class_enrollments__class_instance=self.object
-                    ) if self.object else athlete_qs.none()
-                }
+                initial={"athletes": initial_athletes},
             )
 
-        return context
+        return self._augment_class_form_context(context)
 
     def form_valid(self, form):
         context = self.get_context_data()
@@ -94,7 +173,7 @@ class ClassCreateView(ApprovedUserRequiredMixin, CreateView):
         return self.form_invalid(form)
 
 
-class ClassUpdateView(ApprovedUserRequiredMixin, UpdateView):
+class ClassUpdateView(ClassFormContextMixin, ApprovedUserRequiredMixin, UpdateView):
     """Контроллер для работы с БД членов клуба - изменение"""
 
     model = Class
@@ -114,18 +193,18 @@ class ClassUpdateView(ApprovedUserRequiredMixin, UpdateView):
         athlete_qs = get_athlete_queryset_for_user(self.request.user)
 
         if self.request.POST:
-            context['athlete_form'] = AthleteSelectionForm(self.request.POST, user=self.request.user)
+            context["athlete_form"] = AthleteSelectionForm(self.request.POST, user=self.request.user)
         else:
-            context['athlete_form'] = AthleteSelectionForm(
+            context["athlete_form"] = AthleteSelectionForm(
                 user=self.request.user,
                 initial={
-                    'athletes': athlete_qs.filter(
+                    "athletes": athlete_qs.filter(
                         class_enrollments__class_instance=self.object
                     )
-                }
+                },
             )
 
-        return context
+        return self._augment_class_form_context(context)
 
     def form_valid(self, form):
         context = self.get_context_data()
@@ -189,7 +268,8 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
 
     def get_initial(self):
         class_instance = self.get_class_instance()
-        group_name = class_instance.group.name
+        group = class_instance.group
+        group_name = group.name if group else None
         start_time = class_instance.date.strftime("%d.%m %H:%M")
         equipment_hint = ""
         if class_instance.equipment:
@@ -198,12 +278,22 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
             )
         training_type_display = class_instance.get_training_type_display()
         location_display = class_instance.get_location_display()
-        return {
-            "title": f"{training_type_display} — {group_name} {start_time}",
-            "message": (
+        if group_name:
+            title = f"{training_type_display} — {group_name} {start_time}"
+            intro = (
                 f"Здравствуйте! Напоминаем о тренировке {training_type_display.lower()} группы {group_name} "
-                f"{start_time} в {location_display}.{equipment_hint}\n"
-                "Пожалуйста, подтвердите участие спортсмена."
+                f"{start_time} в {location_display}."
+            )
+        else:
+            title = f"{training_type_display} — {start_time}"
+            intro = (
+                f"Здравствуйте! Напоминаем о тренировке {training_type_display.lower()} "
+                f"{start_time} в {location_display}."
+            )
+        return {
+            "title": title,
+            "message": (
+                f"{intro}{equipment_hint}\nПожалуйста, подтвердите участие спортсмена."
             ),
             "recipients": list(self.get_recipients_queryset().values_list("pk", flat=True)),
         }

@@ -161,10 +161,14 @@ def build_upcoming_trainings_payload() -> dict[str, Any]:
                 "training_type_display": class_instance.get_training_type_display(),
                 "equipment": list(class_instance.equipment or []),
                 "equipment_display": class_instance.get_equipment_display(),
-                "group": {
-                    "id": class_instance.group_id,
-                    "name": class_instance.group.name,
-                },
+                "group": (
+                    {
+                        "id": class_instance.group_id,
+                        "name": class_instance.group.name,
+                    }
+                    if class_instance.group_id and class_instance.group
+                    else None
+                ),
                 "format": class_instance.type,
                 "format_display": class_instance.get_type_display(),
                 "comment": class_instance.comment,

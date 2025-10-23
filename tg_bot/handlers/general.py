@@ -61,7 +61,10 @@ async def classes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    text = "\n".join(f"{cls.date:%d.%m %H:%M} {cls.group.name}" for cls in upcoming)
+    text = "\n".join(
+        f"{cls.date:%d.%m %H:%M} {cls.group.name if cls.group else 'Без группы'}"
+        for cls in upcoming
+    )
     await context.bot.send_message(chat_id=update.effective_chat.id, text=text)
 
 

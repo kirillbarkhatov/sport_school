@@ -241,7 +241,12 @@ class Class(models.Model):
         help_text="Список экипировки, можно выбрать несколько вариантов",
     )
     group = models.ForeignKey(
-        Group, on_delete=models.CASCADE, related_name="classes", verbose_name="Группа"
+        Group,
+        on_delete=models.CASCADE,
+        related_name="classes",
+        verbose_name="Группа",
+        blank=True,
+        null=True,
     )
     type = models.CharField(
         max_length=10, choices=TYPE_CHOICES, verbose_name="Тип занятия"
@@ -278,7 +283,8 @@ class Class(models.Model):
     def __str__(self):
         local_dt = timezone.localtime(self.date)
         main_part = f"{self.get_training_type_display()} · {local_dt:%d.%m %H:%M}"
-        return f"{self.group.name}: {main_part}"
+        group_name = self.group.name if self.group_id else "Без группы"
+        return f"{group_name}: {main_part}"
 
     class Meta:
         verbose_name = "Занятие"

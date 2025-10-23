@@ -60,7 +60,7 @@ LOCATION_RULES: Dict[str, Dict[str, Set[str]]] = {
         TrainingKind.GIANT_SLALOM: SKI_EQUIPMENT,
     },
     TrainingLocation.PARK_HOUSE: {
-        TrainingKind.SKITECH: {TrainingEquipment.ATHLETIC},
+        TrainingKind.SKITECH: {TrainingEquipment.ATHLETIC, TrainingEquipment.SKI_BOOTS},
     },
     TrainingLocation.SEVER_PARK: {
         TrainingKind.ICE: {TrainingEquipment.SKATES, TrainingEquipment.ICE},
@@ -80,7 +80,7 @@ DEFAULT_EQUIPMENT_BY_TRAINING: Dict[str, List[str]] = {
     TrainingKind.GIANT_SLALOM: [TrainingEquipment.GS_SKI],
     TrainingKind.TRAMPOLINE: [TrainingEquipment.ATHLETIC],
     TrainingKind.MANEZH: [TrainingEquipment.ATHLETIC],
-    TrainingKind.SKITECH: [TrainingEquipment.ATHLETIC],
+    TrainingKind.SKITECH: [TrainingEquipment.ATHLETIC, TrainingEquipment.SKI_BOOTS],
 }
 
 
@@ -275,3 +275,55 @@ def apply_training_rules(obj) -> bool:
     obj.equipment = equipment
 
     return changed
+
+
+def build_training_form_config() -> Dict[str, object]:
+    """
+    Готовит структуру зависимостей для фронтенда формы занятия.
+    Возвращает сериализуемый словарь с вариантами полей и зависимостями.
+    """
+
+    training_labels = {value: label for value, label in TrainingKind.choices}
+    location_labels = {value: label for value, label in TrainingLocation.choices}
+    equipment_labels = {value: label for value, label in TrainingEquipment.choices}
+
+    training_by_location: Dict[str, List[str]] = {}
+    equipment_by_location: Dict[str, Dict[str, List[str]]] = {}
+
+    for location, rules in LOCATION_RULES.items():
+        trainings = list(rules.keys())
+        if trainings:
+            training_by_location[location] = _order_values(trainings, TRAINING_ORDER)
+        equipment_by_location[location] = {}
+        for training_type, equipment_values in rules.items():
+            equipment_by_location[location][training_type] = _order_values(
+                equipment_values, EQUIPMENT_ORDER
+            )
+
+    defaults_by_training = {
+        training: get_default_equipment_for_training(training)
+        for training, _ in TrainingKind.choices
+    }
+
+    return {
+        "choices": {
+            "locations": [
+                {"value": value, "label": location_labels[value]}
+                for value in LOCATION_ORDER
+                if value in location_labels
+            ],
+            "training": [
+                {"value": value, "label": training_labels[value]}
+                for value in TRAINING_ORDER
+                if value in training_labels
+            ],
+            "equipment": [
+                {"value": value, "label": equipment_labels[value]}
+                for value in EQUIPMENT_ORDER
+                if value in equipment_labels
+            ],
+        },
+        "allowed_training": training_by_location,
+        "allowed_equipment": equipment_by_location,
+        "defaults": defaults_by_training,
+    }

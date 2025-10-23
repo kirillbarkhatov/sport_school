@@ -107,10 +107,14 @@ def get_assistant_schedule_payload(user, limit: int | None = None) -> tuple[list
                 "coach_status": class_instance.coach_status,
                 "coach_status_display": class_instance.get_coach_status_display(),
                 "creation_source": class_instance.creation_source,
-                "group": {
-                    "id": class_instance.group_id,
-                    "name": class_instance.group.name,
-                },
+                "group": (
+                    {
+                        "id": class_instance.group_id,
+                        "name": class_instance.group.name,
+                    }
+                    if class_instance.group_id and class_instance.group
+                    else None
+                ),
                 "athletes": enrollments_payload,
             }
         )

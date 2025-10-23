@@ -1,11 +1,17 @@
 {% extends 'school/base.html' %}
 
-{% block title %}Занятие {{ object.group.name }}{% endblock %}
+{% block title %}Занятие{% if object.group %} {{ object.group.name }}{% endif %}{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
     <div>
-        <h2 class="mb-0">{{ object.group.name }}</h2>
+        <h2 class="mb-0">
+            {% if object.group %}
+                {{ object.group.name }}
+            {% else %}
+                Занятие {{ object.get_training_type_display }}
+            {% endif %}
+        </h2>
         <p class="text-muted mb-0">
             {{ object.date|date:"d.m.Y, H:i" }} · {{ object.get_training_type_display }} · {{ object.get_location_display }}
         </p>
@@ -27,6 +33,8 @@
                 <dl class="row mb-0">
                     <dt class="col-sm-5">Формат</dt>
                     <dd class="col-sm-7">{{ object.get_type_display }}</dd>
+                    <dt class="col-sm-5">Группа</dt>
+                    <dd class="col-sm-7">{% if object.group %}{{ object.group.name }}{% else %}—{% endif %}</dd>
                     <dt class="col-sm-5">Вид тренировки</dt>
                     <dd class="col-sm-7">{{ object.get_training_type_display }}</dd>
                     <dt class="col-sm-5">Продолжительность</dt>

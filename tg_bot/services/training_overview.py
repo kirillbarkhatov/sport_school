@@ -67,7 +67,7 @@ class TrainingSummary:
     training_type_display: str
     location: str
     location_display: str
-    group_name: str
+    group_name: str | None
     coach_status: str
     coach_status_display: str
     equipment: Sequence[str]
@@ -172,7 +172,7 @@ def _serialize_training(
         training_type_display=class_instance.get_training_type_display(),
         location=class_instance.location,
         location_display=class_instance.get_location_display(),
-        group_name=class_instance.group.name,
+        group_name=class_instance.group.name if class_instance.group else None,
         coach_status=class_instance.coach_status,
         coach_status_display=class_instance.get_coach_status_display(),
         equipment=tuple(class_instance.equipment or []),
@@ -273,7 +273,7 @@ def update_attendance_status(user: User, class_id: int, athlete_id: int, action:
             )
             if not class_instance:
                 return "not_found"
-            if not class_instance.group.athletes.filter(id=athlete_id).exists():
+            if class_instance.group and not class_instance.group.athletes.filter(id=athlete_id).exists():
                 return "forbidden"
             enrollment = ClassEnrollment(
                 class_instance=class_instance,
@@ -301,7 +301,8 @@ def build_training_brief_lines(summary: TrainingSummary) -> list[str]:
     date_text = start.strftime("%d.%m %H:%M")
     lines = [f"{summary.emoji} {summary.training_type_display} — {date_text}"]
     lines.append(f"📍 Локация: {summary.location_display}")
-    lines.append(f"👥 Группа: {summary.group_name}")
+    if summary.group_name:
+        lines.append(f"👥 Группа: {summary.group_name}")
     if summary.equipment_display:
         lines.append(f"🎒 Экипировка: {summary.equipment_display}")
     coach_hint = COACH_STATUS_HINTS.get(summary.coach_status)

@@ -29,8 +29,10 @@ class Command(BaseCommand):
         if not classes:
             return
 
-        message = "Завтра тренировки:\n" + "\n".join(
-            f"{cls.date:%H:%M} {cls.group.name}" for cls in classes
-        )
+        message_lines = []
+        for cls in classes:
+            group_name = cls.group.name if cls.group else "Без группы"
+            message_lines.append(f"{cls.date:%H:%M} {group_name}")
+        message = "Завтра тренировки:\n" + "\n".join(message_lines)
         for user in User.objects.exclude(tg_id__isnull=True):
             async_to_sync(bot.send_message)(chat_id=user.tg_id, text=message)

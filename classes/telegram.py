@@ -22,8 +22,9 @@ def format_class_summary(class_instance: Class) -> str:
         f"{training_emoji} {class_instance.get_training_type_display()}",
         f"🗓 {weekday_label}, {local_dt:%d.%m %H:%M}",
         f"📍 Локация: {class_instance.get_location_display()}",
-        f"👥 Группа: {class_instance.group.name}",
     ]
+    if class_instance.group:
+        lines.append(f"👥 Группа: {class_instance.group.name}")
     equipment = class_instance.get_equipment_display()
     if equipment:
         lines.append(f"🎒 Экипировка: {equipment}")

@@ -1,6 +1,13 @@
 {% extends 'school/base.html' %}
+{% load static %}
 
-{% block title %}{% if object %}Занятие {{ object.group.name }}{% else %}Новое занятие{% endif %}{% endblock %}
+{% block title %}
+    {% if object %}
+        Занятие{% if object.group %} {{ object.group.name }}{% endif %}
+    {% else %}
+        Новое занятие
+    {% endif %}
+{% endblock %}
 
 {% block content %}
 
@@ -8,7 +15,7 @@
     <div>
         <h2 class="mb-0">
             {% if object %}
-                Изменить занятие · {{ object.group.name }}
+                Изменить занятие
             {% else %}
                 Добавить занятие
             {% endif %}
@@ -17,66 +24,172 @@
     </div>
     <div class="btn-toolbar gap-2">
         <a class="btn btn-outline-secondary" href="{% url 'classes:class_list' %}">К списку занятий</a>
+        <a class="btn btn-outline-secondary" href="{% if object %}{% url 'classes:class_detail' object.pk %}{% else %}{% url 'classes:class_list' %}{% endif %}">Отмена</a>
         {% if object %}
             <a class="btn btn-outline-danger" href="{% url 'classes:class_delete' object.pk %}">Удалить</a>
         {% endif %}
+        <button type="submit" form="class-form" class="btn btn-primary">
+            {% if object %}Сохранить изменения{% else %}Создать занятие{% endif %}
+        </button>
     </div>
 </div>
 
-<form method="post" novalidate>
+{% if object %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-body-tertiary">Текущие параметры</div>
+        <div class="card-body">
+            <div class="row gy-3">
+                <div class="col-sm-6 col-lg-4">
+                    <div class="text-muted small mb-1">Дата и время</div>
+                    <div>{{ object.date|date:"d.m.Y, H:i" }}</div>
+                </div>
+                <div class="col-sm-6 col-lg-4">
+                    <div class="text-muted small mb-1">Продолжительность</div>
+                    <div>{{ object.duration }} мин.</div>
+                </div>
+                <div class="col-sm-6 col-lg-4">
+                    <div class="text-muted small mb-1">Формат</div>
+                    <div>{{ object.get_type_display }}</div>
+                </div>
+                <div class="col-sm-6 col-lg-4">
+                    <div class="text-muted small mb-1">Локация</div>
+                    <div>{{ object.get_location_display }}</div>
+                </div>
+                <div class="col-sm-6 col-lg-4">
+                    <div class="text-muted small mb-1">Вид тренировки</div>
+                    <div>{{ object.get_training_type_display }}</div>
+                </div>
+                <div class="col-sm-6 col-lg-4">
+                    <div class="text-muted small mb-1">Группа</div>
+                    <div>{% if object.group %}{{ object.group.name }}{% else %}—{% endif %}</div>
+                </div>
+                <div class="col-sm-6 col-lg-4">
+                    <div class="text-muted small mb-1">Экипировка</div>
+                    <div>{{ object.get_equipment_display|default:"—" }}</div>
+                </div>
+                {% if object.comment %}
+                    <div class="col-12">
+                        <div class="text-muted small mb-1">Комментарий</div>
+                        <div>{{ object.comment|linebreaksbr }}</div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+<form id="class-form" method="post" novalidate data-training-form>
     {% csrf_token %}
     {{ form.non_field_errors }}
     {{ athlete_form.non_field_errors }}
 
+    <div class="d-flex flex-wrap gap-2 justify-content-end mb-3">
+        <a class="btn btn-outline-secondary" href="{% if object %}{% url 'classes:class_detail' object.pk %}{% else %}{% url 'classes:class_list' %}{% endif %}">Отмена</a>
+        {% if object %}
+            <a class="btn btn-outline-danger" href="{% url 'classes:class_delete' object.pk %}">Удалить</a>
+        {% endif %}
+        <button type="submit" class="btn btn-primary">
+            {% if object %}Сохранить изменения{% else %}Создать занятие{% endif %}
+        </button>
+    </div>
+
     <div class="row g-4">
         <div class="col-xl-7">
             <div class="card shadow-sm h-100">
-                <div class="card-header bg-body-tertiary">Параметры тренировки</div>
+                <div class="card-header bg-body-tertiary d-flex flex-wrap align-items-center gap-2">
+                    <span>Параметры тренировки</span>
+                    {% if class_presets %}
+                        <div class="d-flex flex-wrap gap-2 ms-auto align-items-center" data-presets-container>
+                            <span class="text-muted small">Шаблоны:</span>
+                            {% for preset in class_presets %}
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-secondary btn-sm"
+                                    data-preset-button
+                                    data-preset-label="{{ preset.label }}"
+                                    data-preset-type="{{ preset.type }}"
+                                    data-preset-location="{{ preset.location }}"
+                                    data-preset-training="{{ preset.training_type }}"
+                                    data-preset-equipment="{{ preset.equipment|join:',' }}"
+                                >
+                                    {{ preset.label }}
+                                </button>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
                 <div class="card-body">
                     <div class="row g-3">
-                        <div class="col-md-6">
+                        <div class="col-md-6" data-field-wrapper="date">
                             <label class="form-label" for="{{ form.date.id_for_label }}">{{ form.date.label }}</label>
                             {{ form.date }}
                             {% if form.date.help_text %}<div class="form-text">{{ form.date.help_text }}</div>{% endif %}
                             {% for error in form.date.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-6" data-field-wrapper="duration">
                             <label class="form-label" for="{{ form.duration.id_for_label }}">{{ form.duration.label }}</label>
                             {{ form.duration }}
                             {% if form.duration.help_text %}<div class="form-text">{{ form.duration.help_text }}</div>{% endif %}
                             {% for error in form.duration.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label" for="{{ form.group.id_for_label }}">{{ form.group.label }}</label>
-                            {{ form.group }}
-                            {% if form.group.help_text %}<div class="form-text">{{ form.group.help_text }}</div>{% endif %}
-                            {% for error in form.group.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label" for="{{ form.type.id_for_label }}">{{ form.type.label }}</label>
-                            {{ form.type }}
-                            {% if form.type.help_text %}<div class="form-text">{{ form.type.help_text }}</div>{% endif %}
-                            {% for error in form.type.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label" for="{{ form.training_type.id_for_label }}">{{ form.training_type.label }}</label>
-                            {{ form.training_type }}
-                            {% if form.training_type.help_text %}<div class="form-text">{{ form.training_type.help_text }}</div>{% endif %}
-                            {% for error in form.training_type.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-                        </div>
-                        <div class="col-md-6">
+                        <div class="col-md-6" data-field-wrapper="location">
                             <label class="form-label" for="{{ form.location.id_for_label }}">{{ form.location.label }}</label>
                             {{ form.location }}
                             {% if form.location.help_text %}<div class="form-text">{{ form.location.help_text }}</div>{% endif %}
                             {% for error in form.location.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
-                        <div class="col-12">
+                        <div class="col-md-6" data-field-wrapper="training_type">
+                            <label class="form-label" for="{{ form.training_type.id_for_label }}">{{ form.training_type.label }}</label>
+                            {{ form.training_type }}
+                            <div class="form-text text-muted d-none" data-training-hint="locked">
+                                Сначала выберите локацию — после этого список занятий станет доступен.
+                            </div>
+                            {% if form.training_type.help_text %}<div class="form-text">{{ form.training_type.help_text }}</div>{% endif %}
+                            {% for error in form.training_type.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6" data-field-wrapper="type">
+                            <label class="form-label" for="{{ form.type.id_for_label }}">{{ form.type.label }}</label>
+                            {{ form.type }}
+                            <div class="form-text text-muted d-none" data-group-optional-hint>
+                                Для индивидуального занятия и занятия в ходе сбора можно не выбирать группу.
+                            </div>
+                            {% if form.type.help_text %}<div class="form-text">{{ form.type.help_text }}</div>{% endif %}
+                            {% for error in form.type.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                        </div>
+                        <div class="col-md-6" data-field-wrapper="group">
+                            <label class="form-label" for="{{ form.group.id_for_label }}">{{ form.group.label }}</label>
+                            {{ form.group }}
+                            {% if form.group.help_text %}<div class="form-text">{{ form.group.help_text }}</div>{% endif %}
+                            {% for error in form.group.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+                        </div>
+                        <div class="col-12" data-field-wrapper="equipment">
                             <label class="form-label" for="{{ form.equipment.id_for_label }}">{{ form.equipment.label }}</label>
-                            {{ form.equipment }}
+                            <div class="visually-hidden" data-equipment-select>
+                                {{ form.equipment }}
+                            </div>
+                            <div class="dropdown w-100" data-equipment-dropdown>
+                                <button
+                                    class="btn btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                                    type="button"
+                                    data-equipment-toggle
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false"
+                                >
+                                    <span data-equipment-label>Выберите экипировку</span>
+                                    <i class="bi bi-chevron-down"></i>
+                                </button>
+                                <div class="dropdown-menu w-100 p-2" data-equipment-menu></div>
+                            </div>
+                            <div class="form-text text-muted d-none" data-equipment-hint="location">
+                                Сначала выберите локацию — после этого станет доступен список снаряжения.
+                            </div>
+                            <div class="form-text text-muted d-none" data-equipment-hint="training">
+                                Сначала выберите вид тренировки, чтобы подобрать подходящее снаряжение.
+                            </div>
                             {% if form.equipment.help_text %}<div class="form-text">{{ form.equipment.help_text }}</div>{% endif %}
                             {% for error in form.equipment.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                         </div>
-                        <div class="col-12">
+                        <div class="col-12" data-field-wrapper="comment">
                             <label class="form-label" for="{{ form.comment.id_for_label }}">{{ form.comment.label }}</label>
                             {{ form.comment }}
                             {% if form.comment.help_text %}<div class="form-text">{{ form.comment.help_text }}</div>{% endif %}
@@ -92,7 +205,9 @@
                     Спортсмены
                 </div>
                 <div class="card-body">
-                    {{ athlete_form.athletes }}
+                    <div data-athlete-list>
+                        {{ athlete_form.athletes }}
+                    </div>
                     {% if athlete_form.athletes.help_text %}<div class="form-text">{{ athlete_form.athletes.help_text }}</div>{% endif %}
                     {% for error in athlete_form.athletes.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
                 </div>
@@ -100,12 +215,22 @@
         </div>
     </div>
 
-    <div class="d-flex justify-content-end gap-2 mt-4">
-        <a class="btn btn-outline-secondary" href="{% url 'classes:class_list' %}">Отмена</a>
+    <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
+        <a class="btn btn-outline-secondary" href="{% if object %}{% url 'classes:class_detail' object.pk %}{% else %}{% url 'classes:class_list' %}{% endif %}">Отмена</a>
+        {% if object %}
+            <a class="btn btn-outline-danger" href="{% url 'classes:class_delete' object.pk %}">Удалить</a>
+        {% endif %}
         <button type="submit" class="btn btn-primary">
             {% if object %}Сохранить изменения{% else %}Создать занятие{% endif %}
         </button>
     </div>
 </form>
 
+{% endblock %}
+
+{% block content_2 %}
+    {{ block.super }}
+    {{ training_form_config|json_script:"training-form-config" }}
+    {{ group_athletes_map|json_script:"group-athletes-map" }}
+    <script src="{% static 'js/class_form.js' %}"></script>
 {% endblock %}

@@ -141,8 +141,18 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
         if not self.is_bound:
             equipment_field.initial = current_equipment
 
-        self.fields["location"].choices = TrainingLocation.choices
+        location_field = self.fields["location"]
+        location_choices = list(TrainingLocation.choices)
+        if not getattr(self.instance, "pk", None):
+            location_field.choices = [("", "Выберите локацию")] + location_choices
+            if not self.is_bound:
+                self.initial.setdefault("location", "")
+        else:
+            location_field.choices = location_choices
         self.fields["training_type"].choices = TrainingKind.choices
+        if "group" in self.fields:
+            self.fields["group"].required = False
+            self.fields["group"].empty_label = "—"
         for field_name in ("location", "training_type", "type", "group"):
             if field_name in self.fields:
                 self.fields[field_name].widget.attrs["class"] = "form-select"
@@ -209,6 +219,10 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
         location = cleaned_data.get("location") or getattr(self.instance, "location", None)
         training_type = cleaned_data.get("training_type") or getattr(self.instance, "training_type", None)
         equipment = cleaned_data.get("equipment") or []
+        class_type = cleaned_data.get("type") or getattr(self.instance, "type", None)
+        group = cleaned_data.get("group")
+        if class_type == "regular" and not group:
+            self.add_error("group", "Для регулярного занятия нужно выбрать группу.")
         location, training_type, normalized_equipment = normalize_training_selection(
             location,
             training_type,
