@@ -98,6 +98,27 @@ class UserTelegramProfile:
         return candidates
 
 
+def _ensure_person_telegram_link(user: User, profile: UserTelegramProfile) -> None:
+    person = getattr(user, "person", None)
+    if not person:
+        return
+
+    username = profile.username or _normalize_username(user.tg_username)
+    if not username:
+        return
+
+    desired_url = f"https://t.me/{username}"
+
+    current_value = (person.telegram or "").strip()
+    if current_value:
+        current_username, _ = _split_telegram_reference(current_value)
+        if current_username == username:
+            return
+
+    person.telegram = desired_url
+    person.save(update_fields=["telegram"])
+
+
 @transaction.atomic
 def update_user_from_telegram(user: User, profile: UserTelegramProfile) -> User:
     updated_fields: list[str] = []
@@ -136,6 +157,7 @@ def update_user_from_telegram(user: User, profile: UserTelegramProfile) -> User:
         user.save(update_fields=updated_fields)
 
     user.mark_bot_interaction()
+    _ensure_person_telegram_link(user, profile)
     return user
 
 

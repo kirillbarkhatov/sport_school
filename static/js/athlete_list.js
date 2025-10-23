@@ -34,12 +34,18 @@
     const birthValue = birthInput?.value?.trim();
     const birthYear = birthValue ? Number(birthValue) : null;
 
-    const groupIds = groupSelect
-      ? Array.from(groupSelect.options)
+    let groupIds = [];
+    if (groupSelect) {
+      if (groupSelect.multiple) {
+        groupIds = Array.from(groupSelect.options)
           .filter((option) => option.selected)
-          .map((option) => Number(option.value))
-      : [];
-    groupIds.sort((a, b) => a - b);
+          .map((option) => Number(option.value));
+      } else {
+        const value = groupSelect.value.trim();
+        groupIds = value ? [Number(value)] : [];
+      }
+    }
+    groupIds = groupIds.filter((id) => Number.isFinite(id)).sort((a, b) => a - b);
 
     return {
       birth_year: Number.isFinite(birthYear) ? birthYear : null,
@@ -70,10 +76,18 @@
       levelSelect.value = state.level || "";
     }
     if (groupSelect) {
-      const selected = new Set(state.group_ids || []);
-      Array.from(groupSelect.options).forEach((option) => {
-        option.selected = selected.has(Number(option.value));
-      });
+      if (groupSelect.multiple) {
+        const selected = new Set(state.group_ids || []);
+        Array.from(groupSelect.options).forEach((option) => {
+          option.selected = selected.has(Number(option.value));
+        });
+      } else {
+        const value =
+          state.group_ids && state.group_ids.length
+            ? String(state.group_ids[0])
+            : "";
+        groupSelect.value = value;
+      }
     }
     if (rankInput) {
       rankInput.value = state.rank || "";

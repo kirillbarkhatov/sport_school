@@ -71,22 +71,23 @@
                             >
                         </td>
                         <td>
-                            <select
-                                class="form-select form-select-sm"
-                                multiple
-                                size="4"
-                                data-field="group_ids"
-                            >
-                                {% for group in groups %}
-                                    <option value="{{ group.pk }}"
-                                        {% if group in athlete.groups_athletes.all %}selected{% endif %}
-                                    >
-                                        {{ group.name }}
-                                    </option>
-                                {% endfor %}
-                            </select>
+                            {% with current_group=athlete.groups_athletes.all|first %}
+                                <select
+                                    class="form-select form-select-sm"
+                                    data-field="group_ids"
+                                >
+                                    <option value="">— Не выбрана —</option>
+                                    {% for group in groups %}
+                                        <option value="{{ group.pk }}"
+                                            {% if current_group and current_group.pk == group.pk %}selected{% endif %}
+                                        >
+                                            {{ group.name }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            {% endwith %}
                             <div class="form-text small text-muted">
-                                Зажмите Ctrl/Cmd, чтобы выбрать несколько.
+                                Выберите основную группу для спортсмена.
                             </div>
                         </td>
                         <td>

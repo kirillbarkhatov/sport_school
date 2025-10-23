@@ -120,6 +120,23 @@
   };
 
   const handleCard = (card) => {
+    const collapseEl = card.querySelector("[data-collapsible]");
+    const collapseIcon = card.querySelector("[data-collapse-icon]");
+
+    const updateIcon = (expanded) => {
+      if (!collapseIcon) {
+        return;
+      }
+      collapseIcon.style.transform = expanded ? "rotate(180deg)" : "rotate(0deg)";
+    };
+
+    if (collapseEl) {
+      const initialExpanded = collapseEl.classList.contains("show");
+      updateIcon(initialExpanded);
+      collapseEl.addEventListener("show.bs.collapse", () => updateIcon(true));
+      collapseEl.addEventListener("hide.bs.collapse", () => updateIcon(false));
+    }
+
     const select = card.querySelector("[data-available-select]");
     const searchInput = card.querySelector("[data-available-search]");
     const addButton = card.querySelector('[data-action="add-athletes"]');
