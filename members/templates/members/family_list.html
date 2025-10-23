@@ -18,18 +18,42 @@
 
 <div class="mb-4">
     <h5 class="text-muted">Действующие члены клуба</h5>
-    <div class="row g-3">
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-4 g-3">
         {% for family in active_families %}
-            <div class="col-2">
-                <div class="card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="mb-2 text-truncate">{{ family.family_name|default:'Без названия' }}</h5>
-                        <button type="button"
-                                class="btn btn-outline-primary btn-sm"
-                                data-bs-toggle="modal"
-                                data-bs-target="#familyModal{{ family.pk }}">
-                            Подробнее…
-                        </button>
+            <div class="col">
+                <div class="card shadow-sm h-100 family-card">
+                    <div class="card-body d-flex flex-column">
+                        <div class="d-flex align-items-start justify-content-between gap-2 mb-3">
+                            <h5 class="mb-0 text-truncate">{{ family.family_name|default:'Без названия' }}</h5>
+                            <span class="badge text-bg-success-subtle text-success-emphasis family-card__badge">В клубе</span>
+                        </div>
+                        {% with members=family.members.all %}
+                            <div class="family-card__meta small text-muted mb-3">
+                                <div class="d-flex align-items-center gap-2 flex-wrap family-card__meta-list">
+                                    <span class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-person-vcard"></i>
+                                        {{ family.contact_person|default:'Контакт не назначен' }}
+                                    </span>
+                                    <span class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-people"></i>
+                                        {{ members|length }} чел. в семье
+                                    </span>
+                                </div>
+                            </div>
+                        {% endwith %}
+                        {% if family.comment %}
+                            <p class="small text-muted mb-3">
+                                {{ family.comment|truncatechars:90 }}
+                            </p>
+                        {% endif %}
+                        <div class="mt-auto pt-2">
+                            <button type="button"
+                                    class="btn btn-outline-primary w-100"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#familyModal{{ family.pk }}">
+                                Подробнее
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -44,18 +68,42 @@
 
 <div>
     <h5 class="text-muted">Бывшие члены клуба</h5>
-    <div class="row g-3">
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-4 g-3">
         {% for family in alumni_families %}
-            <div class="col-2">
-                <div class="card shadow-sm border border-warning-subtle">
-                    <div class="card-body">
-                        <h5 class="mb-2 text-truncate">{{ family.family_name|default:'Без названия' }}</h5>
-                        <button type="button"
-                                class="btn btn-outline-primary btn-sm"
-                                data-bs-toggle="modal"
-                                data-bs-target="#familyModal{{ family.pk }}">
-                            Подробнее…
-                        </button>
+            <div class="col">
+                <div class="card shadow-sm h-100 family-card family-card--alumni">
+                    <div class="card-body d-flex flex-column">
+                        <div class="d-flex align-items-start justify-content-between gap-2 mb-3">
+                            <h5 class="mb-0 text-truncate">{{ family.family_name|default:'Без названия' }}</h5>
+                            <span class="badge text-bg-warning-subtle text-warning-emphasis family-card__badge">Не в клубе</span>
+                        </div>
+                        {% with members=family.members.all %}
+                            <div class="family-card__meta small text-muted mb-3">
+                                <div class="d-flex align-items-center gap-2 flex-wrap family-card__meta-list">
+                                    <span class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-person-vcard"></i>
+                                        {{ family.contact_person|default:'Контакт не назначен' }}
+                                    </span>
+                                    <span class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-people"></i>
+                                        {{ members|length }} чел. в семье
+                                    </span>
+                                </div>
+                            </div>
+                        {% endwith %}
+                        {% if family.comment %}
+                            <p class="small text-muted mb-3">
+                                {{ family.comment|truncatechars:90 }}
+                            </p>
+                        {% endif %}
+                        <div class="mt-auto pt-2">
+                            <button type="button"
+                                    class="btn btn-outline-primary w-100"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#familyModal{{ family.pk }}">
+                                Подробнее
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

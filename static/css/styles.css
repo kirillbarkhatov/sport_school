@@ -74,3 +74,32 @@
 .bd-mode-toggle .dropdown-menu .active .bi {
   display: block !important;
 }
+
+.family-card {
+  border: 1px solid var(--bs-border-color-translucent);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.family-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0.75rem 1.5rem rgba(15, 23, 42, 0.08);
+}
+
+.family-card__badge {
+  font-weight: 600;
+}
+
+.family-card--alumni {
+  border-color: rgba(var(--bs-warning-rgb), 0.35);
+}
+
+.family-card__meta-list {
+  gap: 0.75rem !important;
+}
+
+@media (max-width: 575.98px) {
+  .family-card__meta-list {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
