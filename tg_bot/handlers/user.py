@@ -909,7 +909,19 @@ async def handle_comment_message(update: Update, context: ContextTypes.DEFAULT_T
 async def handle_main_menu_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     message = update.effective_message
     text = (message.text or "").strip().lower()
-    if text not in {"начать работу", "главное меню"}:
+    if text in {"тренер", "тренер (/coach)"}:
+        from tg_bot.handlers.coach import coach_panel
+
+        await coach_panel(update, context)
+        return True
+
+    if text in {"менеджер", "менеджер (/manager)"}:
+        from tg_bot.handlers.manager import manager_panel
+
+        await manager_panel(update, context)
+        return True
+
+    if text not in {"начать работу", "начать работу (/start)", "главное меню"}:
         return False
 
     state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
@@ -923,3 +935,23 @@ async def handle_main_menu_text(update: Update, context: ContextTypes.DEFAULT_TY
 
     await _send_main_menu(context.bot, update.effective_chat.id, user)
     return True
+
+
+async def cancel_current_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
+    if state:
+        await _clear_family_prompt_keyboard(context.bot, state)
+        context.user_data.pop("family_editor_messages", None)
+        await update.effective_message.reply_text("Изменение отменено.")
+        return
+
+    if context.user_data.pop(COMMENT_STATE_KEY, None):
+        await update.effective_message.reply_text("Добавление комментария отменено.")
+        return
+
+    from tg_bot.handlers.manager import cancel_manager_state
+
+    if await cancel_manager_state(update, context):
+        return
+
+    await update.effective_message.reply_text("Нет активных действий для отмены.")

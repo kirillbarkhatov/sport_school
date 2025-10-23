@@ -3,7 +3,7 @@ from typing import Optional
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from tg_bot.services.notifications import (
@@ -18,6 +18,7 @@ from tg_bot.services.training_overview import (
     build_training_brief_lines,
     get_upcoming_trainings_for_user,
 )
+from tg_bot.services.reply_keyboard import build_persistent_reply_keyboard
 from users.models import User, UserPersonLinkStatus
 from users.tasks import notify_pending_user_task, schedule_pending_user_notifications
 
@@ -152,10 +153,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=reply_markup,
     )
 
+    quick_commands_markup = build_persistent_reply_keyboard(
+        show_manager=is_admin or is_manager,
+        show_coach=is_coach,
+    )
+
+    prompt_lines = ["Внизу доступно меню быстрых команд."]
+    if is_admin or is_manager or is_coach:
+        role_hints: list[str] = []
+        if is_admin or is_manager:
+            role_hints.append("«Менеджер (/manager)»")
+        if is_coach:
+            role_hints.append("«Тренер (/coach)»")
+        if role_hints:
+            prompt_lines.append(
+                f"Используйте {', '.join(role_hints)} для перехода в рабочие панели."
+            )
+    prompt_lines.append("Кнопка «Начать работу (/start)» откроет главное меню.")
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="Нажмите кнопку «Начать работу» внизу, чтобы быстро открыть меню.",
-        reply_markup=ReplyKeyboardMarkup([["Начать работу"]], resize_keyboard=True),
+        text="\n".join(prompt_lines),
+        reply_markup=quick_commands_markup,
     )
 
 

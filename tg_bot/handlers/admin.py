@@ -203,63 +203,60 @@ def _build_person_keyboard(user_id: int, persons: list[Person]) -> InlineKeyboar
     return InlineKeyboardMarkup(rows)
 
 
+def _build_pending_overview_lines(pending_users: Iterable[User]) -> list[str]:
+    text_lines = ["Ожидают подтверждения:"]
+    for user in pending_users:
+        link = getattr(user, "link", None)
+        text_lines.append(
+            f"• {user.display_name()} (id={user.pk}, tg=@{user.tg_username or '-'}, телефон={user.phone or '-'})"
+        )
+        if link and link.suggested_person_id:
+            suggested = link.suggested_person
+            text_lines.append(
+                f"  Предложение: {suggested.surname} {suggested.name}"
+            )
+        if link and link.user_comment:
+            text_lines.append(f"  Комментарий: {link.user_comment}")
+    return text_lines
+
+
+async def build_pending_overview_payload() -> tuple[str | None, InlineKeyboardMarkup | None]:
+    pending_users = await _fetch_pending_users()
+    if not pending_users:
+        return None, None
+    lines = _build_pending_overview_lines(pending_users)
+    return "\n".join(lines), _pending_keyboard(pending_users)
+
+
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await _ensure_admin(update, context):
         return
 
-    pending_users = await _fetch_pending_users()
-    if not pending_users:
+    overview_text, keyboard = await build_pending_overview_payload()
+    if not overview_text:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="Нет пользователей, ожидающих подтверждения.",
         )
         return
 
-    text_lines = ["Ожидают подтверждения:"]
-    for user in pending_users:
-        link = getattr(user, "link", None)
-        text_lines.append(
-            f"• {user.display_name()} (id={user.pk}, tg=@{user.tg_username or '-'}, телефон={user.phone or '-'})"
-        )
-        if link and link.suggested_person_id:
-            suggested = link.suggested_person
-            text_lines.append(
-                f"  Предложение: {suggested.surname} {suggested.name}"
-            )
-        if link and link.user_comment:
-            text_lines.append(f"  Комментарий: {link.user_comment}")
-
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="\n".join(text_lines),
-        reply_markup=_pending_keyboard(pending_users),
+        text=overview_text,
+        reply_markup=keyboard,
     )
 
 
 async def _update_pending_overview(message) -> None:
-    pending_users = await _fetch_pending_users()
-    if not pending_users:
+    overview_text, keyboard = await build_pending_overview_payload()
+    if not overview_text:
         await message.edit_text("Все пользователи подтверждены 🎉")
         return
 
-    text_lines = ["Ожидают подтверждения:"]
-    for user in pending_users:
-        link = getattr(user, "link", None)
-        text_lines.append(
-            f"• {user.display_name()} (id={user.pk}, tg=@{user.tg_username or '-'}, телефон={user.phone or '-'})"
-        )
-        if link and link.suggested_person_id:
-            suggested = link.suggested_person
-            text_lines.append(
-                f"  Предложение: {suggested.surname} {suggested.name}"
-            )
-        if link and link.user_comment:
-            text_lines.append(f"  Комментарий: {link.user_comment}")
-
     try:
         await message.edit_text(
-            "\n".join(text_lines),
-            reply_markup=_pending_keyboard(pending_users),
+            overview_text,
+            reply_markup=keyboard,
         )
     except BadRequest as exc:
         if "message is not modified" in str(exc).lower():

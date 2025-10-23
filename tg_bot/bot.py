@@ -48,7 +48,8 @@ from tg_bot.handlers.general import (  # noqa: E402
     person,
     unknown,
 )
-from tg_bot.handlers.user import handle_user_callback  # noqa: E402
+from tg_bot.handlers.manager import handle_manager_callback, manager_panel  # noqa: E402
+from tg_bot.handlers.user import cancel_current_action, handle_user_callback  # noqa: E402
 from tg_bot.services.audience import chat_member_entry, track_audience_entry  # noqa: E402
 
 
@@ -119,9 +120,12 @@ def build_application():
     application.add_handler(CommandHandler("confirm", confirm))
     application.add_handler(CommandHandler("approve", approve))
     application.add_handler(CommandHandler("adminpanel", admin_panel))
+    application.add_handler(CommandHandler("manager", manager_panel))
     application.add_handler(CommandHandler("coach", coach_panel))
+    application.add_handler(CommandHandler("cancel", cancel_current_action))
 
     application.add_handler(CallbackQueryHandler(trace_callback("handle_admin_callback", handle_admin_callback), pattern=r"^admin"))
+    application.add_handler(CallbackQueryHandler(trace_callback("handle_manager_callback", handle_manager_callback), pattern=r"^manager:"))
     application.add_handler(CallbackQueryHandler(trace_callback("handle_coach_callback", handle_coach_callback), pattern=r"^coach:"))
     application.add_handler(
         CallbackQueryHandler(
