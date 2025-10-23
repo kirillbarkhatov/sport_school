@@ -52,6 +52,13 @@
     );
     const groupOptionalHint = form.querySelector("[data-group-optional-hint]");
 
+    const initialTrainingOptions = Array.from(
+      (trainingSelect && trainingSelect.options) || []
+    ).map((option) => ({
+      value: option.value,
+      label: option.textContent.trim(),
+    }));
+
     if (
       !locationSelect ||
       !trainingSelect ||
@@ -72,10 +79,19 @@
     const equipmentLabelMap = new Map(
       equipmentChoices.map((choice) => [choice.value, choice.label])
     );
-    const trainingChoices = choicesConfig.training || [];
+    const trainingChoices =
+      (Array.isArray(choicesConfig.training) && choicesConfig.training.length
+        ? choicesConfig.training
+        : initialTrainingOptions
+      ).slice();
     const trainingChoiceMap = new Map(
       trainingChoices.map((choice) => [choice.value, choice])
     );
+    initialTrainingOptions.forEach((choice) => {
+      if (!trainingChoiceMap.has(choice.value)) {
+        trainingChoiceMap.set(choice.value, choice);
+      }
+    });
 
     const athleteContainer = form.querySelector("[data-athlete-list]");
     const athleteCheckboxMap = new Map();
