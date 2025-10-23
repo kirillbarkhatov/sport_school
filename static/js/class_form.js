@@ -74,7 +74,7 @@
     );
     const trainingChoices = choicesConfig.training || [];
     const trainingChoiceMap = new Map(
-      trainingChoices.map((choice) => [choice.value, choice.label])
+      trainingChoices.map((choice) => [choice.value, choice])
     );
 
     const athleteContainer = form.querySelector("[data-athlete-list]");
