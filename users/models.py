@@ -39,6 +39,10 @@ class User(AbstractUser):
         null=True,
         verbose_name="Последнее взаимодействие с ботом",
     )
+    training_reminders_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Напоминания о тренировках включены",
+    )
     person = models.ForeignKey(
         "school.Person",
         on_delete=models.SET_NULL,
@@ -85,6 +89,45 @@ class User(AbstractUser):
     @property
     def person_link(self):
         return getattr(self, "link", None)
+
+
+class TrainingReminderLog(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="training_reminder_logs",
+        verbose_name="Пользователь",
+    )
+    class_instance = models.ForeignKey(
+        "school.Class",
+        on_delete=models.CASCADE,
+        related_name="reminder_logs",
+        verbose_name="Тренировка",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True, verbose_name="Отправлено")
+
+    class Meta:
+        verbose_name = "Отправленное напоминание о тренировке"
+        verbose_name_plural = "Отправленные напоминания о тренировках"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "class_instance"),
+                name="users_trainingreminderlog_unique_user_class",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=("user", "sent_at"),
+                name="users_reminder_user_sent_idx",
+            ),
+            models.Index(
+                fields=("class_instance", "sent_at"),
+                name="users_reminder_class_sent_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Напоминание {self.user_id} → {self.class_instance_id} ({self.sent_at:%Y-%m-%d %H:%M})"
 
 
 class UserPersonLink(models.Model):

@@ -23,6 +23,10 @@ from tg_bot.services.training_overview import (
     get_upcoming_trainings_for_user,
     update_attendance_status,
 )
+from tg_bot.services.reminders import (
+    build_training_reminder_markup,
+    build_training_reminder_text,
+)
 from tg_bot.handlers.auth import build_authenticated_keyboard, start as start_command
 from tg_bot.services.notifications import user_is_admin, user_is_coach, user_is_manager
 from users.utils import get_person_queryset_for_user
@@ -180,6 +184,118 @@ async def _send_main_menu(bot, chat_id: int, user: User) -> None:
         text="Выберите действие:",
         reply_markup=build_authenticated_keyboard(),
     )
+
+
+def _build_reminder_settings_text(user: User) -> str:
+    status_line = "🔔 Напоминания включены" if user.training_reminders_enabled else "🔕 Напоминания выключены"
+    lines = [
+        "🛎 Напоминания о тренировках",
+        "",
+        status_line,
+        "Мы отправляем напоминание в 10:30 в день тренировки вашей семьи.",
+        "Из напоминания можно сразу сменить статус участия или открыть настройки.",
+    ]
+    if not user.training_reminders_enabled:
+        lines.append("Включить напоминания можно кнопкой ниже или в любое время через меню.")
+    return "\n".join(lines)
+
+
+def _build_reminder_settings_markup(user: User) -> InlineKeyboardMarkup:
+    if user.training_reminders_enabled:
+        toggle_button = InlineKeyboardButton("🔕 Отключить напоминания", callback_data="reminder:disable")
+    else:
+        toggle_button = InlineKeyboardButton("🔔 Включить напоминания", callback_data="reminder:enable")
+    keyboard = [
+        [toggle_button],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data="user:menu")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def _send_reminder_settings(query, user: User, *, edit: bool = False) -> None:
+    text = _build_reminder_settings_text(user)
+    markup = _build_reminder_settings_markup(user)
+    if edit and query and query.message:
+        try:
+            await query.message.edit_text(text, reply_markup=markup)
+            return
+        except BadRequest:
+            pass
+    await _clear_query_keyboard(query)
+    if query and query.message:
+        await query.message.reply_text(text, reply_markup=markup)
+
+
+async def _set_training_reminders_enabled(user: User, enabled: bool) -> bool:
+    if user.training_reminders_enabled == enabled:
+        return False
+    await sync_to_async(
+        User.objects.filter(pk=user.pk).update,
+        thread_sensitive=True,
+    )(training_reminders_enabled=enabled)
+    user.training_reminders_enabled = enabled
+    return True
+
+
+async def _handle_reminder_callback(query, user: User, data: str) -> None:
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+    class_id = None
+    if len(parts) > 2:
+        try:
+            class_id = int(parts[2])
+        except ValueError:
+            class_id = None
+
+    if action == "enable":
+        changed = await _set_training_reminders_enabled(user, True)
+        if changed:
+            await query.answer("Напоминания включены")
+        else:
+            await query.answer("Напоминания уже включены")
+            return
+
+        if class_id and query.message:
+            summary = await sync_to_async(
+                get_training_summary,
+                thread_sensitive=True,
+            )(user, class_id)
+            if summary:
+                text = build_training_reminder_text(summary, reminders_enabled=True)
+                markup = build_training_reminder_markup(summary, reminders_enabled=True)
+                try:
+                    await query.message.edit_text(text, reply_markup=markup)
+                except BadRequest:
+                    await query.message.reply_text(text, reply_markup=markup)
+        else:
+            await _send_reminder_settings(query, user, edit=True)
+        return
+
+    if action == "disable":
+        changed = await _set_training_reminders_enabled(user, False)
+        if changed:
+            await query.answer("Напоминания выключены")
+        else:
+            await query.answer("Напоминания уже выключены")
+            return
+
+        if class_id and query.message:
+            summary = await sync_to_async(
+                get_training_summary,
+                thread_sensitive=True,
+            )(user, class_id)
+            if summary:
+                text = build_training_reminder_text(summary, reminders_enabled=False)
+                markup = build_training_reminder_markup(summary, reminders_enabled=False)
+                try:
+                    await query.message.edit_text(text, reply_markup=markup)
+                except BadRequest:
+                    await query.message.reply_text(text, reply_markup=markup)
+        else:
+            await _send_reminder_settings(query, user, edit=True)
+        return
+
+    await query.answer("Неизвестное действие.", show_alert=True)
 
 
 def _get_editor_messages_store(context: ContextTypes.DEFAULT_TYPE) -> dict[int, dict[str, int]]:
@@ -649,6 +765,16 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
+    if data.startswith("reminder:"):
+        user = await _load_user(tg_id)
+        if not user:
+            await query.message.reply_text(
+                "Не удалось найти ваш профиль. Нажмите /start и попробуйте снова."
+            )
+            return
+        await _handle_reminder_callback(query, user, data)
+        return
+
     if data == "user:menu":
         state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
         await _clear_family_prompt_keyboard(context.bot, state)
@@ -664,7 +790,15 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     actionable = (
-        data in {"user:schedule", "schedule:list", "user:plan", "user:family", "user:camps", "user:payments"}
+        data in {
+            "user:schedule",
+            "schedule:list",
+            "user:plan",
+            "user:family",
+            "user:camps",
+            "user:payments",
+            "user:reminders",
+        }
         or data.startswith(
             (
                 "schedule:view:",
@@ -688,6 +822,10 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if data == "schedule:list":
             await _send_schedule_overview(query, user, edit=True)
+            return
+
+        if data == "user:reminders":
+            await _send_reminder_settings(query, user)
             return
 
         if data.startswith("schedule:view:"):

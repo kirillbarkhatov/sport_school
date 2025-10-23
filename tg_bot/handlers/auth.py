@@ -47,6 +47,7 @@ def build_authenticated_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("ℹ️ Ближайшая тренировка", callback_data="user:plan")],
             # [InlineKeyboardButton("📝 Сообщить о планах семьи", callback_data="user:plan")],
             [InlineKeyboardButton("📅 Расписание на неделю", callback_data="user:schedule")],
+            [InlineKeyboardButton("🛎 Напоминания", callback_data="user:reminders")],
             [InlineKeyboardButton("🏕 План по сборам (в разработке)", callback_data="user:camps")],
             [InlineKeyboardButton("👪 Моя семья", callback_data="user:family")],
             [InlineKeyboardButton("💳 Данные по оплате (в разработке)", callback_data="user:payments")],

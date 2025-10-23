@@ -310,6 +310,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "classes.tasks.ensure_weekly_schedule_task",
         "schedule": crontab(hour=10, minute=10),
     },
+    "send-training-reminders-daily": {
+        "task": "classes.tasks.send_training_reminders_task",
+        "schedule": crontab(hour=10, minute=30),
+    },
     "notify-pending-users-daily": {
         "task": "users.tasks.notify_pending_users_daily_task",
         "schedule": crontab(hour=12, minute=0),
