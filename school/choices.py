@@ -23,6 +23,7 @@ class TrainingLocation(models.TextChoices):
     YUKKI = ("yukki", "Юкки")
     SNEZHNY = ("snezny", "Снежный")
     SERVERNY_SLOPE = ("serverny_slope", "Серверный склон")
+    OKHTA_PARK = ("okhta_park", "Охта парк")
     OTHER = ("other", "Локация уточняется")
 
 

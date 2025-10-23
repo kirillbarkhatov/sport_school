@@ -108,7 +108,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             roles.append("тренер")
         role_text = ", ".join(roles)
         lines.append(f"🛠️ Вы вошли как {role_text}.")
-        lines.append("⚙️ Используйте /adminpanel или /coach для работы.")
+        # lines.append("⚙️ Используйте /adminpanel или /coach для работы.")
     elif is_confirmed:
         upcoming = await sync_to_async(
             get_upcoming_trainings_for_user,
@@ -168,14 +168,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if is_admin or is_manager or is_coach:
             role_hints: list[str] = []
             if is_admin or is_manager:
-                role_hints.append("«Менеджер (/manager)»")
+                role_hints.append("«Менеджер»")
             if is_coach:
-                role_hints.append("«Тренер (/coach)»")
+                role_hints.append("«Тренер»")
             if role_hints:
                 prompt_lines.append(
                     f"⚙️ Используйте {', '.join(role_hints)} для перехода в рабочие панели."
                 )
-        prompt_lines.append("🔁 Кнопка «Начать работу (/start)» откроет главное меню.")
+        prompt_lines.append("🔁 Кнопка «Начать работу» откроет главное меню.")
 
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
