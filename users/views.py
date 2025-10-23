@@ -8,6 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import TemplateView, RedirectView
@@ -40,6 +41,38 @@ def send_admin_message(text: str) -> None:
             )
     except Exception as exc:
         logger.warning("Не удалось отправить служебное сообщение: %s", exc)
+
+
+def _format_user_roles(user: User) -> str:
+    roles = []
+    if user.is_superuser:
+        roles.append("superuser")
+    elif user.is_staff:
+        roles.append("staff")
+    if user.is_approved:
+        roles.append("approved")
+    else:
+        roles.append("не подтверждён")
+    return ", ".join(roles)
+
+
+def _format_user_login_message(user: User, request) -> str:
+    lines = [
+        "✅ Успешный вход в систему",
+        "",
+        f"Пользователь: {user.display_name()}",
+        f"Email: {user.email or '—'}",
+    ]
+    if user.tg_username or user.tg_id:
+        username = f"@{user.tg_username}" if user.tg_username else "—"
+        tg_id = user.tg_id or "—"
+        lines.append(f"Telegram: {username} (id: {tg_id})")
+    lines.append(f"Роли: {_format_user_roles(user)}")
+    lines.append(f"Время: {timezone.localtime().strftime('%d.%m.%Y %H:%M:%S')}")
+    ip_address = request.META.get("REMOTE_ADDR")
+    if ip_address:
+        lines.append(f"IP: {ip_address}")
+    return "\n".join(lines)
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -112,12 +145,7 @@ class LoginPageView(TemplateView):
     def _notify_debug(self, info: dict) -> None:
         print(f"[LOGIN DEBUG] {info}")
 
-        message_lines = [
-            "🔍 Login page opened",
-            "",
-        ]
-        message_lines.extend(f"{key}: {value}" for key, value in info.items())
-        send_admin_message("\n".join(message_lines))
+        logger.info("Login page opened: %s", info)
 
 
 class AwaitingApprovalView(LoginRequiredMixin, TemplateView):
@@ -166,6 +194,7 @@ class TelegramCallbackView(View):
             user.email or user.pk,
             user.tg_id,
         )
+        send_admin_message(_format_user_login_message(user, request))
 
         if not user.is_approved and not (user.is_staff or user.is_superuser):
             send_admin_message(

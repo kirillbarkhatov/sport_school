@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from asgiref.sync import async_to_sync
 from celery import shared_task
+from datetime import datetime, timedelta, time
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config.settings import BOT_TOKEN
@@ -91,6 +93,66 @@ def _compose_daily_digest(pending_links, *, include_ids: bool, include_reasons: 
         if link.user_comment:
             lines.append(f"Комментарий: {link.user_comment}")
     return "\n".join(lines)
+
+
+def _daily_range(target_date):
+    start = timezone.make_aware(datetime.combine(target_date, time.min))
+    end = start + timedelta(days=1)
+    return start, end
+
+
+def _format_bot_activity_entry(user) -> str:
+    display_name = user.display_name() if hasattr(user, "display_name") else (
+        user.get_full_name() or user.email or str(user.pk)
+    )
+    email = user.email or "—"
+    if getattr(user, "tg_username", None):
+        telegram_ref = f"@{user.tg_username}"
+    elif getattr(user, "tg_id", None):
+        telegram_ref = f"id={user.tg_id}"
+    else:
+        telegram_ref = "—"
+    last_seen = getattr(user, "last_bot_interaction_at", None)
+    if last_seen:
+        seen_display = timezone.localtime(last_seen).strftime("%H:%M")
+    else:
+        seen_display = "—"
+    return f"• {display_name} — email: {email}, telegram: {telegram_ref}, время: {seen_display}"
+
+
+@shared_task
+def notify_bot_activity_daily_task() -> int:
+    if not BOT_TOKEN:
+        logger.debug("BOT_TOKEN отсутствует, отчёт по активности бота не отправлен.")
+        return 0
+
+    today = timezone.localdate()
+    start, end = _daily_range(today)
+    users_today = list(
+        User.objects.filter(
+            last_bot_interaction_at__gte=start,
+            last_bot_interaction_at__lt=end,
+        ).order_by("last_bot_interaction_at")
+    )
+
+    lines = [f"📊 Активность бота за {today.strftime('%d.%m.%Y')}"]
+    lines.append("")
+    if not users_today:
+        lines.append("За сегодня взаимодействий не зафиксировано.")
+    else:
+        for user in users_today:
+            lines.append(_format_bot_activity_entry(user))
+        lines.append("")
+        lines.append(f"Всего пользователей: {len(users_today)}")
+
+    message = "\n".join(lines)
+    async_to_sync(notify_admins_bot)(Bot(token=BOT_TOKEN), message)
+    logger.info(
+        "Отправлен отчёт об активности бота за %s (участников: %s)",
+        today,
+        len(users_today),
+    )
+    return len(users_today)
 
 
 @shared_task

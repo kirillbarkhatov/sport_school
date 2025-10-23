@@ -314,6 +314,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "users.tasks.notify_pending_users_daily_task",
         "schedule": crontab(hour=12, minute=0),
     },
+    "notify-bot-activity-daily": {
+        "task": "users.tasks.notify_bot_activity_daily_task",
+        "schedule": crontab(hour=23, minute=0),
+    },
     "assistant-sync-members-daily": {
         "task": "assistant.tasks.send_members_snapshot_task",
         "schedule": crontab(hour=3, minute=0),
