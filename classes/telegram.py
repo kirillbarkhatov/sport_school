@@ -3,13 +3,15 @@ from __future__ import annotations
 from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from school.choices import ClassCoachStatus, TrainingKind, TrainingLocation
+from school.choices import ClassCoachStatus, TrainingKind, TrainingLocation, TrainingEquipment
 from school.models import Class
+from school.training_rules import get_allowed_equipment
 from tg_bot.services.training_overview import COACH_STATUS_HINTS, TRAINING_TYPE_EMOJI
 
 from .models import Weekday
 
 COACH_CALLBACK_PREFIX = "coach"
+EQUIPMENT_LABELS = dict(TrainingEquipment.choices)
 
 
 def format_class_summary(class_instance: Class) -> str:
@@ -83,6 +85,12 @@ def build_edit_keyboard(class_instance: Class) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
+                "🎒 Экипировка",
+                callback_data=f"{COACH_CALLBACK_PREFIX}:list_equipment:{class_instance.pk}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "⬅️ Назад",
                 callback_data=f"{COACH_CALLBACK_PREFIX}:back:{class_instance.pk}",
             )
@@ -100,6 +108,44 @@ def build_location_keyboard(class_instance: Class) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     f"{prefix}{label}",
                     callback_data=f"{COACH_CALLBACK_PREFIX}:set_location:{class_instance.pk}:{value}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Назад",
+                callback_data=f"{COACH_CALLBACK_PREFIX}:edit:{class_instance.pk}",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+def build_equipment_keyboard(class_instance: Class) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    allowed_equipment = get_allowed_equipment(class_instance.location, class_instance.training_type)
+    current_values = set(class_instance.equipment or [])
+
+    if not allowed_equipment:
+        options = [value for value, _ in TrainingEquipment.choices]
+    else:
+        options = [value for value, _ in TrainingEquipment.choices if value in allowed_equipment]
+        for value in allowed_equipment:
+            if value not in options:
+                options.append(value)
+
+    if not options and current_values:
+        options = list(current_values)
+
+    for value in options:
+        label = EQUIPMENT_LABELS.get(value, value)
+        prefix = "✅ " if value in current_values else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{prefix}{label}",
+                    callback_data=f"{COACH_CALLBACK_PREFIX}:set_equipment:{class_instance.pk}:{value}",
                 )
             ]
         )

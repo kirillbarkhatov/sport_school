@@ -70,6 +70,7 @@ class TrainingSummary:
     group_name: str
     coach_status: str
     coach_status_display: str
+    equipment: Sequence[str]
     equipment_display: str
     comment: str | None
     coach_comment: str | None
@@ -174,6 +175,7 @@ def _serialize_training(
         group_name=class_instance.group.name,
         coach_status=class_instance.coach_status,
         coach_status_display=class_instance.get_coach_status_display(),
+        equipment=tuple(class_instance.equipment or []),
         equipment_display=equipment_display,
         comment=class_instance.comment,
         coach_comment=class_instance.coach_comment,

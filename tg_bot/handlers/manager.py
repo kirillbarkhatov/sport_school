@@ -11,7 +11,13 @@ from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from school.choices import TrainingKind, TrainingLocation
+from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
+from school.training_rules import (
+    apply_training_rules,
+    get_allowed_equipment,
+    get_allowed_training_for_location,
+    get_default_equipment_for_training,
+)
 from school.models import Athlete, Class, ClassEnrollment, Family, FamilyMember, Group
 from tg_bot.handlers.admin import build_pending_overview_payload
 from tg_bot.services.notifications import user_is_admin, user_is_manager
@@ -30,6 +36,9 @@ MANAGER_CALLBACK_PREFIX = "manager"
 MANAGER_STATE_KEY = "manager_state"
 MAX_SEARCH_RESULTS = 12
 TRAINING_SCOPE_DEFAULT_LIMIT = 8
+
+TRAINING_KIND_LABELS = dict(TrainingKind.choices)
+TRAINING_EQUIPMENT_LABELS = dict(TrainingEquipment.choices)
 
 
 def _build_manager_menu_keyboard() -> InlineKeyboardMarkup:
@@ -909,18 +918,19 @@ def _format_training_detail(summary) -> str:
     return "\n".join(lines)
 
 
-async def _update_training_fields(class_id: int, fields: dict[str, object]) -> tuple[bool, str]:
+async def _update_training_fields(class_id: int, fields: dict[str, object]) -> tuple[bool, str, Class | None]:
     if not fields:
-        return False, "Не указаны параметры для обновления."
+        return False, "Не указаны параметры для обновления.", None
 
     def operation():
         class_instance = Class.objects.filter(id=class_id).first()
         if not class_instance:
-            return False, "Тренировка не найдена."
+            return False, "Тренировка не найдена.", None
         for field, value in fields.items():
             setattr(class_instance, field, value)
-        class_instance.save(update_fields=list(fields.keys()))
-        return True, ""
+        apply_training_rules(class_instance)
+        class_instance.save()
+        return True, "", class_instance
 
     return await sync_to_async(operation, thread_sensitive=True)()
 
@@ -950,6 +960,12 @@ def _build_training_edit_keyboard(summary) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 "🏷 Изменить вид тренировки",
                 callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_type:{class_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🎒 Изменить экипировку",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_equipment:{class_id}",
             )
         ],
         [
@@ -1009,9 +1025,26 @@ def _build_training_location_keyboard(class_id: int, current_location: str) -> I
     return InlineKeyboardMarkup(rows)
 
 
-def _build_training_type_keyboard(class_id: int, current_type: str) -> InlineKeyboardMarkup:
+def _build_training_type_keyboard(
+    class_id: int,
+    allowed_types: set[str] | None,
+    current_type: str | None,
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    for value, label in TrainingKind.choices:
+    options: list[str] = []
+    for value, _ in TrainingKind.choices:
+        if allowed_types is not None and value not in allowed_types:
+            continue
+        options.append(value)
+    if allowed_types:
+        for value in allowed_types:
+            if value not in options:
+                options.append(value)
+    if not options and current_type:
+        options.append(current_type)
+
+    for value in options:
+        label = TRAINING_KIND_LABELS.get(value, value)
         prefix = "✅ " if value == current_type else ""
         rows.append(
             [
@@ -1026,6 +1059,50 @@ def _build_training_type_keyboard(class_id: int, current_type: str) -> InlineKey
             InlineKeyboardButton(
                 "⬅️ Назад к редактированию",
                 callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit:{class_id}",
+            )
+        ]
+    )
+    rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _build_equipment_keyboard(
+    class_id: int,
+    allowed_equipment: set[str] | None,
+    current_equipment: Sequence[str] | None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    current_set = set(current_equipment or [])
+
+    options: list[str] = []
+    if not allowed_equipment:
+        options = [value for value, _ in TrainingEquipment.choices]
+    else:
+        options = [value for value, _ in TrainingEquipment.choices if value in allowed_equipment]
+        for value in allowed_equipment:
+            if value not in options:
+                options.append(value)
+
+    if not options and current_set:
+        options = list(current_set)
+
+    for value in options:
+        label = TRAINING_EQUIPMENT_LABELS.get(value, value)
+        prefix = "✅ " if value in current_set else ""
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    f"{prefix}{label}",
+                    callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:set_equipment:{class_id}:{value}",
+                )
+            ]
+        )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Назад к виду тренировки",
+                callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:edit_type:{class_id}",
             )
         ]
     )
@@ -1312,7 +1389,7 @@ async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return True
         aware_dt = timezone.make_aware(new_dt, timezone.get_current_timezone())
-        success, error_message = await _update_training_fields(class_id, {"date": aware_dt})
+        success, error_message, _ = await _update_training_fields(class_id, {"date": aware_dt})
         if not success:
             await update.effective_message.reply_text(error_message or "Не удалось обновить дату и время.")
             return True
@@ -1335,7 +1412,7 @@ async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         if minutes <= 0 or minutes > 600:
             await update.effective_message.reply_text("Длительность должна быть от 1 до 600 минут.")
             return True
-        success, error_message = await _update_training_fields(class_id, {"duration": minutes})
+        success, error_message, _ = await _update_training_fields(class_id, {"duration": minutes})
         if not success:
             await update.effective_message.reply_text(error_message or "Не удалось обновить длительность.")
             return True
@@ -1354,7 +1431,7 @@ async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             new_comment = None
         else:
             new_comment = text
-        success, error_message = await _update_training_fields(class_id, {"comment": new_comment})
+        success, error_message, _ = await _update_training_fields(class_id, {"comment": new_comment})
         if not success:
             await update.effective_message.reply_text(error_message or "Не удалось обновить комментарий.")
             return True
@@ -1659,14 +1736,38 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text(error)
             return
         _set_manager_state(context, None)
+        allowed_training = get_allowed_training_for_location(summary.location)
         text = (
             f"{summary.emoji} {summary.training_type_display}\n"
-            f"Текущий вид: {summary.training_type_display}\n\n"
-            "Выберите новый вид тренировки:"
+            f"📍 Локация: {summary.location_display}\n\n"
+            "Выберите вид тренировки:"
         )
         await query.edit_message_text(
             text,
-            reply_markup=_build_training_type_keyboard(class_id, summary.training_type),
+            reply_markup=_build_training_type_keyboard(class_id, allowed_training, summary.training_type),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_equipment:"):
+        try:
+            class_id = int(data.split(":", 3)[3])
+        except (IndexError, ValueError):
+            await query.edit_message_text("Не удалось определить тренировку.")
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        _set_manager_state(context, None)
+        allowed_equipment = get_allowed_equipment(summary.location, summary.training_type)
+        text = (
+            f"{summary.emoji} {summary.training_type_display}\n"
+            f"📍 Локация: {summary.location_display}\n\n"
+            "Выберите экипировку:"
+        )
+        await query.edit_message_text(
+            text,
+            reply_markup=_build_equipment_keyboard(class_id, allowed_equipment, summary.equipment),
         )
         return
 
@@ -1685,7 +1786,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
         if new_value not in valid_locations:
             await query.answer("Некорректная локация", show_alert=True)
             return
-        success, error_message = await _update_training_fields(class_id, {"location": new_value})
+        success, error_message, _ = await _update_training_fields(class_id, {"location": new_value})
         if not success:
             await query.answer(error_message or "Не удалось обновить локацию.", show_alert=True)
             return
@@ -1695,9 +1796,14 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
         if error:
             await query.edit_message_text(error)
             return
+        allowed_training = get_allowed_training_for_location(summary.location)
         await query.edit_message_text(
-            _format_training_detail(summary),
-            reply_markup=_build_training_detail_keyboard(summary),
+            (
+                f"{summary.emoji} {summary.training_type_display}\n"
+                f"📍 Локация установлена: {summary.location_display}\n\n"
+                "Теперь выберите вид тренировки:"
+            ),
+            reply_markup=_build_training_type_keyboard(class_id, allowed_training, summary.training_type),
         )
         return
 
@@ -1716,12 +1822,89 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
         if new_value not in valid_types:
             await query.answer("Некорректный вид тренировки", show_alert=True)
             return
-        success, error_message = await _update_training_fields(class_id, {"training_type": new_value})
+        success, error_message, _ = await _update_training_fields(class_id, {"training_type": new_value})
         if not success:
             await query.answer(error_message or "Не удалось обновить тренировку.", show_alert=True)
             return
         _set_manager_state(context, None)
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        allowed_equipment = get_allowed_equipment(summary.location, summary.training_type)
+        current_equipment = set(summary.equipment)
+
+        need_equipment_prompt = True
+        if allowed_equipment is not None:
+            if len(allowed_equipment) == 1 and allowed_equipment.issubset(current_equipment):
+                need_equipment_prompt = False
+        else:
+            if current_equipment:
+                need_equipment_prompt = False
+            else:
+                defaults = get_default_equipment_for_training(summary.training_type)
+                if defaults:
+                    success, error_message, _ = await _update_training_fields(class_id, {"equipment": defaults})
+                    if not success:
+                        await query.answer(error_message or "Не удалось обновить экипировку.", show_alert=True)
+                        return
+                    summary, error = await _load_training_summary(tg_id, class_id)
+                    if error:
+                        await query.edit_message_text(error)
+                        return
+                    current_equipment = set(summary.equipment)
+                    need_equipment_prompt = False
+                else:
+                    need_equipment_prompt = True
+
+        if need_equipment_prompt:
+            await query.answer("Вид тренировки обновлён")
+            await query.edit_message_text(
+                (
+                    f"{summary.emoji} {summary.training_type_display}\n"
+                    f"📍 Локация: {summary.location_display}\n\n"
+                    "Выберите экипировку:"
+                ),
+                reply_markup=_build_equipment_keyboard(class_id, allowed_equipment, summary.equipment),
+            )
+            return
+
         await query.answer("Вид тренировки обновлён")
+        await query.edit_message_text(
+            _format_training_detail(summary),
+            reply_markup=_build_training_detail_keyboard(summary),
+        )
+        return
+
+    if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:set_equipment:"):
+        parts = data.split(":")
+        if len(parts) != 5:
+            await query.edit_message_text("Некорректный запрос.")
+            return
+        try:
+            class_id = int(parts[3])
+        except ValueError:
+            await query.edit_message_text("Некорректный идентификатор.")
+            return
+        equipment_value = parts[4]
+        known_equipment = {value for value, _ in TrainingEquipment.choices}
+        if equipment_value not in known_equipment:
+            await query.answer("Некорректная экипировка", show_alert=True)
+            return
+        summary, error = await _load_training_summary(tg_id, class_id)
+        if error:
+            await query.edit_message_text(error)
+            return
+        allowed_equipment = get_allowed_equipment(summary.location, summary.training_type)
+        if allowed_equipment is not None and equipment_value not in allowed_equipment:
+            await query.answer("Эта экипировка недоступна для выбранных параметров.", show_alert=True)
+            return
+        success, error_message, _ = await _update_training_fields(class_id, {"equipment": [equipment_value]})
+        if not success:
+            await query.answer(error_message or "Не удалось обновить экипировку.", show_alert=True)
+            return
+        _set_manager_state(context, None)
+        await query.answer("Экипировка обновлена")
         summary, error = await _load_training_summary(tg_id, class_id)
         if error:
             await query.edit_message_text(error)

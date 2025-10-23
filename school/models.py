@@ -12,6 +12,7 @@ from .choices import (
     TrainingKind,
     TrainingLocation,
 )
+from .training_rules import apply_training_rules
 
 
 class DiscountType(models.TextChoices):
@@ -284,6 +285,7 @@ class Class(models.Model):
         verbose_name_plural = "Занятия"
 
     def save(self, *args, **kwargs):
+        apply_training_rules(self)
         if (
             self.pk is None
             and self.creation_source == ClassCreationSource.MANUAL

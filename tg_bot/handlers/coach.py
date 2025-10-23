@@ -12,11 +12,13 @@ from classes.telegram import (
     build_edit_keyboard,
     build_location_keyboard,
     build_main_actions_keyboard,
+    build_equipment_keyboard,
     build_training_type_keyboard,
     format_class_summary,
 )
-from school.choices import ClassCoachStatus, TrainingKind, TrainingLocation
+from school.choices import ClassCoachStatus, TrainingKind, TrainingLocation, TrainingEquipment
 from school.models import Class
+from school.training_rules import get_allowed_equipment
 from tg_bot.services.notifications import user_is_coach
 
 logger = logging.getLogger(__name__)
@@ -115,8 +117,10 @@ async def handle_coach_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # coach:edit:<id>
     # coach:list_location:<id>
     # coach:list_training:<id>
+    # coach:list_equipment:<id>
     # coach:set_location:<id>:<value>
     # coach:set_training:<id>:<value>
+    # coach:set_equipment:<id>:<value>
     # coach:back:<id>
 
     if len(parts) < 3:
@@ -202,6 +206,13 @@ async def handle_coach_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
+    if action == "list_equipment":
+        await query.edit_message_text(
+            format_class_summary(class_instance) + "\n\nВыберите экипировку:",
+            reply_markup=build_equipment_keyboard(class_instance),
+        )
+        return
+
     if action == "set_location" and len(parts) == 4:
         new_value = parts[3]
         valid_locations = {value for value, _ in TrainingLocation.choices}
@@ -238,6 +249,29 @@ async def handle_coach_callback(update: Update, context: ContextTypes.DEFAULT_TY
             reply_markup=build_edit_keyboard(class_instance),
         )
         await query.answer("Тип тренировки обновлён")
+        return
+
+    if action == "set_equipment" and len(parts) == 4:
+        new_value = parts[3]
+        known_equipment = {value for value, _ in TrainingEquipment.choices}
+        if new_value not in known_equipment:
+            await query.answer("Некорректная экипировка", show_alert=True)
+            return
+        allowed_equipment = get_allowed_equipment(class_instance.location, class_instance.training_type)
+        if allowed_equipment is not None and new_value not in allowed_equipment:
+            await query.answer("Эта экипировка не подходит для выбранных параметров.", show_alert=True)
+            return
+        class_instance.equipment = [new_value]
+        update_fields = ["equipment"]
+        if class_instance.coach_status == ClassCoachStatus.PLANNED:
+            class_instance.coach_status_set_at = timezone.now()
+            update_fields.append("coach_status_set_at")
+        await sync_to_async(class_instance.save)(update_fields=update_fields)
+        await query.edit_message_text(
+            format_class_summary(class_instance),
+            reply_markup=build_edit_keyboard(class_instance),
+        )
+        await query.answer("Экипировка обновлена")
         return
 
     await query.answer("Неизвестное действие", show_alert=True)

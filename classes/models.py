@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
+from school.training_rules import apply_training_rules
 from school.models import Class, Group
 
 
@@ -119,3 +120,7 @@ class TrainingTemplate(models.Model):
 
     def default_equipment(self) -> list[str]:
         return list(self.equipment or [])
+
+    def save(self, *args, **kwargs):
+        apply_training_rules(self)
+        super().save(*args, **kwargs)

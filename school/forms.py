@@ -4,6 +4,13 @@ from django.forms import BooleanField, BaseFormSet, formset_factory, inlineforms
 from django.utils import timezone
 
 from .choices import TrainingEquipment, TrainingKind, TrainingLocation
+from .training_rules import (
+    apply_training_rules,
+    get_allowed_equipment,
+    get_allowed_training_for_location,
+    get_default_equipment_for_training,
+    normalize_training_selection,
+)
 from .models import (
     Athlete,
     Person,
@@ -116,6 +123,10 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        if self.instance and getattr(self.instance, "pk", None):
+            apply_training_rules(self.instance)
+
         equipment_field = self.fields["equipment"]
 
         # Add dynamic equipment options so existing custom values pass validation.
@@ -139,6 +150,74 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
         if not self.is_bound and self.instance.pk and self.instance.date:
             localized = timezone.localtime(self.instance.date)
             self.initial["date"] = localized.strftime("%Y-%m-%dT%H:%M")
+
+        bound_data = self.data if self.is_bound else None
+        selected_location = (
+            (bound_data.get("location") if bound_data else None)
+            or self.initial.get("location")
+            or getattr(self.instance, "location", None)
+        )
+
+        training_label_map = dict(TrainingKind.choices)
+        current_training = (
+            (bound_data.get("training_type") if bound_data else None)
+            or self.initial.get("training_type")
+            or getattr(self.instance, "training_type", None)
+        )
+
+        allowed_training = get_allowed_training_for_location(selected_location)
+        if allowed_training is not None:
+            training_choices = [
+                (value, label)
+                for value, label in TrainingKind.choices
+                if value in allowed_training
+            ]
+            existing_values = {value for value, _ in training_choices}
+            if current_training and current_training not in existing_values:
+                training_choices.append(
+                    (current_training, training_label_map.get(current_training, current_training))
+                )
+            if training_choices:
+                self.fields["training_type"].choices = training_choices
+
+        allowed_equipment = get_allowed_equipment(selected_location, current_training)
+        if allowed_equipment is not None:
+            allowed_set = set(allowed_equipment)
+            filtered_choices: list[tuple[str, str]] = []
+            for value, label in equipment_field.choices:
+                if value in allowed_set or value in current_equipment:
+                    filtered_choices.append((value, label))
+            if filtered_choices:
+                equipment_field.choices = filtered_choices
+
+            if not self.is_bound and not current_equipment and allowed_set:
+                default_candidates = [
+                    value
+                    for value in get_default_equipment_for_training(current_training)
+                    if value in allowed_set
+                ]
+                if not default_candidates:
+                    ordered_allowed = [
+                        value for value, _ in TrainingEquipment.choices if value in allowed_set
+                    ]
+                    default_candidates = ordered_allowed[:1]
+                if default_candidates:
+                    equipment_field.initial = default_candidates
+
+    def clean(self):
+        cleaned_data = super().clean()
+        location = cleaned_data.get("location") or getattr(self.instance, "location", None)
+        training_type = cleaned_data.get("training_type") or getattr(self.instance, "training_type", None)
+        equipment = cleaned_data.get("equipment") or []
+        location, training_type, normalized_equipment = normalize_training_selection(
+            location,
+            training_type,
+            equipment,
+        )
+        cleaned_data["location"] = location
+        cleaned_data["training_type"] = training_type
+        cleaned_data["equipment"] = normalized_equipment
+        return cleaned_data
 
 
 class GroupForm(StyleFormMixin, forms.ModelForm):
