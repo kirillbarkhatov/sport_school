@@ -10,6 +10,13 @@ services:
       - "8000:8000"
     env_file:
       - ./.env
+    restart: always
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   bot:
     build: .
@@ -19,13 +26,23 @@ services:
     env_file:
       - ./.env
     depends_on:
-      - web
+      web:
+        condition: service_healthy
+    restart: always
+
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   celery_worker:
     build: .
     command: poetry run celery -A config worker --loglevel=info
@@ -34,8 +51,12 @@ services:
     env_file:
       - ./.env
     depends_on:
-      - redis
-      - web
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    restart: always
+
   celery_beat:
     build: .
     command: poetry run celery -A config beat --loglevel=info
@@ -44,8 +65,11 @@ services:
     env_file:
       - ./.env
     depends_on:
-      - redis
-      - web
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    restart: always
 
 volumes:
   redis_data:
