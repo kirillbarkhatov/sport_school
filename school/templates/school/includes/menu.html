@@ -58,6 +58,10 @@
                     <i class="bi bi-calendar-event"></i>
                     Занятия
                 </a>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/competitions' %}active{% endif %}" href="{% url 'school:competition_list' %}">
+                    <i class="bi bi-trophy"></i>
+                    Соревнования
+                </a>
 
                 <span class="nav-section-title mt-3">Коммуникации</span>
                 <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/notifications' %}active{% endif %}" href="{% url 'notifications:notification_list' %}">

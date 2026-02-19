@@ -16,6 +16,16 @@
     {% endif %}
 </div>
 
+<form method="get" class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+    <label class="text-muted small mb-0">Клуб:</label>
+    <select name="club" class="form-select w-auto" onchange="this.form.submit()">
+        <option value="">Все</option>
+        {% for club in clubs %}
+            <option value="{{ club.pk }}" {% if selected_club == club.pk|stringformat:'s' %}selected{% endif %}>{{ club.name }}</option>
+        {% endfor %}
+    </select>
+</form>
+
 <div class="mb-4">
     <h5 class="text-muted">Действующие члены клуба</h5>
     <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-4 g-3">

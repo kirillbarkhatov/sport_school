@@ -19,6 +19,10 @@ urlpatterns = [
         views.AthleteInlineUpdateView.as_view(),
         name="athlete_inline_update",
     ),
+    path("competitions/", views.CompetitionListView.as_view(), name="competition_list"),
+    path("competitions/new/", views.CompetitionCreateUpdateView.as_view(), name="competition_create"),
+    path("competitions/<int:pk>/edit/", views.CompetitionCreateUpdateView.as_view(), name="competition_edit"),
+    path("competitions/<int:pk>/export/", views.competition_export, name="competition_export"),
 ]
 
 if settings.DEBUG:

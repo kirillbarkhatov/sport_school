@@ -15,10 +15,21 @@
 
 <div class="card shadow-sm">
     <div class="card-body">
+        <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+            <label class="text-muted small mb-0">Клуб:</label>
+            <select name="club" class="form-select w-auto" onchange="this.form.submit()">
+                <option value="">Все</option>
+                {% for club in clubs %}
+                    <option value="{{ club.pk }}" {% if selected_club == club.pk|stringformat:'s' %}selected{% endif %}>{{ club.name }}</option>
+                {% endfor %}
+            </select>
+            <input type="hidden" name="order" value="{{ order }}">
+        </form>
+
         <div class="btn-group w-100 mb-3" role="group" aria-label="Сортировка спортсменов">
-            <a class="btn btn-outline-secondary {% if not order %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}">По фамилии</a>
-            <a class="btn btn-outline-secondary {% if order == 'dob' %}active{% endif %}" href="?order=dob">По д.р.</a>
-            <a class="btn btn-outline-secondary {% if order == 'group' %}active{% endif %}" href="?order=group">По группе</a>
+            <a class="btn btn-outline-secondary {% if not order %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}{% if selected_club %}?club={{ selected_club }}{% endif %}">По фамилии</a>
+            <a class="btn btn-outline-secondary {% if order == 'dob' %}active{% endif %}" href="?order=dob{% if selected_club %}&club={{ selected_club }}{% endif %}">По д.р.</a>
+            <a class="btn btn-outline-secondary {% if order == 'group' %}active{% endif %}" href="?order=group{% if selected_club %}&club={{ selected_club }}{% endif %}">По группе</a>
         </div>
 
         {% if order == 'dob' and grouped %}

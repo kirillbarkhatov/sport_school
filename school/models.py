@@ -71,6 +71,14 @@ class Person(models.Model):
     photo = models.ImageField(
         upload_to="person/photos", blank=True, null=True, verbose_name="Фото"
     )
+    club = models.ForeignKey(
+        "Club",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Клуб",
+        related_name="members",
+    )
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
     gender = models.CharField(max_length=6, choices=GENDER_CHOICES, verbose_name="Пол")
 
@@ -439,7 +447,9 @@ class Competition(models.Model):
     """Модель «Соревнование»"""
 
     name = models.CharField(max_length=100, verbose_name="Название соревнования")
-    date = models.DateField(verbose_name="Дата проведения")
+    date = models.DateField(verbose_name="Дата проведения", blank=True, null=True)
+    start_date = models.DateField(verbose_name="Дата начала", blank=True, null=True)
+    end_date = models.DateField(verbose_name="Дата окончания", blank=True, null=True)
     location = models.CharField(max_length=100, verbose_name="Место проведения")
     description = models.TextField(
         blank=True, null=True, verbose_name="Описание соревнования"
@@ -468,7 +478,7 @@ class CompetitionEntry(models.Model):
         related_name="entries",
         verbose_name="Соревнование",
     )
-    result = models.CharField(max_length=100, verbose_name="Результат участия")
+    result = models.CharField(max_length=100, verbose_name="Результат участия", blank=True, null=True)
 
     def __str__(self):
         return f"{self.athlete.person.surname} - {self.competition.name}"
@@ -476,6 +486,19 @@ class CompetitionEntry(models.Model):
     class Meta:
         verbose_name = "Участие в соревнованиях"
         verbose_name_plural = "Участия в соревнованиях"
+
+
+class Club(models.Model):
+    """Модель «Клуб»"""
+
+    name = models.CharField(max_length=150, unique=True, verbose_name="Название клуба")
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = "Клуб"
+        verbose_name_plural = "Клубы"
 
 
 class Family(models.Model):
