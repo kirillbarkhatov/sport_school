@@ -1,0 +1,54 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Соревнования{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">Соревнования</h2>
+    <a href="{% url 'school:competition_create' %}" class="btn btn-primary">Новое соревнование и заявка</a>
+</div>
+
+<div class="card shadow-sm">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Название</th>
+                    <th>Даты</th>
+                    <th class="text-end">Участников</th>
+                    <th class="text-end" style="width:14rem;">Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for competition in object_list %}
+                {% with start=competition.start_date|default_if_none:competition.date end=competition.end_date %}
+                <tr>
+                    <td>{{ competition.name }}</td>
+                    <td>
+                        {% if start and end and start != end %}
+                            {{ start|date:"d.m.Y" }} — {{ end|date:"d.m.Y" }}
+                        {% elif start %}
+                            {{ start|date:"d.m.Y" }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td class="text-end">{{ competition.entries.count }}</td>
+                    <td class="text-end">
+                        <div class="btn-group btn-group-sm">
+                            <a href="{% url 'school:competition_edit' competition.pk %}" class="btn btn-outline-primary">Редактировать</a>
+                            <a href="{% url 'school:competition_export' competition.pk %}" class="btn btn-outline-success">Экспорт XLS</a>
+                        </div>
+                    </td>
+                </tr>
+                {% endwith %}
+            {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center py-4 text-muted">Соревнований пока нет.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

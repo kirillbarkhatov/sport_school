@@ -23,6 +23,8 @@ from .models import (
     Class,
     ClassEnrollment,
     Group,
+    Competition,
+    Club,
 )
 from .services import compute_contract_defaults
 
@@ -522,6 +524,23 @@ class AthleteContractForm(StyleFormMixin, forms.ModelForm):
             "start_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "end_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
         }
+
+
+class CompetitionForm(StyleFormMixin, forms.ModelForm):
+    class Meta:
+        model = Competition
+        fields = ["name", "start_date", "end_date", "location", "description"]
+        widgets = {
+            "start_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "end_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "description": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+class ClubForm(StyleFormMixin, forms.ModelForm):
+    class Meta:
+        model = Club
+        fields = ["name"]
 
 
 def _next_contract_number(family):

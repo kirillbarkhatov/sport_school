@@ -1,0 +1,169 @@
+{% extends 'school/base.html' %}
+
+{% block title %}{% if competition %}Редактирование соревнования{% else %}Новое соревнование{% endif %}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">{% if competition %}Редактирование соревнования{% else %}Новое соревнование и заявка{% endif %}</h2>
+    <a href="{% url 'school:competition_list' %}" class="btn btn-outline-secondary btn-sm">К списку соревнований</a>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            <div class="col-12 col-lg-4">
+                {{ form.name }}
+                <div class="form-text">Название соревнования</div>
+            </div>
+            <div class="col-12 col-md-4 col-lg-2">
+                {{ form.start_date }}
+                <div class="form-text">Дата начала</div>
+            </div>
+            <div class="col-12 col-md-4 col-lg-2">
+                {{ form.end_date }}
+                <div class="form-text">Дата окончания</div>
+            </div>
+            <div class="col-12 col-md-6 col-lg-2">
+                {{ form.location }}
+                <div class="form-text">Место</div>
+            </div>
+            <div class="col-12 col-md-6 col-lg-2">
+                <button type="submit" name="save_competition" class="btn btn-primary w-100 mt-2 mt-md-4">Сохранить</button>
+            </div>
+            <div class="col-12">
+                {{ form.description }}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header pb-0">
+        <ul class="nav nav-tabs card-header-tabs" id="compTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="tab-current" data-bs-toggle="tab" data-bs-target="#pane-current" type="button" role="tab">Спортсмены в заявке</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-add" data-bs-toggle="tab" data-bs-target="#pane-add" type="button" role="tab">Добавить в заявку</button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <div class="tab-content">
+            <div class="tab-pane fade show active" id="pane-current" role="tabpanel">
+                <div class="list-group" id="selected-list">
+                    {% if selected_ids %}
+                        {% for athlete in athletes %}
+                            {% if athlete.pk in selected_ids %}
+                                {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <span class="fw-semibold">{{ person.surname }} {{ person.name }}</span>
+                                        <span class="text-muted small">{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}</span>
+                                    </div>
+                                {% endwith %}
+                            {% endif %}
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-muted text-center py-3">Пока никого нет.</div>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="tab-pane fade" id="pane-add" role="tabpanel">
+            <div class="d-flex flex-wrap gap-2 align-items-end mb-3">
+                <div>
+                    <label class="form-label small text-muted mb-1">Клуб</label>
+                    <select id="filter-club" class="form-select w-auto">
+                        <option value="">Все</option>
+                        {% for club in clubs %}
+                            <option value="{{ club.pk }}">{{ club.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label small text-muted mb-1">Год с</label>
+                    <input type="number" id="filter-year-from" class="form-control" placeholder="2010">
+                </div>
+                <div>
+                    <label class="form-label small text-muted mb-1">Год по</label>
+                    <input type="number" id="filter-year-to" class="form-control" placeholder="2016">
+                </div>
+                <div class="flex-grow-1">
+                    <label class="form-label small text-muted mb-1">Поиск по фамилии</label>
+                    <div class="d-flex gap-2">
+                        <input type="text" id="filter-search" class="form-control" placeholder="Начните вводить фамилию">
+                        <button type="submit" form="athletes-form" class="btn btn-primary" name="athletes_submit" value="1">Сохранить участников</button>
+                    </div>
+                </div>
+            </div>
+
+            <form method="post" id="athletes-form">
+                {% csrf_token %}
+                <div class="list-group" id="athletes-list">
+                    {% for athlete in athletes %}
+                        {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
+                        <label class="list-group-item d-flex align-items-center gap-3 py-2 athlete-item"
+                               data-club="{{ person.club.pk|default:'' }}"
+                               data-year="{% if person.date_of_birth %}{{ person.date_of_birth.year }}{% endif %}"
+                               data-name="{{ person.surname|lower }}">
+                            <input class="form-check-input mt-0" type="checkbox" name="athletes" value="{{ athlete.pk }}"
+                                   {% if athlete.pk in selected_ids %}checked{% endif %}>
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
+                                <div class="text-muted small d-flex justify-content-between">
+                                    <span>{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}</span>
+                                    <span>
+                                        {% if person.club %}{{ person.club.name }}{% endif %}
+                                        {% if main_group %}{% if person.club %} · {% endif %}{{ main_group.name }}{% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        </label>
+                        {% endwith %}
+                    {% empty %}
+                        <div class="text-muted text-center py-3">Нет спортсменов.</div>
+                    {% endfor %}
+                </div>
+            </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content_2 %}
+{{ block.super }}
+<script>
+(() => {
+    const search = document.getElementById('filter-search');
+    const yearFrom = document.getElementById('filter-year-from');
+    const yearTo = document.getElementById('filter-year-to');
+    const club = document.getElementById('filter-club');
+    const items = Array.from(document.querySelectorAll('.athlete-item'));
+
+    function applyFilters() {
+        const q = (search.value || '').trim().toLowerCase();
+        const from = parseInt(yearFrom.value, 10);
+        const to = parseInt(yearTo.value, 10);
+        const clubVal = club.value;
+        items.forEach(el => {
+            const name = el.dataset.name || '';
+            const year = parseInt(el.dataset.year || '0', 10);
+            const clubId = el.dataset.club || '';
+            let ok = true;
+            if (q && !name.startsWith(q)) ok = false;
+            if (!Number.isNaN(from) && year && year < from) ok = false;
+            if (!Number.isNaN(to) && year && year > to) ok = false;
+            if (clubVal && clubVal !== clubId) ok = false;
+            el.classList.toggle('d-none', !ok);
+        });
+    }
+
+    [search, yearFrom, yearTo, club].forEach(el => {
+        if (!el) return;
+        el.addEventListener('input', applyFilters);
+        el.addEventListener('change', applyFilters);
+    });
+})();
+</script>
+{% endblock %}

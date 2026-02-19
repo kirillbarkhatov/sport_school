@@ -24,7 +24,7 @@ from school.forms import (
     FamilyPaymentForm,
     AthleteContractForm,
 )
-from school.models import Person, Family, FamilyMember, Athlete, FamilyAthleteProfile, FamilyService, FamilyPayment
+from school.models import Person, Family, FamilyMember, Athlete, FamilyAthleteProfile, FamilyService, FamilyPayment, Club
 from school.models import DiscountType, ServiceType, AthleteContract
 from school.services import (
     ensure_monthly_service_for_contract,
@@ -56,15 +56,21 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
     template_name = "members/person_list.html"
 
     def get_queryset(self):
-        return (
+        qs = (
             get_person_queryset_for_user(self.request.user)
             .prefetch_related("familymember_set__family", "linked_users")
         )
+        club_id = self.request.GET.get("club")
+        if club_id:
+            qs = qs.filter(club_id=club_id)
+        return qs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         can_manage = self.request.user.is_staff or self.request.user.is_superuser
         context["can_manage_people"] = can_manage
+        context["clubs"] = Club.objects.order_by("name")
+        context["selected_club"] = self.request.GET.get("club") or ""
         if can_manage:
             context["families"] = list(Family.objects.order_by("family_name"))
             context["relation_choices"] = FamilyMember.FAMILY_RELATION
@@ -215,6 +221,9 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
 
     def get_queryset(self):
         base_qs = Family.objects.prefetch_related("members__person")
+        club_id = self.request.GET.get("club")
+        if club_id:
+            base_qs = base_qs.filter(members__person__club_id=club_id).distinct()
         if self.request.user.is_staff or self.request.user.is_superuser:
             return base_qs.order_by("family_name")
         family_ids = self.request.user.get_accessible_family_ids()
@@ -231,6 +240,8 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
             "member_formset",
             FamilyMemberInlineFormSet(prefix="members"),
         )
+        context["clubs"] = Club.objects.order_by("name")
+        context["selected_club"] = self.request.GET.get("club") or ""
         person_ids = {
             membership.person_id
             for family in families

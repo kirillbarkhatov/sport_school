@@ -3,7 +3,7 @@ from datetime import date
 
 from django.contrib.auth.decorators import login_required
 from django.db.models import Prefetch
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.utils import timezone
 from django.views import View
@@ -16,8 +16,9 @@ from school.forms import (
     PersonCompactForm,
     FamilyForm,
     FamilyMemberForm,
+    CompetitionForm,
 )
-from school.models import Athlete, Family, FamilyMember, Group
+from school.models import Athlete, Family, FamilyMember, Group, Club, Competition, CompetitionEntry
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
     get_athlete_queryset_for_user,
@@ -90,6 +91,9 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
                 Prefetch("groups_athletes", queryset=Group.objects.order_by("name"))
             )
         )
+        club_id = self.request.GET.get("club")
+        if club_id:
+            queryset = queryset.filter(person__club_id=club_id)
 
         order = self.request.GET.get("order")
         if order == "dob":
@@ -102,6 +106,8 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["order"] = self.request.GET.get("order") or ""
+        context["clubs"] = Club.objects.order_by("name")
+        context["selected_club"] = self.request.GET.get("club") or ""
         order = context["order"]
         grouped = []
 
@@ -383,3 +389,267 @@ class AthleteInlineUpdateView(ApprovedUserRequiredMixin, View):
             }
         )
         return JsonResponse({"success": True, "athlete": response_payload})
+
+
+class CompetitionListView(ApprovedUserRequiredMixin, ListView):
+    model = Competition
+    template_name = "competitions/competition_list.html"
+
+    def get_queryset(self):
+        return Competition.objects.prefetch_related("entries__athlete__person").order_by("-start_date", "-date", "name")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["competition_form"] = CompetitionForm()
+        return ctx
+
+
+def _athlete_filter_queryset(user, club_id=None, year_from=None, year_to=None, order="surname"):
+    qs = (
+        get_athlete_queryset_for_user(user)
+        .select_related("person__club")
+        .prefetch_related(Prefetch("groups_athletes", queryset=Group.objects.order_by("name")))
+    )
+    if club_id:
+        qs = qs.filter(person__club_id=club_id)
+    if year_from:
+        qs = qs.filter(person__date_of_birth__year__gte=year_from)
+    if year_to:
+        qs = qs.filter(person__date_of_birth__year__lte=year_to)
+    if order == "dob":
+        qs = qs.order_by("person__date_of_birth", "person__surname", "person__name")
+    else:
+        qs = qs.order_by("person__surname", "person__name")
+    return qs
+
+
+class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
+    template_name = "competitions/competition_form.html"
+
+    def get_object(self, pk):
+        if pk is None:
+            return None
+        return get_object_or_404(Competition, pk=pk)
+
+    def get(self, request, pk=None):
+        competition = self.get_object(pk)
+        form = CompetitionForm(instance=competition)
+        club_id = request.GET.get("club") or ""
+        year_from = request.GET.get("year_from") or ""
+        year_to = request.GET.get("year_to") or ""
+        order = request.GET.get("order") or "surname"
+        athletes = _athlete_filter_queryset(
+            request.user,
+            club_id=None,
+            year_from=None,
+            year_to=None,
+            order="surname",
+        )
+        selected_ids = set()
+        if competition:
+            selected_ids = set(competition.entries.values_list("athlete_id", flat=True))
+        context = {
+            "form": form,
+            "competition": competition,
+            "athletes": athletes,
+            "clubs": Club.objects.order_by("name"),
+            "selected_club": club_id,
+            "year_from": year_from,
+            "year_to": year_to,
+            "order": order,
+            "selected_ids": selected_ids,
+        }
+        return render(request, self.template_name, context)
+
+    def post(self, request, pk=None):
+        competition = self.get_object(pk)
+        form = CompetitionForm(request.POST, instance=competition)
+        save_competition = "save_competition" in request.POST
+        save_athletes = "athletes_submit" in request.POST
+        selected_ids = set(request.POST.getlist("athletes"))
+
+        # Если просто сохраняем участников и соревнование уже существует — не требуем валидности формы
+        if save_athletes and competition:
+            selected_ids_int = [int(aid) for aid in selected_ids]
+            existing = set(competition.entries.values_list("athlete_id", flat=True))
+            competition.entries.exclude(athlete_id__in=selected_ids_int).delete()
+            to_add = [aid for aid in selected_ids_int if aid not in existing]
+            CompetitionEntry.objects.bulk_create(
+                [CompetitionEntry(competition=competition, athlete_id=aid) for aid in to_add]
+            )
+            return redirect("school:competition_edit", pk=competition.pk)
+
+        if form.is_valid():
+            competition = form.save(commit=False)
+            if competition.start_date is None and competition.date:
+                competition.start_date = competition.date
+            if competition.start_date is None and form.cleaned_data.get("start_date"):
+                competition.start_date = form.cleaned_data["start_date"]
+            competition.save()
+            if save_athletes:
+                selected_ids_int = [int(aid) for aid in selected_ids]
+                existing = set(competition.entries.values_list("athlete_id", flat=True))
+                competition.entries.exclude(athlete_id__in=selected_ids_int).delete()
+                to_add = [aid for aid in selected_ids_int if aid not in existing]
+                CompetitionEntry.objects.bulk_create(
+                    [CompetitionEntry(competition=competition, athlete_id=aid) for aid in to_add]
+                )
+            if save_athletes or save_competition:
+                return redirect("school:competition_edit", pk=competition.pk)
+
+        # invalid form or no save flag: re-render with all athletes
+        athletes = _athlete_filter_queryset(
+            request.user,
+            club_id=None,
+            year_from=None,
+            year_to=None,
+            order="surname",
+        )
+        context = {
+            "form": form,
+            "competition": competition,
+            "athletes": athletes,
+            "clubs": Club.objects.order_by("name"),
+            "selected_club": "",
+            "year_from": "",
+            "year_to": "",
+            "order": "surname",
+            "selected_ids": selected_ids,
+        }
+        return render(request, self.template_name, context)
+
+
+def _excel_date_from_serial(serial):
+    from datetime import datetime, timedelta
+    try:
+        base = datetime(1899, 12, 30)
+        return base + timedelta(days=int(serial))
+    except Exception:
+        return None
+
+
+def competition_export(request, pk):
+    competition = get_object_or_404(Competition, pk=pk)
+    entries = competition.entries.select_related("athlete__person", "athlete__person__club").order_by(
+        "athlete__person__surname", "athlete__person__name"
+    )
+    rows = []
+    for idx, entry in enumerate(entries, start=1):
+        person = entry.athlete.person
+        dob = person.date_of_birth.strftime("%d.%m.%Y") if person.date_of_birth else ""
+        year = person.date_of_birth.year if person.date_of_birth else ""
+        rows.append(
+            [
+                str(idx),
+                " ".join(filter(None, [person.surname, person.name, person.middlename])),
+                dob,
+                entry.athlete.rank or "",
+                "Всеволожский",  # муниципальный район — по примеру файла
+                person.club.name if person.club else "",
+            ]
+        )
+
+    # XML Spreadsheet with styles
+    from django.utils.encoding import force_str
+
+    def cell(value, style=None):
+        style_attr = f" ss:StyleID='{style}'" if style else ""
+        return f"<Cell{style_attr}><Data ss:Type='String'>{force_str(value)}</Data></Cell>"
+
+    header = f'ЗАЯВКА НА УЧАСТИЕ СПОРТСМЕНОВ В СОРЕВНОВАНИЯХ "{competition.name}" ПО ГОРНОЛЫЖНОМУ СПОРТУ'
+    if competition.location:
+        subloc = f'НА {competition.location.upper()}'
+    else:
+        subloc = ""
+    date_part = ""
+    MONTHS_RU = {
+        1: "января",
+        2: "февраля",
+        3: "марта",
+        4: "апреля",
+        5: "мая",
+        6: "июня",
+        7: "июля",
+        8: "августа",
+        9: "сентября",
+        10: "октября",
+        11: "ноября",
+        12: "декабря",
+    }
+
+    def fmt_ru(d):
+        return f"{d.day} {MONTHS_RU.get(d.month, '')} {d.year}"
+
+    if competition.start_date and competition.end_date and competition.start_date != competition.end_date:
+        date_part = f"{fmt_ru(competition.start_date)} - {fmt_ru(competition.end_date)}"
+    elif competition.start_date:
+        date_part = fmt_ru(competition.start_date)
+    elif competition.date:
+        date_part = fmt_ru(competition.date)
+    subtitle = " ".join(filter(None, [subloc, date_part, "от команды Всеволожского района"])).strip()
+
+    table_rows = []
+    # Title rows
+    table_rows.append(f"<Row><Cell ss:MergeAcross='5' ss:StyleID='sTitle'><Data ss:Type='String'>{force_str(header)}</Data></Cell></Row>")
+    table_rows.append(f"<Row><Cell ss:MergeAcross='5' ss:StyleID='sSubtitle'><Data ss:Type='String'>{force_str(subtitle)}</Data></Cell></Row>")
+    # Header row
+    headers = ["№ п/п", "Фамилия, Имя", "Дата рождения", "Спортивный разряд", "Муниципальный район", "ФСО/Отделение"]
+    table_rows.append("<Row>" + "".join(cell(h, "sHead") for h in headers) + "</Row>")
+    # Data rows
+    for r in rows:
+        table_rows.append("<Row>" + "".join(cell(val, "sCell") for val in r) + "</Row>")
+
+    styles = """
+    <Styles>
+      <Style ss:ID="sTitle">
+        <Font ss:Bold="1" ss:Size="12"/>
+        <Alignment ss:Horizontal="Center"/>
+      </Style>
+      <Style ss:ID="sSubtitle">
+        <Font ss:Bold="1" ss:Size="11"/>
+        <Alignment ss:Horizontal="Center"/>
+      </Style>
+      <Style ss:ID="sHead">
+        <Font ss:Bold="1"/>
+        <Alignment ss:Horizontal="Center"/>
+        <Borders>
+          <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+          <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+          <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+          <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+        </Borders>
+      </Style>
+      <Style ss:ID="sCell">
+        <Borders>
+          <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+          <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+          <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+          <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+        </Borders>
+      </Style>
+    </Styles>
+    """
+
+    columns = (
+        "<Column ss:AutoFitWidth='0' ss:Width='25'/>"
+        "<Column ss:AutoFitWidth='0' ss:Width='220'/>"
+        "<Column ss:AutoFitWidth='0' ss:Width='80'/>"
+        "<Column ss:AutoFitWidth='0' ss:Width='80'/>"
+        "<Column ss:AutoFitWidth='0' ss:Width='120'/>"
+        "<Column ss:AutoFitWidth='0' ss:Width='120'/>"
+    )
+
+    xml_content = (
+        "<?xml version='1.0'?>"
+        "<?mso-application progid='Excel.Sheet'?>"
+        "<Workbook xmlns='urn:schemas-microsoft-com:office:spreadsheet' "
+        "xmlns:ss='urn:schemas-microsoft-com:office:spreadsheet'>"
+        f"{styles}"
+        "<Worksheet ss:Name='Общая заявка'><Table>"
+        f"{columns}"
+        + "".join(table_rows) +
+        "</Table></Worksheet></Workbook>"
+    )
+    resp = HttpResponse(xml_content, content_type="application/vnd.ms-excel")
+    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}.xls\"'
+    return resp
