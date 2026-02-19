@@ -1,46 +1,53 @@
-<!-- athletes/edit_form.html -->
-<h3>Редактировать {{ athlete.person.surname }} {{ athlete.person.name }}</h3>
+{% extends 'school/base.html' %}
+{% load static %}
 
-<form method="post">
-    {% csrf_token %}
+{% block title %}Редактировать спортсмена{% endblock %}
 
-    <div class="row">
-        <!-- Данные спортсмена -->
-        <div class="col-md-7">
-            <h4>Данные спортсмена</h4>
-            {{ person_form.as_p }}
-        </div>
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom gap-3">
+    <div>
+        <h2 class="mb-1">Редактировать {{ athlete.person.surname }} {{ athlete.person.name }}</h2>
+        <p class="text-muted mb-0">Обновите данные спортсмена и его семьи.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'school:athlete_list' %}">Назад к списку</a>
+</div>
 
-        <!-- Статус спортсмена -->
-        <div class="col-md-5">
-            <h4>Статус спортсмена</h4>
-            {{ athlete_form.as_p }}
+<div class="card shadow-sm">
+    <div class="card-body">
+        <form method="post" enctype="multipart/form-data" class="row g-4">
+            {% csrf_token %}
 
-            <!-- Данные семьи -->
-
-            <h4>Семья</h4>
-            {{ family_form.as_p }}
-
-            <!-- Члены семьи -->
-
-            <h4>Члены семьи</h4>
-            <div class="row">
-            {% for family_member_form in family_member_forms %}
-                <div class="form-row">
-                    <!-- Поле "person" и "relation" в одном ряду -->
-                    <div class="col-auto">
-
-                        {{ family_member_form.person }}
-                        {{ family_member_form.relation }}
-                    </div>
-
-                </div>
-            {% endfor %}
+            <div class="col-12 col-lg-7">
+                <h5 class="mb-3">Данные спортсмена</h5>
+                {{ person_form.as_p }}
             </div>
 
+            <div class="col-12 col-lg-5">
+                <h5 class="mb-3">Статус спортсмена</h5>
+                {{ athlete_form.as_p }}
 
-        </div>
+                <h5 class="mt-4 mb-3">Семья</h5>
+                {{ family_form.as_p }}
+
+                <h5 class="mt-4 mb-3">Члены семьи</h5>
+                <div class="d-flex flex-column gap-2">
+                    {% for family_member_form in family_member_forms %}
+                        <div class="row g-2 align-items-center">
+                            <div class="col-7">
+                                {{ family_member_form.person }}
+                            </div>
+                            <div class="col-5">
+                                {{ family_member_form.relation }}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+            </div>
+        </form>
     </div>
-
-    <button type="submit" class="btn btn-primary mt-3">Сохранить</button>
-</form>
+</div>
+{% endblock %}
