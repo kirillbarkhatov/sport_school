@@ -61,6 +61,10 @@ class AthleteForm(StyleFormMixin, forms.ModelForm):
 
 
 class AthleteCompactForm(StyleFormMixin, forms.ModelForm):
+    main_group = forms.ModelChoiceField(
+        queryset=Group.objects.none(), required=False, label=""
+    )
+
     class Meta:
         model = Athlete
         fields = ["rank", "level"]
@@ -68,6 +72,29 @@ class AthleteCompactForm(StyleFormMixin, forms.ModelForm):
             "rank": forms.Select(attrs={"class": "form-select"}),
             "level": forms.Select(attrs={"class": "form-select"}),
         }
+
+    def __init__(self, *args, group_qs=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = group_qs if group_qs is not None else Group.objects.all()
+        self.fields["main_group"].queryset = qs.order_by("name")
+        self.fields["main_group"].widget.attrs.setdefault("class", "form-select")
+        if self.instance and self.instance.pk:
+            current = self.instance.groups_athletes.first()
+            if current:
+                self.initial.setdefault("main_group", current)
+
+    def save(self, commit=True):
+        athlete = super().save(commit)
+        main_group = self.cleaned_data.get("main_group")
+        if commit:
+            if main_group:
+                athlete.groups_athletes.set([main_group])
+            else:
+                athlete.groups_athletes.clear()
+        else:
+            # if commit=False, postpone group assignment to caller
+            self._pending_main_group = main_group
+        return athlete
 
 
 class PersonForm(StyleFormMixin, forms.ModelForm):
