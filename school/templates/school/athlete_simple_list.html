@@ -1,0 +1,130 @@
+{% extends 'school/base.html' %}
+{% load static %}
+
+{% block title %}Спортсмены — компактный список{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom gap-3">
+    <div>
+        <h2 class="mb-1">Спортсмены</h2>
+        <p class="text-muted mb-0">Упрощённый список: только ФИО, дата рождения и основная группа.</p>
+    </div>
+    <div class="text-muted small">
+        Всего спортсменов: <span class="fw-semibold">{{ object_list|length }}</span>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <div class="d-flex flex-wrap gap-2">
+                <a class="btn btn-outline-secondary {% if not order %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}">
+                    По фамилии
+                </a>
+                <a class="btn btn-outline-secondary {% if order == 'dob' %}active{% endif %}" href="?order=dob">
+                    По дате рождения
+                </a>
+                <a class="btn btn-outline-secondary {% if order == 'group' %}active{% endif %}" href="?order=group">
+                    По группе
+                </a>
+            </div>
+            <div class="small text-muted">
+                Сортировка не сохраняется между визитами.
+            </div>
+        </div>
+
+        <!-- Таблица для экранов ≥ md -->
+        <div class="table-responsive d-none d-md-block">
+            <table class="table align-middle table-hover">
+                <thead class="table-light text-nowrap">
+                    <tr>
+                        <th scope="col">Фамилия Имя</th>
+                        <th scope="col" style="width: 11rem;">Дата рождения</th>
+                        <th scope="col" style="min-width: 10rem;">Группа</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for athlete in object_list %}
+                    {% with person=athlete.person %}
+                    <tr>
+                        <td class="fw-semibold">
+                            {% if person %}
+                                <a href="{% url 'school:athlete_edit_compact' athlete.pk %}" class="link-underline link-underline-opacity-0">
+                                    {{ person.surname }} {{ person.name }}
+                                </a>
+                            {% else %}
+                                Без профиля
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if person and person.date_of_birth %}
+                                {{ person.date_of_birth|date:"d.m.Y" }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% with main_group=athlete.groups_athletes.all|first %}
+                                {% if main_group %}
+                                    {{ main_group.name }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            {% endwith %}
+                        </td>
+                    </tr>
+                    {% endwith %}
+                {% empty %}
+                    <tr>
+                        <td colspan="3" class="text-center py-4 text-muted">
+                            Спортсменов пока нет.
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Карточки для мобильных -->
+        <div class="d-md-none d-flex flex-column gap-3">
+            {% for athlete in object_list %}
+                {% with person=athlete.person %}
+                <div class="border rounded-3 p-3 shadow-sm">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                            {% if person %}
+                                <a href="{% url 'school:athlete_edit_compact' athlete.pk %}" class="fw-semibold text-decoration-none">
+                                    {{ person.surname }} {{ person.name }}
+                                </a>
+                            {% else %}
+                                <span class="fw-semibold text-muted">Без профиля</span>
+                            {% endif %}
+                            <div class="text-muted small mt-1">
+                                {% if person and person.date_of_birth %}
+                                    {{ person.date_of_birth|date:"d.m.Y" }}
+                                {% else %}
+                                    Дата рождения не указана
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="badge text-bg-light text-wrap text-start">
+                            {% with main_group=athlete.groups_athletes.all|first %}
+                                {% if main_group %}
+                                    {{ main_group.name }}
+                                {% else %}
+                                    Группа не выбрана
+                                {% endif %}
+                            {% endwith %}
+                        </div>
+                    </div>
+                </div>
+                {% endwith %}
+            {% empty %}
+                <div class="text-center text-muted py-4">
+                    Спортсменов пока нет.
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

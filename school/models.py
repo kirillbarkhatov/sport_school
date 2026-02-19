@@ -119,6 +119,18 @@ class Athlete(models.Model):
         ("2025-2026", "2025/2026"),
     ]
 
+    RANK_CHOICES = [
+        ("МСМК", "МСМК"),
+        ("МС", "МС"),
+        ("КМС", "КМС"),
+        ("I", "I"),
+        ("II", "II"),
+        ("III", "III"),
+        ("1ю", "1ю"),
+        ("2ю", "2ю"),
+        ("3ю", "3ю"),
+    ]
+
     person = models.OneToOneField(
         Person, on_delete=models.CASCADE, verbose_name="Человек"
     )
@@ -127,7 +139,13 @@ class Athlete(models.Model):
         choices=LEVEL_CHOICES,
         verbose_name="Уровень подготовки (Первый сезон)",
     )
-    rank = models.CharField(max_length=50, blank=True, null=True, verbose_name="Разряд")
+    rank = models.CharField(
+        max_length=50,
+        choices=RANK_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Разряд",
+    )
     medical_certificate = models.CharField(
         max_length=100, blank=True, null=True, verbose_name="Справка-допуск"
     )

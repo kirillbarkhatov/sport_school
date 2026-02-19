@@ -46,6 +46,10 @@
                     <i class="bi bi-person-running"></i>
                     Спортсмены
                 </a>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}">
+                    <i class="bi bi-list-columns-reverse"></i>
+                    Спортсмены (3 колонки)
+                </a>
                 <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/groups' %}active{% endif %}" href="{% url 'groups:group_list' %}">
                     <i class="bi bi-diagram-3"></i>
                     Тренировочные группы

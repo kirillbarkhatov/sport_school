@@ -60,6 +60,16 @@ class AthleteForm(StyleFormMixin, forms.ModelForm):
         fields = ["level", "rank", "medical_certificate", "comment"]
 
 
+class AthleteCompactForm(StyleFormMixin, forms.ModelForm):
+    class Meta:
+        model = Athlete
+        fields = ["rank", "level"]
+        widgets = {
+            "rank": forms.Select(attrs={"class": "form-select"}),
+            "level": forms.Select(attrs={"class": "form-select"}),
+        }
+
+
 class PersonForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Person
@@ -83,6 +93,31 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
             self.fields["gender"].widget.attrs["class"] = "form-select"
         if "photo" in self.fields:
             self.fields["photo"].widget.attrs.setdefault("class", "form-control")
+        if "date_of_birth" in self.fields:
+            self.fields["date_of_birth"].required = False
+            self.fields["date_of_birth"].input_formats = ["%Y-%m-%d"]
+            if self.instance and self.instance.date_of_birth:
+                self.initial.setdefault(
+                    "date_of_birth", self.instance.date_of_birth.strftime("%Y-%m-%d")
+                )
+
+
+class PersonCompactForm(StyleFormMixin, forms.ModelForm):
+    class Meta:
+        model = Person
+        fields = ["surname", "name", "middlename", "date_of_birth"]
+        widgets = {
+            "surname": forms.TextInput(attrs={"placeholder": "Фамилия"}),
+            "name": forms.TextInput(attrs={"placeholder": "Имя"}),
+            "middlename": forms.TextInput(attrs={"placeholder": "Отчество"}),
+            "date_of_birth": forms.DateInput(
+                format="%Y-%m-%d",
+                attrs={"type": "date", "class": "form-control"},
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         if "date_of_birth" in self.fields:
             self.fields["date_of_birth"].required = False
             self.fields["date_of_birth"].input_formats = ["%Y-%m-%d"]

@@ -11,7 +11,9 @@ app_name = SchoolConfig.name
 urlpatterns = [
     path("", views.IndexView.as_view(), name="index"),
     path("athlete/", views.AthleteListView.as_view(), name="athlete_list"),
+    path("athlete/simple/", views.AthleteSimpleListView.as_view(), name="athlete_simple_list"),
     path('athlete/<int:athlete_id>/edit/', views.edit_athlete, name='edit_athlete'),
+    path('athlete/<int:pk>/compact/', views.AthleteCompactEditView.as_view(), name='athlete_edit_compact'),
     path(
         "athlete/<int:pk>/inline-update/",
         views.AthleteInlineUpdateView.as_view(),

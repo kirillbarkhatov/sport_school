@@ -2,13 +2,21 @@ import json
 from datetime import date
 
 from django.contrib.auth.decorators import login_required
+from django.db.models import Prefetch
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView, ListView
 
-from school.forms import AthleteForm, PersonForm, FamilyForm, FamilyMemberForm
+from school.forms import (
+    AthleteForm,
+    AthleteCompactForm,
+    PersonForm,
+    PersonCompactForm,
+    FamilyForm,
+    FamilyMemberForm,
+)
 from school.models import Athlete, Family, FamilyMember, Group
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
@@ -65,6 +73,35 @@ class AthleteListView(ApprovedUserRequiredMixin, ListView):
             .prefetch_related("athletes")
             .order_by("name")
         )
+        return context
+
+
+class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
+    """Новый упрощённый список спортсменов (3 колонки, без инлайн-редактирования)."""
+
+    template_name = "school/athlete_simple_list.html"
+    model = Athlete
+
+    def get_queryset(self):
+        queryset = (
+            get_athlete_queryset_for_user(self.request.user)
+            .select_related("person")
+            .prefetch_related(
+                Prefetch("groups_athletes", queryset=Group.objects.order_by("name"))
+            )
+        )
+
+        order = self.request.GET.get("order")
+        if order == "dob":
+            return queryset.order_by("person__date_of_birth", "person__surname", "person__name")
+        if order == "group":
+            # Сортируем по названию группы; distinct чтобы избежать дубликатов из-за M2M
+            return queryset.order_by("groups_athletes__name", "person__surname", "person__name").distinct()
+        return queryset.order_by("person__surname", "person__name")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["order"] = self.request.GET.get("order") or ""
         return context
 
 
@@ -149,6 +186,67 @@ def edit_athlete(request, athlete_id):
             "athlete": athlete,
         },
     )
+
+
+class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
+    """Мобильный компактный экран редактирования спортсмена."""
+
+    template_name = "athletes/edit_compact.html"
+
+    def get_athlete(self, request, pk):
+        athlete = get_object_or_404(Athlete, pk=pk)
+        if request.user.is_staff or request.user.is_superuser:
+            return athlete
+        allowed = get_athlete_queryset_for_user(request.user)
+        if allowed.filter(id=athlete.id).exists():
+            return athlete
+        if request.user.is_approved:
+            return None
+        return None
+
+    def get(self, request, pk):
+        athlete = self.get_athlete(request, pk)
+        if athlete is None:
+            return redirect("school:athlete_list")
+        person = athlete.person
+        person_form = PersonCompactForm(instance=person)
+        athlete_form = AthleteCompactForm(instance=athlete)
+        return render(
+            request,
+            self.template_name,
+            {
+                "athlete": athlete,
+                "person_form": person_form,
+                "athlete_form": athlete_form,
+                "saved": False,
+            },
+        )
+
+    def post(self, request, pk):
+        athlete = self.get_athlete(request, pk)
+        if athlete is None:
+            return redirect("school:athlete_list")
+        person = athlete.person
+        person_form = PersonCompactForm(request.POST, request.FILES, instance=person)
+        athlete_form = AthleteCompactForm(request.POST, instance=athlete)
+
+        if person_form.is_valid() and athlete_form.is_valid():
+            person_form.save()
+            athlete_form.save()
+            saved = True
+        else:
+            saved = False
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "athlete": athlete,
+                "person_form": person_form,
+                "athlete_form": athlete_form,
+                "saved": saved,
+            },
+        )
 
 
 class AthleteInlineUpdateView(ApprovedUserRequiredMixin, View):
