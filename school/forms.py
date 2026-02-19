@@ -527,6 +527,12 @@ class AthleteContractForm(StyleFormMixin, forms.ModelForm):
 
 
 class CompetitionForm(StyleFormMixin, forms.ModelForm):
+    application_deadline = forms.DateTimeField(
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+        label="Приём заявок до",
+    )
+
     class Meta:
         model = Competition
         fields = ["name", "start_date", "end_date", "location", "description"]
@@ -541,6 +547,19 @@ class ClubForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Club
         fields = ["name"]
+
+
+class CompetitionApplyAthleteForm(StyleFormMixin, forms.Form):
+    surname = forms.CharField(max_length=100, label="Фамилия")
+    name = forms.CharField(max_length=100, label="Имя")
+    middlename = forms.CharField(max_length=100, required=False, label="Отчество")
+    date_of_birth = forms.DateField(
+        label="Дата рождения",
+        widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+    )
+    gender = forms.ChoiceField(choices=Person.GENDER_CHOICES, label="Пол")
+    club = forms.ModelChoiceField(queryset=Club.objects.order_by("name"), label="Клуб")
+    rank = forms.ChoiceField(choices=Athlete.RANK_CHOICES, label="Разряд")
 
 
 def _next_contract_number(family):

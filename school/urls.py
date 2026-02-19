@@ -23,6 +23,7 @@ urlpatterns = [
     path("competitions/new/", views.CompetitionCreateUpdateView.as_view(), name="competition_create"),
     path("competitions/<int:pk>/edit/", views.CompetitionCreateUpdateView.as_view(), name="competition_edit"),
     path("competitions/<int:pk>/export/", views.competition_export, name="competition_export"),
+    path("competitions/<int:pk>/apply/<str:token>/", views.CompetitionApplyView.as_view(), name="competition_apply"),
 ]
 
 if settings.DEBUG:

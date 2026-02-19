@@ -24,6 +24,10 @@
                 {{ form.end_date }}
                 <div class="form-text">Дата окончания</div>
             </div>
+            <div class="col-12 col-md-4 col-lg-3">
+                {{ form.application_deadline }}
+                <div class="form-text">Приём заявок до (дата и время)</div>
+            </div>
             <div class="col-12 col-md-6 col-lg-2">
                 {{ form.location }}
                 <div class="form-text">Место</div>
@@ -34,6 +38,14 @@
             <div class="col-12">
                 {{ form.description }}
             </div>
+            {% if apply_url %}
+                <div class="col-12">
+                    <label class="form-label small text-muted mb-1">Ссылка на заявку</label>
+                    <div class="input-group">
+                        <input class="form-control" type="text" value="{{ apply_url }}" readonly>
+                    </div>
+                </div>
+            {% endif %}
         </form>
     </div>
 </div>
