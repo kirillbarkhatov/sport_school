@@ -102,6 +102,30 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["order"] = self.request.GET.get("order") or ""
+        order = context["order"]
+        grouped = []
+
+        if order == "dob":
+            buckets = {}
+            for athlete in context["object_list"]:
+                year = None
+                if athlete.person and athlete.person.date_of_birth:
+                    year = athlete.person.date_of_birth.year
+                label = year
+                buckets.setdefault(label, []).append(athlete)
+            grouped = sorted(
+                ((("Без даты" if k is None else str(k)), v) for k, v in buckets.items()),
+                key=lambda x: (x[0] == "Без даты", x[0]),
+            )
+        elif order == "group":
+            buckets = {}
+            for athlete in context["object_list"]:
+                main_group = athlete.groups_athletes.first()
+                label = main_group.name if main_group else "Без группы"
+                buckets.setdefault(label, []).append(athlete)
+            grouped = sorted(buckets.items(), key=lambda x: (x[0] == "Без группы", x[0]))
+
+        context["grouped"] = grouped
         return context
 
 
@@ -209,8 +233,9 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
         if athlete is None:
             return redirect("school:athlete_list")
         person = athlete.person
+        group_qs = get_group_queryset_for_user(request.user)
         person_form = PersonCompactForm(instance=person)
-        athlete_form = AthleteCompactForm(instance=athlete)
+        athlete_form = AthleteCompactForm(instance=athlete, group_qs=group_qs)
         return render(
             request,
             self.template_name,
@@ -227,8 +252,9 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
         if athlete is None:
             return redirect("school:athlete_list")
         person = athlete.person
+        group_qs = get_group_queryset_for_user(request.user)
         person_form = PersonCompactForm(request.POST, request.FILES, instance=person)
-        athlete_form = AthleteCompactForm(request.POST, instance=athlete)
+        athlete_form = AthleteCompactForm(request.POST, instance=athlete, group_qs=group_qs)
 
         if person_form.is_valid() and athlete_form.is_valid():
             person_form.save()
