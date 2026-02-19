@@ -91,6 +91,50 @@ class User(AbstractUser):
         return getattr(self, "link", None)
 
 
+class UserAthleteLink(models.Model):
+    """Связь пользователя со спортсменом для заявок."""
+
+    SOURCE_CHOICES = [
+        ("family", "Семья"),
+        ("self_created", "Создан пользователем"),
+        ("picked_existing", "Выбран из существующих"),
+        ("other", "Другое"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="athlete_links",
+        verbose_name="Пользователь",
+    )
+    athlete = models.ForeignKey(
+        "school.Athlete",
+        on_delete=models.CASCADE,
+        related_name="user_links",
+        verbose_name="Спортсмен",
+    )
+    source = models.CharField(
+        max_length=30,
+        choices=SOURCE_CHOICES,
+        default="other",
+        verbose_name="Источник",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+
+    class Meta:
+        verbose_name = "Связь пользователя со спортсменом"
+        verbose_name_plural = "Связи пользователей со спортсменами"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "athlete"),
+                name="users_userathletelink_unique_user_athlete",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user.display_name()} → {self.athlete}"
+
+
 class TrainingReminderLog(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

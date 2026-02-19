@@ -1,0 +1,170 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Заявка на соревнование</title>
+    <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}">
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+</head>
+<body class="bg-body-secondary">
+<div class="container py-4">
+    {% if messages %}
+        <div class="mb-3">
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags|default:'info' }} mb-2" role="alert">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <h1 class="h4 mb-2">{{ competition.name }}</h1>
+            <div class="text-muted small mb-2">
+                {% if competition.start_date and competition.end_date %}
+                    {{ competition.start_date|date:"d.m.Y" }} — {{ competition.end_date|date:"d.m.Y" }}
+                {% elif competition.start_date %}
+                    {{ competition.start_date|date:"d.m.Y" }}
+                {% endif %}
+                {% if competition.location %}
+                    {% if competition.start_date %} · {% endif %}
+                    {{ competition.location }}
+                {% endif %}
+            </div>
+            {% if competition.description %}
+                <p class="mb-2">{{ competition.description }}</p>
+            {% endif %}
+            <div class="alert alert-info mb-0">
+                Приём заявок до:
+                {% if deadline %}
+                    <strong>{{ deadline|date:"d.m.Y H:i" }}</strong>
+                {% else %}
+                    <strong>не ограничен</strong>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if is_expired %}
+        <div class="alert alert-warning">Срок подачи заявок истёк. Изменения недоступны.</div>
+    {% endif %}
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-header">
+            <strong>Заявленные спортсмены</strong>
+        </div>
+        <div class="card-body">
+            {% if visible_entries %}
+                <div class="list-group">
+                    {% for entry in visible_entries %}
+                        {% with person=entry.athlete.person %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <span class="fw-semibold">{{ person.surname }} {{ person.name }}</span>
+                                <span class="text-muted small">
+                                    {% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}
+                                    {% if entry.athlete.rank %}
+                                        {% if person.date_of_birth %} · {% endif %}
+                                        {{ entry.athlete.rank }}
+                                    {% endif %}
+                                    {% if person.club %}
+                                        {% if person.date_of_birth or entry.athlete.rank %} · {% endif %}
+                                        {{ person.club.name }}
+                                    {% endif %}
+                                </span>
+                            </div>
+                        {% endwith %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-muted text-center py-3">Пока никого нет.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if not is_expired %}
+        <form method="post" class="card shadow-sm mb-3">
+            {% csrf_token %}
+            <div class="card-header">
+                <strong>Выбрать спортсменов</strong>
+            </div>
+            <div class="card-body">
+                {% if available_athletes %}
+                    <div class="list-group mb-3">
+                        {% for athlete in available_athletes %}
+                            {% with person=athlete.person %}
+                                <label class="list-group-item d-flex align-items-center gap-3 py-2">
+                                    <input class="form-check-input mt-0" type="checkbox" name="athletes" value="{{ athlete.pk }}"
+                                           {% if athlete.pk in selected_ids %}checked{% endif %}>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
+                                        <div class="text-muted small">
+                                            {% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}
+                                            {% if athlete.rank %}
+                                                {% if person.date_of_birth %} · {% endif %}
+                                                {{ athlete.rank }}
+                                            {% endif %}
+                                            {% if person.club %}
+                                                {% if person.date_of_birth or athlete.rank %} · {% endif %}
+                                                {{ person.club.name }}
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </label>
+                            {% endwith %}
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-muted text-center py-3">Нет доступных спортсменов.</div>
+                {% endif %}
+
+                <div class="border-top pt-3">
+                    <h2 class="h6 mb-3">Быстрое создание спортсмена</h2>
+                    {% if athlete_form.errors %}
+                        <div class="alert alert-danger">
+                            Проверьте данные нового спортсмена — некоторые поля заполнены неверно.
+                        </div>
+                    {% endif %}
+                    <div class="row g-3">
+                        <div class="col-12 col-md-4">
+                            {{ athlete_form.surname.label_tag }}
+                            {{ athlete_form.surname }}
+                        </div>
+                        <div class="col-12 col-md-4">
+                            {{ athlete_form.name.label_tag }}
+                            {{ athlete_form.name }}
+                        </div>
+                        <div class="col-12 col-md-4">
+                            {{ athlete_form.middlename.label_tag }}
+                            {{ athlete_form.middlename }}
+                        </div>
+                        <div class="col-12 col-md-4">
+                            {{ athlete_form.date_of_birth.label_tag }}
+                            {{ athlete_form.date_of_birth }}
+                        </div>
+                        <div class="col-12 col-md-4">
+                            {{ athlete_form.gender.label_tag }}
+                            {{ athlete_form.gender }}
+                        </div>
+                        <div class="col-12 col-md-4">
+                            {{ athlete_form.club.label_tag }}
+                            {{ athlete_form.club }}
+                        </div>
+                        <div class="col-12 col-md-4">
+                            {{ athlete_form.rank.label_tag }}
+                            {{ athlete_form.rank }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer d-flex justify-content-end">
+                <button type="submit" class="btn btn-primary">Сохранить заявку</button>
+            </div>
+        </form>
+    {% endif %}
+</div>
+<script src="{% static 'js/bootstrap.bundle.min.js' %}"></script>
+</body>
+</html>

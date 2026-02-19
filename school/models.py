@@ -114,6 +114,7 @@ class Athlete(models.Model):
     """Модель «Спортсмен»"""
 
     LEVEL_CHOICES = [
+        ("unknown", "Не указан"),
         ("2015-2016", "2015/2016"),
         ("2016-2017", "2016/2017"),
         ("2017-2018", "2017/2018"),
@@ -463,6 +464,65 @@ class Competition(models.Model):
         verbose_name_plural = "Соревнования"
 
 
+class CompetitionApplicationLink(models.Model):
+    """Публичная ссылка для подачи заявок на соревнование."""
+
+    competition = models.OneToOneField(
+        Competition,
+        on_delete=models.CASCADE,
+        related_name="application_link",
+        verbose_name="Соревнование",
+    )
+    token = models.CharField(max_length=100, unique=True, verbose_name="Токен")
+    expires_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Приём заявок до",
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Активна")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    class Meta:
+        verbose_name = "Ссылка на заявку"
+        verbose_name_plural = "Ссылки на заявки"
+
+    def __str__(self):
+        return f"{self.competition.name} ({self.token[:6]})"
+
+
+class CompetitionApplication(models.Model):
+    """Заявка пользователя на соревнование."""
+
+    competition = models.ForeignKey(
+        Competition,
+        on_delete=models.CASCADE,
+        related_name="applications",
+        verbose_name="Соревнование",
+    )
+    user = models.ForeignKey(
+        "users.User",
+        on_delete=models.CASCADE,
+        related_name="competition_applications",
+        verbose_name="Пользователь",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    class Meta:
+        verbose_name = "Заявка пользователя"
+        verbose_name_plural = "Заявки пользователей"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("competition", "user"),
+                name="school_competitionapplication_unique_competition_user",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.competition.name} ← {self.user.display_name()}"
+
+
 class CompetitionEntry(models.Model):
     """Модель «Участие в соревнованиях»"""
 
@@ -477,6 +537,14 @@ class CompetitionEntry(models.Model):
         on_delete=models.CASCADE,
         related_name="entries",
         verbose_name="Соревнование",
+    )
+    application = models.ForeignKey(
+        CompetitionApplication,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="entries",
+        verbose_name="Заявка пользователя",
     )
     result = models.CharField(max_length=100, verbose_name="Результат участия", blank=True, null=True)
 

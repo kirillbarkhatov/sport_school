@@ -1,10 +1,14 @@
 import json
+import secrets
 from datetime import date
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Prefetch
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Prefetch, Q
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView, ListView
@@ -17,14 +21,29 @@ from school.forms import (
     FamilyForm,
     FamilyMemberForm,
     CompetitionForm,
+    CompetitionApplyAthleteForm,
 )
-from school.models import Athlete, Family, FamilyMember, Group, Club, Competition, CompetitionEntry
+from school.models import (
+    Athlete,
+    Family,
+    FamilyMember,
+    Group,
+    Club,
+    Competition,
+    CompetitionEntry,
+    CompetitionApplication,
+    CompetitionApplicationLink,
+    Person,
+)
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
     get_athlete_queryset_for_user,
     get_person_queryset_for_user,
     get_group_queryset_for_user,
     get_class_queryset_for_user,
+    get_available_athlete_queryset_for_user,
+    get_coach_club_ids_for_user,
+    ensure_user_athlete_links,
 )
 
 
@@ -404,9 +423,51 @@ class CompetitionListView(ApprovedUserRequiredMixin, ListView):
         return ctx
 
 
+def _issue_competition_link_token() -> str:
+    while True:
+        token = secrets.token_urlsafe(32)
+        if not CompetitionApplicationLink.objects.filter(token=token).exists():
+            return token
+
+
+def _get_or_create_competition_application_link(
+    competition: Competition,
+    *,
+    expires_at=None,
+) -> CompetitionApplicationLink:
+    link = CompetitionApplicationLink.objects.filter(competition=competition).first()
+    if link:
+        if link.expires_at != expires_at:
+            link.expires_at = expires_at
+            link.save(update_fields=["expires_at", "updated_at"])
+        return link
+    return CompetitionApplicationLink.objects.create(
+        competition=competition,
+        token=_issue_competition_link_token(),
+        expires_at=expires_at,
+    )
+
+
+def _get_visible_competition_entries(user, competition: Competition, available_athlete_ids: set[int]):
+    base_qs = competition.entries.select_related(
+        "athlete__person",
+        "athlete__person__club",
+    )
+    if user.is_staff or user.is_superuser:
+        return base_qs
+
+    coach_club_ids = get_coach_club_ids_for_user(user)
+    if coach_club_ids:
+        return base_qs.filter(athlete__person__club_id__in=coach_club_ids)
+
+    if available_athlete_ids:
+        return base_qs.filter(athlete_id__in=available_athlete_ids)
+    return base_qs.none()
+
+
 def _athlete_filter_queryset(user, club_id=None, year_from=None, year_to=None, order="surname"):
     qs = (
-        get_athlete_queryset_for_user(user)
+        get_available_athlete_queryset_for_user(user, ensure_family_links=True)
         .select_related("person__club")
         .prefetch_related(Prefetch("groups_athletes", queryset=Group.objects.order_by("name")))
     )
@@ -433,7 +494,13 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
 
     def get(self, request, pk=None):
         competition = self.get_object(pk)
-        form = CompetitionForm(instance=competition)
+        link = None
+        initial = {}
+        if competition:
+            link = CompetitionApplicationLink.objects.filter(competition=competition).first()
+            if link and link.expires_at:
+                initial["application_deadline"] = link.expires_at
+        form = CompetitionForm(instance=competition, initial=initial)
         club_id = request.GET.get("club") or ""
         year_from = request.GET.get("year_from") or ""
         year_to = request.GET.get("year_to") or ""
@@ -448,6 +515,8 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
         selected_ids = set()
         if competition:
             selected_ids = set(competition.entries.values_list("athlete_id", flat=True))
+            if not link:
+                link = _get_or_create_competition_application_link(competition)
         context = {
             "form": form,
             "competition": competition,
@@ -458,6 +527,10 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "year_to": year_to,
             "order": order,
             "selected_ids": selected_ids,
+            "application_link": link,
+            "apply_url": request.build_absolute_uri(
+                reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
+            ) if competition and link else "",
         }
         return render(request, self.template_name, context)
 
@@ -486,6 +559,10 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             if competition.start_date is None and form.cleaned_data.get("start_date"):
                 competition.start_date = form.cleaned_data["start_date"]
             competition.save()
+            _get_or_create_competition_application_link(
+                competition,
+                expires_at=form.cleaned_data.get("application_deadline"),
+            )
             if save_athletes:
                 selected_ids_int = [int(aid) for aid in selected_ids]
                 existing = set(competition.entries.values_list("athlete_id", flat=True))
@@ -505,6 +582,7 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             year_to=None,
             order="surname",
         )
+        link = CompetitionApplicationLink.objects.filter(competition=competition).first() if competition else None
         context = {
             "form": form,
             "competition": competition,
@@ -515,7 +593,211 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "year_to": "",
             "order": "surname",
             "selected_ids": selected_ids,
+            "application_link": link,
+            "apply_url": request.build_absolute_uri(
+                reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
+            ) if competition and link else "",
         }
+        return render(request, self.template_name, context)
+
+
+def _has_new_athlete_payload(data) -> bool:
+    fields = [
+        "surname",
+        "name",
+        "middlename",
+        "date_of_birth",
+    ]
+    return any(data.get(field) for field in fields)
+
+
+def _get_or_create_athlete_from_form(form: CompetitionApplyAthleteForm) -> Athlete:
+    data = form.cleaned_data
+    surname = data["surname"].strip()
+    name = data["name"].strip()
+    middlename = (data.get("middlename") or "").strip()
+    dob = data["date_of_birth"]
+    gender = data["gender"]
+    club = data["club"]
+    rank = data["rank"]
+
+    person_qs = Person.objects.filter(
+        surname__iexact=surname,
+        name__iexact=name,
+        date_of_birth=dob,
+        gender=gender,
+    )
+    if middlename:
+        person_qs = person_qs.filter(middlename__iexact=middlename)
+    else:
+        person_qs = person_qs.filter(Q(middlename__isnull=True) | Q(middlename=""))
+
+    person = person_qs.first()
+    if not person:
+        person = Person.objects.create(
+            surname=surname,
+            name=name,
+            middlename=middlename or None,
+            date_of_birth=dob,
+            gender=gender,
+            club=club,
+        )
+    else:
+        update_fields = []
+        if not person.middlename and middlename:
+            person.middlename = middlename
+            update_fields.append("middlename")
+        if club and person.club_id != club.id:
+            person.club = club
+            update_fields.append("club")
+        if update_fields:
+            person.save(update_fields=update_fields)
+
+    athlete = Athlete.objects.filter(person=person).first()
+    if not athlete:
+        athlete = Athlete.objects.create(
+            person=person,
+            level=Athlete.LEVEL_CHOICES[0][0],
+            rank=rank,
+        )
+    elif rank and athlete.rank != rank:
+        athlete.rank = rank
+        athlete.save(update_fields=["rank"])
+
+    return athlete
+
+
+class CompetitionApplyView(LoginRequiredMixin, View):
+    template_name = "competitions/competition_apply.html"
+
+    def _get_competition_link(self, competition: Competition, token: str) -> CompetitionApplicationLink:
+        return get_object_or_404(
+            CompetitionApplicationLink,
+            competition=competition,
+            token=token,
+            is_active=True,
+        )
+
+    def _get_available_athletes(self, request):
+        qs = get_available_athlete_queryset_for_user(request.user, ensure_family_links=True)
+        return qs.select_related("person__club").prefetch_related(
+            Prefetch("groups_athletes", queryset=Group.objects.order_by("name"))
+        )
+
+    def _build_context(self, request, competition, link, *, athlete_form=None, selected_ids=None):
+        available_athletes = self._get_available_athletes(request)
+        available_ids = set(available_athletes.values_list("id", flat=True))
+        visible_entries = _get_visible_competition_entries(request.user, competition, available_ids)
+        selected_ids = selected_ids or set(
+            competition.entries.filter(athlete_id__in=available_ids).values_list("athlete_id", flat=True)
+        )
+        now = timezone.now()
+        deadline = link.expires_at
+        is_expired = bool(deadline and now > deadline)
+        return {
+            "competition": competition,
+            "application_link": link,
+            "apply_url": request.build_absolute_uri(
+                reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
+            ),
+            "deadline": deadline,
+            "is_expired": is_expired,
+            "available_athletes": available_athletes,
+            "visible_entries": visible_entries,
+            "selected_ids": selected_ids,
+            "athlete_form": athlete_form or CompetitionApplyAthleteForm(),
+        }
+
+    def get(self, request, pk, token):
+        competition = get_object_or_404(Competition, pk=pk)
+        link = self._get_competition_link(competition, token)
+        context = self._build_context(request, competition, link)
+        return render(request, self.template_name, context)
+
+    def post(self, request, pk, token):
+        competition = get_object_or_404(Competition, pk=pk)
+        link = self._get_competition_link(competition, token)
+        now = timezone.now()
+        if link.expires_at and now > link.expires_at:
+            messages.warning(request, "Срок подачи заявок истёк. Изменения недоступны.")
+            context = self._build_context(request, competition, link)
+            return render(request, self.template_name, context)
+
+        available_athletes = self._get_available_athletes(request)
+        available_ids = set(available_athletes.values_list("id", flat=True))
+        selected_ids = {
+            int(value)
+            for value in request.POST.getlist("athletes")
+            if str(value).isdigit()
+        }
+
+        athlete_form = CompetitionApplyAthleteForm(request.POST)
+        if _has_new_athlete_payload(request.POST):
+            if athlete_form.is_valid():
+                athlete = _get_or_create_athlete_from_form(athlete_form)
+                ensure_user_athlete_links(
+                    request.user,
+                    Athlete.objects.filter(pk=athlete.pk),
+                    source="self_created",
+                )
+                available_ids.add(athlete.pk)
+                selected_ids.add(athlete.pk)
+            else:
+                context = self._build_context(
+                    request,
+                    competition,
+                    link,
+                    athlete_form=athlete_form,
+                    selected_ids=selected_ids,
+                )
+                return render(request, self.template_name, context)
+
+        selected_ids = {athlete_id for athlete_id in selected_ids if athlete_id in available_ids}
+
+        application, _ = CompetitionApplication.objects.get_or_create(
+            competition=competition,
+            user=request.user,
+        )
+        existing_ids = set(
+            CompetitionEntry.objects.filter(
+                competition=competition,
+                application=application,
+            ).values_list("athlete_id", flat=True)
+        )
+        to_remove = existing_ids - selected_ids
+        if to_remove:
+            CompetitionEntry.objects.filter(
+                competition=competition,
+                application=application,
+                athlete_id__in=to_remove,
+            ).delete()
+
+        existing_for_competition = set(
+            CompetitionEntry.objects.filter(
+                competition=competition,
+                athlete_id__in=selected_ids,
+            ).values_list("athlete_id", flat=True)
+        )
+        to_add = selected_ids - existing_for_competition
+        if to_add:
+            CompetitionEntry.objects.bulk_create(
+                [
+                    CompetitionEntry(
+                        competition=competition,
+                        athlete_id=athlete_id,
+                        application=application,
+                    )
+                    for athlete_id in to_add
+                ]
+            )
+
+        messages.success(request, "Заявка сохранена.")
+        context = self._build_context(
+            request,
+            competition,
+            link,
+            selected_ids=selected_ids,
+        )
         return render(request, self.template_name, context)
 
 
