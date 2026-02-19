@@ -7,25 +7,25 @@ readme = "README.md"
 package-mode = false
 
 [tool.poetry.dependencies]
-python = "^3.12"
-django = "^5.1.2"
+python = "^3.14"
+django = "^6.0.2"
 psycopg2-binary = "^2.9.10"
 python-dotenv = "^1.0.1"
-pillow = "^11.0.0"
-python-telegram-bot = "^21.9"
+pillow = "^12.1.1"
+python-telegram-bot = "^22.6"
 djangorestframework = "^3.15.2"
-django-filter = "^24.3"
-gunicorn = "^23.0.0"
+django-filter = "^25.2"
+gunicorn = "^25.1.0"
 django-cors-headers = "^4.4.0"
-packaging = "^24.1"
+packaging = "^26.0"
 celery = "^5.4.0"
-redis = "^5.0.1"
+redis = "^7.2.0"
 requests = "^2.32.3"
 pyjwt = "^2.10.1"
 
 
 [tool.poetry.group.dev.dependencies]
-ipython = "^8.29.0"
+ipython = "^9.10.0"
 
 
 [tool.poetry.group.lint.dependencies]
