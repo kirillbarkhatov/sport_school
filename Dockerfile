@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ RUN apt-get update \
 
 
 # Устанавливаем Poetry
-RUN pip install poetry
+RUN pip install "poetry>=2.2.0"
 
 # Копируем файлы проекта
 COPY pyproject.toml poetry.lock ./
