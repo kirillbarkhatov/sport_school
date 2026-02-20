@@ -64,22 +64,29 @@
     <div class="card-body">
         <div class="tab-content">
             <div class="tab-pane fade show active" id="pane-current" role="tabpanel">
-                <div class="list-group" id="selected-list">
-                    {% if selected_ids %}
-                        {% for athlete in athletes %}
-                            {% if athlete.pk in selected_ids %}
-                                {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
-                                    <div class="list-group-item d-flex justify-content-between align-items-center">
-                                        <span class="fw-semibold">{{ person.surname }} {{ person.name }}</span>
-                                        <span class="text-muted small">{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}</span>
-                                    </div>
-                                {% endwith %}
-                            {% endif %}
-                        {% endfor %}
-                    {% else %}
-                        <div class="text-muted text-center py-3">Пока никого нет.</div>
-                    {% endif %}
-                </div>
+                {% if competition %}
+                    <div class="list-group" id="selected-list">
+                        {% if selected_ids %}
+                            {% for athlete in athletes %}
+                                {% if athlete.pk in selected_ids %}
+                                    {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
+                                        <div class="list-group-item d-flex justify-content-between align-items-center" data-athlete-id="{{ athlete.pk }}">
+                                            <div>
+                                                <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
+                                                <div class="text-muted small">{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}</div>
+                                            </div>
+                                            <button type="button" class="btn btn-sm btn-outline-danger btn-remove" data-athlete-id="{{ athlete.pk }}">Исключить</button>
+                                        </div>
+                                    {% endwith %}
+                                {% endif %}
+                            {% endfor %}
+                        {% else %}
+                            <div class="text-muted text-center py-3" id="selected-empty">Пока никого нет.</div>
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <div class="text-muted">Сохраните соревнование, чтобы добавить участников.</div>
+                {% endif %}
             </div>
             <div class="tab-pane fade" id="pane-add" role="tabpanel">
             <div class="d-flex flex-wrap gap-2 align-items-end mb-3">
@@ -102,41 +109,39 @@
                 </div>
                 <div class="flex-grow-1">
                     <label class="form-label small text-muted mb-1">Поиск по фамилии</label>
-                    <div class="d-flex gap-2">
-                        <input type="text" id="filter-search" class="form-control" placeholder="Начните вводить фамилию">
-                        <button type="submit" form="athletes-form" class="btn btn-primary" name="athletes_submit" value="1">Сохранить участников</button>
-                    </div>
+                    <input type="text" id="filter-search" class="form-control" placeholder="Начните вводить фамилию">
                 </div>
             </div>
 
-            <form method="post" id="athletes-form">
+            <div class="list-group" id="athletes-list">
                 {% csrf_token %}
-                <div class="list-group" id="athletes-list">
-                    {% for athlete in athletes %}
-                        {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
-                        <label class="list-group-item d-flex align-items-center gap-3 py-2 athlete-item"
-                               data-club="{{ person.club.pk|default:'' }}"
-                               data-year="{% if person.date_of_birth %}{{ person.date_of_birth.year }}{% endif %}"
-                               data-name="{{ person.surname|lower }}">
-                            <input class="form-check-input mt-0" type="checkbox" name="athletes" value="{{ athlete.pk }}"
-                                   {% if athlete.pk in selected_ids %}checked{% endif %}>
-                            <div class="flex-grow-1">
-                                <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
-                                <div class="text-muted small d-flex justify-content-between">
-                                    <span>{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}</span>
-                                    <span>
-                                        {% if person.club %}{{ person.club.name }}{% endif %}
-                                        {% if main_group %}{% if person.club %} · {% endif %}{{ main_group.name }}{% endif %}
-                                    </span>
-                                </div>
+                {% for athlete in athletes %}
+                    {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
+                    <div class="list-group-item d-flex align-items-center gap-3 py-2 athlete-item {% if athlete.pk in selected_ids %}bg-success-subtle border-success{% endif %}"
+                         data-athlete-id="{{ athlete.pk }}"
+                         data-club="{{ person.club.pk|default:'' }}"
+                         data-year="{% if person.date_of_birth %}{{ person.date_of_birth.year }}{% endif %}"
+                         data-name="{{ person.surname|lower }}">
+                        <div class="flex-grow-1">
+                            <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
+                            <div class="text-muted small d-flex justify-content-between">
+                                <span>{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}</span>
+                                <span>
+                                    {% if person.club %}{{ person.club.name }}{% endif %}
+                                    {% if main_group %}{% if person.club %} · {% endif %}{{ main_group.name }}{% endif %}
+                                </span>
                             </div>
-                        </label>
-                        {% endwith %}
-                    {% empty %}
-                        <div class="text-muted text-center py-3">Нет спортсменов.</div>
-                    {% endfor %}
-                </div>
-            </form>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-success btn-add {% if athlete.pk in selected_ids %}d-none{% endif %}" data-athlete-id="{{ athlete.pk }}" {% if not competition %}disabled{% endif %}>Добавить</button>
+                            <button type="button" class="btn btn-sm btn-outline-danger btn-remove {% if athlete.pk not in selected_ids %}d-none{% endif %}" data-athlete-id="{{ athlete.pk }}" {% if not competition %}disabled{% endif %}>Исключить</button>
+                        </div>
+                    </div>
+                    {% endwith %}
+                {% empty %}
+                    <div class="text-muted text-center py-3">Нет спортсменов.</div>
+                {% endfor %}
+            </div>
             </div>
         </div>
     </div>
@@ -152,6 +157,10 @@
     const yearTo = document.getElementById('filter-year-to');
     const club = document.getElementById('filter-club');
     const items = Array.from(document.querySelectorAll('.athlete-item'));
+    const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+    const selectedList = document.getElementById('selected-list');
+    const selectedEmptyId = 'selected-empty';
+    const toggleUrl = {% if competition %}"{% url 'school:competition_entries_toggle' pk=competition.pk %}"{% else %}null{% endif %};
 
     function applyFilters() {
         const q = (search.value || '').trim().toLowerCase();
@@ -175,6 +184,77 @@
         if (!el) return;
         el.addEventListener('input', applyFilters);
         el.addEventListener('change', applyFilters);
+    });
+
+    function ensureSelectedPlaceholder() {
+        const currentEmpty = document.getElementById(selectedEmptyId);
+        const hasItems = selectedList?.querySelector('.list-group-item');
+        if (hasItems && currentEmpty) currentEmpty.remove();
+        if (!hasItems && !currentEmpty && selectedList) {
+            const div = document.createElement('div');
+            div.id = selectedEmptyId;
+            div.className = 'text-muted text-center py-3';
+            div.textContent = 'Пока никого нет.';
+            selectedList.append(div);
+        }
+    }
+
+    function createSelectedItem(fromItem) {
+        const clone = fromItem.cloneNode(true);
+        clone.classList.remove('bg-success-subtle', 'border-success');
+        const addBtn = clone.querySelector('.btn-add');
+        if (addBtn) addBtn.remove();
+        const removeBtn = clone.querySelector('.btn-remove');
+        if (removeBtn) {
+            removeBtn.classList.remove('d-none');
+            removeBtn.addEventListener('click', () => toggle(removeBtn.dataset.athleteId, 'remove'));
+        }
+        return clone;
+    }
+
+    function toggleUI(athleteId, status) {
+        const item = document.querySelector(`.athlete-item[data-athlete-id="${athleteId}"]`);
+        if (!item) return;
+        const addBtn = item.querySelector('.btn-add');
+        const removeBtn = item.querySelector('.btn-remove');
+        if (status === 'added') {
+            item.classList.add('bg-success-subtle', 'border-success');
+            addBtn?.classList.add('d-none');
+            removeBtn?.classList.remove('d-none');
+            if (!selectedList.querySelector(`[data-athlete-id="${athleteId}"]`)) {
+                selectedList.append(createSelectedItem(item));
+            }
+        } else {
+            item.classList.remove('bg-success-subtle', 'border-success');
+            addBtn?.classList.remove('d-none');
+            removeBtn?.classList.add('d-none');
+            const inSelected = selectedList.querySelector(`.list-group-item[data-athlete-id="${athleteId}"]`);
+            inSelected?.remove();
+        }
+        ensureSelectedPlaceholder();
+    }
+
+    function toggle(athleteId, action) {
+        if (!toggleUrl) return;
+        fetch(toggleUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken,
+            },
+            body: new URLSearchParams({ athlete_id: athleteId, action }),
+        }).then(r => r.json()).then(data => {
+            if (data.success) {
+                toggleUI(athleteId, data.status);
+            }
+        }).catch(console.error);
+    }
+
+    document.querySelectorAll('.btn-add').forEach(btn => {
+        btn.addEventListener('click', () => toggle(btn.dataset.athleteId, 'add'));
+    });
+    document.querySelectorAll('.btn-remove').forEach(btn => {
+        btn.addEventListener('click', () => toggle(btn.dataset.athleteId, 'remove'));
     });
 })();
 </script>

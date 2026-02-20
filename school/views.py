@@ -534,6 +534,7 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
         }
         return render(request, self.template_name, context)
 
+
     def post(self, request, pk=None):
         competition = self.get_object(pk)
         form = CompetitionForm(request.POST, instance=competition)
@@ -600,6 +601,46 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
         }
         return render(request, self.template_name, context)
 
+
+class CompetitionEntryToggleView(ApprovedUserRequiredMixin, View):
+    """Add/remove athletes in a competition without page reload (staff form)."""
+
+    def get_object(self, pk):
+        return get_object_or_404(Competition, pk=pk)
+
+    def post(self, request, pk):
+        competition = self.get_object(pk)
+        action = request.POST.get("action")
+        athlete_id = request.POST.get("athlete_id")
+
+        if not athlete_id or action not in {"add", "remove"}:
+            return JsonResponse({"success": False, "error": "bad_request"}, status=400)
+
+        try:
+            athlete_id_int = int(athlete_id)
+        except (TypeError, ValueError):
+            return JsonResponse({"success": False, "error": "bad_athlete"}, status=400)
+
+        available_ids = set(
+            _athlete_filter_queryset(request.user).values_list("id", flat=True)
+        )
+        if athlete_id_int not in available_ids:
+            return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+
+        if action == "add":
+            CompetitionEntry.objects.get_or_create(
+                competition=competition,
+                athlete_id=athlete_id_int,
+                defaults={"application": None},
+            )
+            return JsonResponse({"success": True, "status": "added"})
+
+        # remove
+        CompetitionEntry.objects.filter(
+            competition=competition,
+            athlete_id=athlete_id_int,
+        ).delete()
+        return JsonResponse({"success": True, "status": "removed"})
 
 def _has_new_athlete_payload(data) -> bool:
     fields = [
@@ -799,6 +840,58 @@ class CompetitionApplyView(LoginRequiredMixin, View):
             selected_ids=selected_ids,
         )
         return render(request, self.template_name, context)
+
+
+class CompetitionApplyToggleView(LoginRequiredMixin, View):
+    """AJAX add/remove athlete in public apply form without reload."""
+
+    def post(self, request, pk, token):
+        competition = get_object_or_404(Competition, pk=pk)
+        link = get_object_or_404(
+            CompetitionApplicationLink,
+            competition=competition,
+            token=token,
+            is_active=True,
+        )
+        now = timezone.now()
+        if link.expires_at and now > link.expires_at:
+            return JsonResponse({"success": False, "error": "expired"}, status=403)
+
+        action = request.POST.get("action")
+        athlete_id = request.POST.get("athlete_id")
+        if action not in {"add", "remove"} or not athlete_id:
+            return JsonResponse({"success": False, "error": "bad_request"}, status=400)
+
+        try:
+            athlete_id_int = int(athlete_id)
+        except (TypeError, ValueError):
+            return JsonResponse({"success": False, "error": "bad_athlete"}, status=400)
+
+        available_ids = set(
+            get_available_athlete_queryset_for_user(request.user, ensure_family_links=True).values_list("id", flat=True)
+        )
+        if athlete_id_int not in available_ids:
+            return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+
+        application, _ = CompetitionApplication.objects.get_or_create(
+            competition=competition,
+            user=request.user,
+        )
+
+        if action == "add":
+            CompetitionEntry.objects.get_or_create(
+                competition=competition,
+                athlete_id=athlete_id_int,
+                application=application,
+            )
+            return JsonResponse({"success": True, "status": "added"})
+
+        CompetitionEntry.objects.filter(
+            competition=competition,
+            athlete_id=athlete_id_int,
+            application=application,
+        ).delete()
+        return JsonResponse({"success": True, "status": "removed"})
 
 
 def _excel_date_from_serial(serial):
