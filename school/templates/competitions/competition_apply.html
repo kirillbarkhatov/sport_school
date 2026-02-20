@@ -57,47 +57,48 @@
             <strong>Заявленные спортсмены</strong>
         </div>
         <div class="card-body">
-            {% if visible_entries %}
-                <div class="list-group">
+            <div class="list-group" id="applied-list">
+                {% if visible_entries %}
                     {% for entry in visible_entries %}
                         {% with person=entry.athlete.person %}
-                            <div class="list-group-item d-flex justify-content-between align-items-center">
-                                <span class="fw-semibold">{{ person.surname }} {{ person.name }}</span>
-                                <span class="text-muted small">
-                                    {% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}
-                                    {% if entry.athlete.rank %}
-                                        {% if person.date_of_birth %} · {% endif %}
-                                        {{ entry.athlete.rank }}
-                                    {% endif %}
-                                    {% if person.club %}
-                                        {% if person.date_of_birth or entry.athlete.rank %} · {% endif %}
-                                        {{ person.club.name }}
-                                    {% endif %}
-                                </span>
+                            <div class="list-group-item d-flex justify-content-between align-items-center" data-athlete-id="{{ entry.athlete.pk }}">
+                                <div>
+                                    <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
+                                    <div class="text-muted small">
+                                        {% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}
+                                        {% if entry.athlete.rank %}
+                                            {% if person.date_of_birth %} · {% endif %}
+                                            {{ entry.athlete.rank }}
+                                        {% endif %}
+                                        {% if person.club %}
+                                            {% if person.date_of_birth or entry.athlete.rank %} · {% endif %}
+                                            {{ person.club.name }}
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-danger btn-remove" data-athlete-id="{{ entry.athlete.pk }}">Исключить</button>
                             </div>
                         {% endwith %}
                     {% endfor %}
-                </div>
-            {% else %}
-                <div class="text-muted text-center py-3">Пока никого нет.</div>
-            {% endif %}
+                {% else %}
+                    <div class="text-muted text-center py-3" id="applied-empty">Пока никого нет.</div>
+                {% endif %}
+            </div>
         </div>
     </div>
 
     {% if not is_expired %}
-        <form method="post" class="card shadow-sm mb-3">
+        <form method="post" class="card shadow-sm mb-3" id="apply-form">
             {% csrf_token %}
             <div class="card-header">
                 <strong>Выбрать спортсменов</strong>
             </div>
             <div class="card-body">
                 {% if available_athletes %}
-                    <div class="list-group mb-3">
+                    <div class="list-group mb-3" id="available-list">
                         {% for athlete in available_athletes %}
                             {% with person=athlete.person %}
-                                <label class="list-group-item d-flex align-items-center gap-3 py-2">
-                                    <input class="form-check-input mt-0" type="checkbox" name="athletes" value="{{ athlete.pk }}"
-                                           {% if athlete.pk in selected_ids %}checked{% endif %}>
+                                <div class="list-group-item d-flex align-items-center gap-3 py-2" data-athlete-id="{{ athlete.pk }}">
                                     <div class="flex-grow-1">
                                         <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
                                         <div class="text-muted small">
@@ -112,7 +113,8 @@
                                             {% endif %}
                                         </div>
                                     </div>
-                                </label>
+                                    <button type="button" class="btn btn-sm btn-success btn-add" data-athlete-id="{{ athlete.pk }}">Добавить</button>
+                                </div>
                             {% endwith %}
                         {% endfor %}
                     </div>
@@ -166,5 +168,88 @@
     {% endif %}
 </div>
 <script src="{% static 'js/bootstrap.bundle.min.js' %}"></script>
+<script>
+(() => {
+    const appliedList = document.getElementById('applied-list');
+    const availableList = document.getElementById('available-list');
+    const appliedEmptyId = 'applied-empty';
+    const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+    const toggleUrl = "{% url 'school:competition_apply_toggle' pk=competition.pk token=application_link.token %}";
+
+    function ensureEmptyPlaceholder() {
+        const currentEmpty = document.getElementById(appliedEmptyId);
+        const hasItems = appliedList?.querySelector('.list-group-item');
+        if (hasItems && currentEmpty) currentEmpty.remove();
+        if (!hasItems && !currentEmpty && appliedList) {
+            const div = document.createElement('div');
+            div.id = appliedEmptyId;
+            div.className = 'text-muted text-center py-3';
+            div.textContent = 'Пока никого нет.';
+            appliedList.append(div);
+        }
+    }
+
+    function moveToApplied(item) {
+        if (!appliedList) return;
+        const clone = item.cloneNode(true);
+        const addBtn = clone.querySelector('.btn-add');
+        addBtn?.remove();
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-sm btn-outline-danger btn-remove';
+        removeBtn.dataset.athleteId = item.dataset.athleteId;
+        removeBtn.textContent = 'Исключить';
+        removeBtn.addEventListener('click', () => toggle(removeBtn.dataset.athleteId, 'remove'));
+        clone.append(removeBtn);
+        appliedList.append(clone);
+        item.remove();
+        ensureEmptyPlaceholder();
+    }
+
+    function moveToAvailable(item) {
+        if (!availableList) return;
+        const clone = item.cloneNode(true);
+        const removeBtn = clone.querySelector('.btn-remove');
+        removeBtn?.remove();
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'btn btn-sm btn-success btn-add';
+        addBtn.dataset.athleteId = item.dataset.athleteId;
+        addBtn.textContent = 'Добавить';
+        addBtn.addEventListener('click', () => toggle(addBtn.dataset.athleteId, 'add'));
+        clone.append(addBtn);
+        availableList.append(clone);
+        item.remove();
+        ensureEmptyPlaceholder();
+    }
+
+    function toggle(athleteId, action) {
+        fetch(toggleUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken,
+            },
+            body: new URLSearchParams({ athlete_id: athleteId, action }),
+        }).then(r => r.json()).then(data => {
+            if (!data.success) return;
+            if (data.status === 'added') {
+                const item = availableList.querySelector(`[data-athlete-id="${athleteId}"]`);
+                if (item) moveToApplied(item);
+            } else if (data.status === 'removed') {
+                const item = appliedList.querySelector(`[data-athlete-id="${athleteId}"]`);
+                if (item) moveToAvailable(item);
+            }
+        }).catch(console.error);
+    }
+
+    appliedList?.querySelectorAll('.btn-remove').forEach(btn => {
+        btn.addEventListener('click', () => toggle(btn.dataset.athleteId, 'remove'));
+    });
+    availableList?.querySelectorAll('.btn-add').forEach(btn => {
+        btn.addEventListener('click', () => toggle(btn.dataset.athleteId, 'add'));
+    });
+})();
+</script>
 </body>
 </html>

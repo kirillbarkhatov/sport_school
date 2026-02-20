@@ -22,8 +22,18 @@ urlpatterns = [
     path("competitions/", views.CompetitionListView.as_view(), name="competition_list"),
     path("competitions/new/", views.CompetitionCreateUpdateView.as_view(), name="competition_create"),
     path("competitions/<int:pk>/edit/", views.CompetitionCreateUpdateView.as_view(), name="competition_edit"),
+    path(
+        "competitions/<int:pk>/entries/toggle/",
+        views.CompetitionEntryToggleView.as_view(),
+        name="competition_entries_toggle",
+    ),
     path("competitions/<int:pk>/export/", views.competition_export, name="competition_export"),
     path("competitions/<int:pk>/apply/<str:token>/", views.CompetitionApplyView.as_view(), name="competition_apply"),
+    path(
+        "competitions/<int:pk>/apply/<str:token>/toggle/",
+        views.CompetitionApplyToggleView.as_view(),
+        name="competition_apply_toggle",
+    ),
 ]
 
 if settings.DEBUG:
