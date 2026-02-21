@@ -30,9 +30,23 @@ START_KIND_DEFAULT = "default"
 
 
 def _parse_start_payload(raw: Optional[str]) -> Tuple[str, Optional[str], Optional[int]]:
-    """Return (kind, token, competition_id)."""
+    """Return (kind, token, competition_id). Accepts legacy ':' and new '_' delimiters."""
     if not raw:
         return START_KIND_DEFAULT, None, None
+
+    # New format: comp_<id>_<token>
+    if raw.startswith(f"{START_KIND_COMPETITION}_"):
+        parts = raw.split("_", 2)
+        if len(parts) >= 3:
+            comp_part = parts[1]
+            token_part = parts[2]
+            try:
+                comp_id = int(comp_part)
+            except ValueError:
+                comp_id = None
+            return START_KIND_COMPETITION, token_part, comp_id
+
+    # Legacy format: comp:<id>:<token>
     if raw.startswith(f"{START_KIND_COMPETITION}:"):
         parts = raw.split(":", 2)
         if len(parts) == 3:
@@ -43,9 +57,17 @@ def _parse_start_payload(raw: Optional[str]) -> Tuple[str, Optional[str], Option
             except ValueError:
                 comp_id = None
             return START_KIND_COMPETITION, token_part, comp_id
+
+    # New format: auth_<token>
+    if raw.startswith(f"{START_KIND_AUTH}_"):
+        token_part = raw.split("_", 1)[1] if "_" in raw else None
+        return START_KIND_AUTH, token_part, None
+
+    # Legacy format: auth:<token>
     if raw.startswith(f"{START_KIND_AUTH}:"):
         token_part = raw.split(":", 1)[1] if ":" in raw else None
         return START_KIND_AUTH, token_part, None
+
     return START_KIND_DEFAULT, raw, None
 
 
