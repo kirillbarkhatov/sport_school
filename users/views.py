@@ -17,7 +17,14 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from .models import User
-from config.settings import BOT_NAME, BOT_TOKEN, TELEGRAM_LOG_CHAT_ID, TELEGRAM_ADMIN_IDS, XFER_TOKEN_POST_USE_TTL_SECONDS
+from config.settings import (
+    BOT_NAME,
+    BOT_TOKEN,
+    TELEGRAM_LOG_CHAT_ID,
+    TELEGRAM_ADMIN_IDS,
+    XFER_TOKEN_POST_USE_TTL_SECONDS,
+)
+from django.conf import settings
 import redis
 
 
