@@ -157,24 +157,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if start_kind == START_KIND_COMPETITION:
         apply_url = await sync_to_async(_build_competition_apply_url, thread_sensitive=True)(comp_id)
-        login_instructions = _format_login_instructions(token, next_url=apply_url or "")
-        lines = ["Мы связали ваш Telegram. Нажмите ссылку ниже, затем вернитесь на заявку."]
-        if login_instructions:
-            lines.append(login_instructions)
+        callback_url = f"{settings.SITE_BASE_URL.rstrip('/')}/telegram-callback/{token}/"
         if apply_url:
-            lines.append(f'Или откройте заявку напрямую: <a href="{apply_url}">перейти</a>')
+            callback_url = f"{callback_url}?next={quote_plus(apply_url)}"
+        text = "Перейдите по ссылке, чтобы продолжить работу с заявкой."
+        markup = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Продолжить заявку", url=callback_url)]]
+        )
         await update.effective_message.reply_html(
-            "\n\n".join(lines),
+            text,
             disable_web_page_preview=True,
+            reply_markup=markup,
         )
         return
 
     if start_kind == START_KIND_AUTH:
-        login_instructions = _format_login_instructions(token)
-        message = login_instructions or "Вернитесь в браузер, авторизация завершится автоматически."
+        callback_url = f"{settings.SITE_BASE_URL.rstrip('/')}/telegram-callback/{token}/"
+        text = "Перейдите по ссылке, чтобы авторизоваться на сайте."
+        markup = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("Авторизоваться", url=callback_url)]]
+        )
         await update.effective_message.reply_html(
-            message,
+            text,
             disable_web_page_preview=True,
+            reply_markup=markup,
         )
         return
 
