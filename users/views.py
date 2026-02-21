@@ -6,7 +6,7 @@ import httpx
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse, HttpResponseBadRequest
+from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
@@ -18,6 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from .models import User
 from config.settings import BOT_NAME, BOT_TOKEN, TELEGRAM_LOG_CHAT_ID, TELEGRAM_ADMIN_IDS
+from .services.xfer_tokens import issue_xfer_token, consume_xfer_token
 
 
 logger = logging.getLogger("auth.telegram")
@@ -267,3 +268,54 @@ class LogoutView(RedirectView):
     def post(self, request, *args, **kwargs):
         """Поддержка выхода по POST запросу."""
         return self.get(request, *args, **kwargs)
+
+
+class IssueXferTokenView(LoginRequiredMixin, View):
+    """Выдать одноразовую ссылку для переноса сессии во внешний браузер."""
+
+    def post(self, request, *args, **kwargs):
+        next_url = request.POST.get("next") or request.META.get("HTTP_REFERER") or reverse("school:index")
+        if not url_has_allowed_host_and_scheme(
+            url=next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            next_url = reverse("school:index")
+
+        token = issue_xfer_token(
+            user_id=request.user.id,
+            next_url=next_url,
+            ip=request.META.get("REMOTE_ADDR"),
+            ua=request.META.get("HTTP_USER_AGENT"),
+        )
+        absolute = request.build_absolute_uri(
+            reverse("users:xfer_login", kwargs={"token": token})
+        )
+        return JsonResponse({"url": absolute})
+
+
+class XferLoginView(View):
+    """Поглощает xfer-токен, логинит и редиректит на нужную страницу."""
+
+    def get(self, request, token, *args, **kwargs):
+        payload, error = consume_xfer_token(token)
+        if not payload or error:
+            return HttpResponse(
+                "Ссылка устарела или недействительна. Запросите новую в приложении.",
+                status=410,
+            )
+
+        try:
+            user = User.objects.get(pk=payload.user_id)
+        except User.DoesNotExist:
+            return HttpResponse("Пользователь не найден.", status=404)
+
+        login(request, user)
+        next_url = payload.next_url or reverse("school:index")
+        if not url_has_allowed_host_and_scheme(
+            url=next_url,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            next_url = reverse("school:index")
+        return redirect(next_url)
