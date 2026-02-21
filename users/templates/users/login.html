@@ -88,6 +88,7 @@
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': csrf,
                 },
+                credentials: 'include',
                 body: new URLSearchParams({ next: "{{ dashboard_url }}" }),
             });
             const data = await resp.json();
