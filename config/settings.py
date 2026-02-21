@@ -342,6 +342,7 @@ AI_ASSISTANT_BASE_URL = os.getenv("AI_ASSISTANT_BASE_URL", "http://109.207.171.2
 # Redis для сервисных токенов (автологин между браузерами)
 REDIS_XFER_URL = os.getenv("REDIS_XFER_URL", os.getenv("REDIS_URL", "redis://localhost:6379/1"))
 XFER_TOKEN_TTL_SECONDS = int(os.getenv("XFER_TOKEN_TTL_SECONDS", "600"))
+XFER_TOKEN_POST_USE_TTL_SECONDS = int(os.getenv("XFER_TOKEN_POST_USE_TTL_SECONDS", "60"))
 AI_ASSISTANT_TIMEOUT = float(os.getenv("AI_ASSISTANT_TIMEOUT", "10"))
 AI_ASSISTANT_SERVICE_ACCOUNT_SLUG = os.getenv("AI_ASSISTANT_SERVICE_ACCOUNT_SLUG", "ai-assistant")
 AI_ASSISTANT_ENDPOINT_MEMBERS = os.getenv("AI_ASSISTANT_ENDPOINT_MEMBERS", "/api/v1/sync/members/")
