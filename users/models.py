@@ -12,6 +12,13 @@ class UserPersonLinkStatus(models.TextChoices):
 class User(AbstractUser):
     """Модель кастомного пользователя"""
 
+    BOT_ACCESS_LITE = "lite"
+    BOT_ACCESS_FULL = "full"
+    BOT_ACCESS_CHOICES = [
+        (BOT_ACCESS_LITE, "Только авторизация"),
+        (BOT_ACCESS_FULL, "Полный доступ"),
+    ]
+
     username = None
     email = models.EmailField(unique=True, blank=True, null=True, verbose_name="Почта")
     phone = models.CharField(
@@ -29,6 +36,12 @@ class User(AbstractUser):
         max_length=100, blank=True, null=True, verbose_name="Токен"
     )
     is_approved = models.BooleanField(default=False, verbose_name="Пользователь подтверждён")
+    bot_access = models.CharField(
+        max_length=10,
+        choices=BOT_ACCESS_CHOICES,
+        default=BOT_ACCESS_LITE,
+        verbose_name="Доступ к функциям бота",
+    )
     first_bot_interaction_at = models.DateTimeField(
         blank=True,
         null=True,
@@ -89,6 +102,10 @@ class User(AbstractUser):
     @property
     def person_link(self):
         return getattr(self, "link", None)
+
+    @property
+    def is_bot_full_access(self) -> bool:
+        return self.bot_access == self.BOT_ACCESS_FULL
 
 
 class UserAthleteLink(models.Model):

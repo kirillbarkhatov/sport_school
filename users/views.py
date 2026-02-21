@@ -1,5 +1,6 @@
 import logging
 import secrets
+import re
 
 import httpx
 from django.contrib import messages
@@ -86,6 +87,18 @@ class UserViewSet(viewsets.ModelViewSet):
 class LoginPageView(TemplateView):
     template_name = "users/login.html"
 
+    @staticmethod
+    def _extract_competition_id(next_url: str | None) -> int | None:
+        if not next_url:
+            return None
+        match = re.search(r"/competitions/(?P<pk>\d+)/apply/", next_url)
+        if match:
+            try:
+                return int(match.group("pk"))
+            except (TypeError, ValueError):
+                return None
+        return None
+
     def get(self, request, *args, **kwargs):
         """Сохраняем целевую страницу перед отображением формы входа."""
         next_url = request.GET.get("next")
@@ -119,8 +132,18 @@ class LoginPageView(TemplateView):
 
         token = self._issue_session_token()
         bot_name = BOT_NAME or "your_bot"
+        next_url = self.request.session.get("next_url")
+        comp_id = self._extract_competition_id(next_url)
+        if comp_id:
+            start_payload = f"comp:{comp_id}:{token}"
+            context["is_competition_flow"] = True
+            context["competition_id"] = comp_id
+        else:
+            start_payload = f"auth:{token}"
+            context["is_competition_flow"] = False
+            context["competition_id"] = None
 
-        context["telegram_link"] = f"https://t.me/{bot_name}?start={token}"
+        context["telegram_link"] = f"https://t.me/{bot_name}?start={start_payload}"
         context["telegram_bot_name"] = bot_name
         self._notify_debug({
             "authenticated": False,
@@ -128,6 +151,7 @@ class LoginPageView(TemplateView):
             "session_token": self.request.session.get("telegram_token"),
             "next_url": self.request.session.get("next_url"),
             "telegram_link": context["telegram_link"],
+            "is_competition_flow": context["is_competition_flow"],
         })
         return context
 
@@ -196,7 +220,15 @@ class TelegramCallbackView(View):
         )
         send_admin_message(_format_user_login_message(user, request))
 
+        next_url = request.session.pop("next_url", None)
+        def _is_competition_apply(url: str | None) -> bool:
+            if not url:
+                return False
+            return bool(re.search(r"/competitions/\d+/apply/", url))
+
         if not user.is_approved and not (user.is_staff or user.is_superuser):
+            if _is_competition_apply(next_url):
+                return redirect(next_url)
             send_admin_message(
                 "🚦 Новый пользователь ожидает подтверждения:\n"
                 f"Email: {user.email}\n"
@@ -205,7 +237,6 @@ class TelegramCallbackView(View):
             )
             return redirect("users:awaiting_approval")
 
-        next_url = request.session.pop("next_url", None)
         if next_url and url_has_allowed_host_and_scheme(
             url=next_url,
             allowed_hosts={request.get_host()},

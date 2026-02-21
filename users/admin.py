@@ -8,7 +8,7 @@ from .models import User, UserPersonLink
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
     fieldsets = (
-        (None, {"fields": ("email", "password", "is_approved")}),
+        (None, {"fields": ("email", "password", "is_approved", "bot_access")}),
         (_("Персональные данные"), {"fields": ("first_name", "last_name", "phone", "tg_id", "tg_username", "person")}),
         (_("Разрешения"), {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
         (_("Важные даты"), {"fields": ("last_login", "date_joined")}),
@@ -16,11 +16,11 @@ class UserAdmin(DjangoUserAdmin):
     add_fieldsets = (
         (None, {
             "classes": ("wide",),
-            "fields": ("email", "password1", "password2", "is_approved"),
+            "fields": ("email", "password1", "password2", "is_approved", "bot_access"),
         }),
     )
-    list_display = ("email", "tg_id", "is_approved", "is_staff", "person")
-    list_filter = ("is_approved", "is_staff", "person")
+    list_display = ("email", "tg_id", "is_approved", "bot_access", "is_staff", "person")
+    list_filter = ("is_approved", "bot_access", "is_staff", "person")
     search_fields = ("email", "first_name", "last_name", "tg_username")
     ordering = ("email",)
 

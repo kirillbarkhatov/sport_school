@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -23,6 +23,50 @@ from users.models import User, UserPersonLinkStatus
 from users.tasks import notify_pending_user_task, schedule_pending_user_notifications
 
 logger = logging.getLogger(__name__)
+
+START_KIND_AUTH = "auth"
+START_KIND_COMPETITION = "comp"
+START_KIND_DEFAULT = "default"
+
+
+def _parse_start_payload(raw: Optional[str]) -> Tuple[str, Optional[str], Optional[int]]:
+    """Return (kind, token, competition_id)."""
+    if not raw:
+        return START_KIND_DEFAULT, None, None
+    if raw.startswith(f"{START_KIND_COMPETITION}:"):
+        parts = raw.split(":", 2)
+        if len(parts) == 3:
+            comp_part = parts[1]
+            token_part = parts[2]
+            try:
+                comp_id = int(comp_part)
+            except ValueError:
+                comp_id = None
+            return START_KIND_COMPETITION, token_part, comp_id
+    if raw.startswith(f"{START_KIND_AUTH}:"):
+        token_part = raw.split(":", 1)[1] if ":" in raw else None
+        return START_KIND_AUTH, token_part, None
+    return START_KIND_DEFAULT, raw, None
+
+
+def _build_competition_apply_url(comp_id: int) -> Optional[str]:
+    if not comp_id:
+        return None
+    try:
+        from django.urls import reverse
+        from school.models import CompetitionApplicationLink
+
+        link = CompetitionApplicationLink.objects.filter(
+            competition_id=comp_id,
+            is_active=True,
+        ).first()
+        if not link:
+            return None
+        path = reverse("school:competition_apply", kwargs={"pk": comp_id, "token": link.token})
+        return f"{settings.SITE_BASE_URL.rstrip('/')}{path}"
+    except Exception:  # noqa: BLE001
+        logger.exception("Не удалось построить ссылку на заявку для соревнования %s", comp_id)
+        return None
 
 
 def _format_login_instructions(token: Optional[str]) -> str:
@@ -56,7 +100,8 @@ def build_authenticated_keyboard() -> InlineKeyboardMarkup:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    token = context.args[0] if context.args else None
+    raw_arg = context.args[0] if context.args else None
+    start_kind, token, comp_id = _parse_start_payload(raw_arg)
     tg_user = update.effective_user
 
     logger.info(
@@ -84,6 +129,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_admin = await user_is_admin(tg_user.id)
     is_coach = await user_is_coach(tg_user.id)
     is_manager = await user_is_manager(tg_user.id)
+    is_privileged = is_admin or is_coach or is_manager
+
+    if start_kind == START_KIND_COMPETITION:
+        apply_url = await sync_to_async(_build_competition_apply_url, thread_sensitive=True)(comp_id)
+        text = "Мы связали ваш Telegram. Вернитесь в браузер и продолжайте работу с заявкой."
+        markup = None
+        if apply_url:
+            markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Открыть заявку", url=apply_url)]]
+            )
+        await update.effective_message.reply_html(
+            text,
+            disable_web_page_preview=True,
+            reply_markup=markup,
+        )
+        return
+
+    if start_kind == START_KIND_AUTH:
+        login_instructions = _format_login_instructions(token)
+        message = login_instructions or "Вернитесь в браузер, авторизация завершится автоматически."
+        await update.effective_message.reply_html(
+            message,
+            disable_web_page_preview=True,
+        )
+        return
 
     if created and not (is_admin or is_coach or is_manager):
         baseline = link.updated_at.timestamp() if link and link.updated_at else None
@@ -96,6 +166,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_confirmed = bool(user.person_id and link_status == UserPersonLinkStatus.APPROVED)
     show_quick_commands = is_admin or is_coach or is_manager or is_confirmed
     login_instructions = _format_login_instructions(token)
+
+    # Ограниченный доступ к функциям бота
+    if not is_privileged and not user.is_bot_full_access:
+        lines = [f"👋 Привет, {greeting_name}!"]
+        if is_confirmed:
+            lines.append("Ваш доступ в боте будет открыт администратором. Пока доступны авторизация и заявки.")
+        else:
+            lines.append("Вы находитесь на одобрении. Мы уведомим, когда доступ будет открыт.")
+        if login_instructions:
+            lines.append(login_instructions)
+        await update.effective_message.reply_html(
+            "\n\n".join(lines),
+            disable_web_page_preview=True,
+        )
+        return
 
     if token and is_confirmed and login_instructions:
         lines.append(login_instructions)
