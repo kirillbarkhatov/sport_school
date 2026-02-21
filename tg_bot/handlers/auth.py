@@ -1,5 +1,6 @@
 import logging
 from typing import Optional, Tuple
+from urllib.parse import quote_plus
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -91,15 +92,16 @@ def _build_competition_apply_url(comp_id: int) -> Optional[str]:
         return None
 
 
-def _format_login_instructions(token: Optional[str]) -> str:
+def _format_login_instructions(token: Optional[str], next_url: Optional[str] = None) -> str:
     base_url = settings.SITE_BASE_URL.rstrip("/")
-    login_page = f"{base_url}/"
     instructions = [
         # "Чтобы войти на сайт, откройте страницу авторизации и нажмите «Войти через Telegram».",
         # f"Ссылка для входа: {login_page}",
     ]
     if token:
         callback_url = f"{base_url}/telegram-callback/{token}/"
+        if next_url:
+            callback_url = f"{callback_url}?next={quote_plus(next_url)}"
         instructions.append(
             "🔐 Для завершения авторизации на сайте перейдите по "
             f'<a href="{callback_url}">ссылке</a>'
@@ -155,16 +157,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if start_kind == START_KIND_COMPETITION:
         apply_url = await sync_to_async(_build_competition_apply_url, thread_sensitive=True)(comp_id)
-        text = "Мы связали ваш Telegram. Вернитесь в браузер и продолжайте работу с заявкой."
-        markup = None
+        login_instructions = _format_login_instructions(token, next_url=apply_url or "")
+        lines = ["Мы связали ваш Telegram. Нажмите ссылку ниже, затем вернитесь на заявку."]
+        if login_instructions:
+            lines.append(login_instructions)
         if apply_url:
-            markup = InlineKeyboardMarkup(
-                [[InlineKeyboardButton("Открыть заявку", url=apply_url)]]
-            )
+            lines.append(f'Или откройте заявку напрямую: <a href="{apply_url}">перейти</a>')
         await update.effective_message.reply_html(
-            text,
+            "\n\n".join(lines),
             disable_web_page_preview=True,
-            reply_markup=markup,
         )
         return
 
