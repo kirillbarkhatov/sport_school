@@ -162,7 +162,7 @@
                 </div>
             </div>
             <div class="card-footer d-flex justify-content-end">
-                <button type="submit" class="btn btn-primary">Сохранить заявку</button>
+                <button type="submit" class="btn btn-primary">Добавить нового спортсмена</button>
             </div>
         </form>
     {% endif %}
@@ -189,26 +189,64 @@
         }
     }
 
-    function moveToApplied(item) {
+    function markSelectedInAvailable(item) {
+        item.classList.add('bg-success-subtle', 'border', 'border-success', 'opacity-100');
+        const btn = item.querySelector('.btn-add, .btn-remove');
+        if (btn) {
+            btn.className = 'btn btn-sm btn-outline-danger btn-remove';
+            btn.textContent = 'Исключить';
+            btn.dataset.athleteId = item.dataset.athleteId;
+            btn.onclick = () => toggle(btn.dataset.athleteId, 'remove');
+        }
+    }
+
+    function unmarkSelectedInAvailable(item) {
+        item.classList.remove('bg-success-subtle', 'border', 'border-success', 'opacity-100');
+        const btn = item.querySelector('.btn-add, .btn-remove');
+        if (btn) {
+            btn.className = 'btn btn-sm btn-success btn-add';
+            btn.textContent = 'Добавить';
+            btn.dataset.athleteId = item.dataset.athleteId;
+            btn.onclick = () => toggle(btn.dataset.athleteId, 'add');
+        }
+    }
+
+    function stripSelectionStyles(element) {
+        element.classList.remove('bg-success-subtle', 'border', 'border-success', 'opacity-100');
+    }
+
+    function addToApplied(item, {keepAvailable=false} = {}) {
         if (!appliedList) return;
         const clone = item.cloneNode(true);
-        const addBtn = clone.querySelector('.btn-add');
-        addBtn?.remove();
+        stripSelectionStyles(clone);
+        const buttonArea = document.createElement('div');
+        buttonArea.className = 'd-flex justify-content-end mt-2';
         const removeBtn = document.createElement('button');
         removeBtn.type = 'button';
         removeBtn.className = 'btn btn-sm btn-outline-danger btn-remove';
         removeBtn.dataset.athleteId = item.dataset.athleteId;
         removeBtn.textContent = 'Исключить';
-        removeBtn.addEventListener('click', () => toggle(removeBtn.dataset.athleteId, 'remove'));
-        clone.append(removeBtn);
+        removeBtn.onclick = () => toggle(removeBtn.dataset.athleteId, 'remove');
+        buttonArea.append(removeBtn);
+        // remove existing actions inside clone only (not original)
+        clone.querySelectorAll('.btn').forEach(el => el.remove());
+        clone.append(buttonArea);
         appliedList.append(clone);
-        item.remove();
+        sortList(appliedList);
         ensureEmptyPlaceholder();
+        if (!keepAvailable) {
+            item.remove();
+        }
+    }
+
+    function moveToApplied(item) {
+        addToApplied(item, {keepAvailable: false});
     }
 
     function moveToAvailable(item) {
         if (!availableList) return;
         const clone = item.cloneNode(true);
+        stripSelectionStyles(clone);
         const removeBtn = clone.querySelector('.btn-remove');
         removeBtn?.remove();
         const addBtn = document.createElement('button');
@@ -219,7 +257,17 @@
         addBtn.addEventListener('click', () => toggle(addBtn.dataset.athleteId, 'add'));
         clone.append(addBtn);
         availableList.append(clone);
+        sortList(availableList);
         item.remove();
+        ensureEmptyPlaceholder();
+    }
+
+    function availableCount() {
+        return availableList ? availableList.querySelectorAll('.list-group-item').length : 0;
+    }
+
+    function removeFromAppliedById(athleteId) {
+        (appliedList?.querySelectorAll(`[data-athlete-id="${athleteId}"]`) || []).forEach(el => el.remove());
         ensureEmptyPlaceholder();
     }
 
@@ -235,10 +283,22 @@
             if (!data.success) return;
             if (data.status === 'added') {
                 const item = availableList.querySelector(`[data-athlete-id="${athleteId}"]`);
-                if (item) moveToApplied(item);
+                if (item) {
+                    if (availableCount() >= 6) {
+                        markSelectedInAvailable(item);
+                        if (!appliedList.querySelector(`[data-athlete-id="${athleteId}"]`)) {
+                            addToApplied(item, {keepAvailable: true});
+                        }
+                    } else {
+                        moveToApplied(item);
+                    }
+                }
             } else if (data.status === 'removed') {
-                const item = appliedList.querySelector(`[data-athlete-id="${athleteId}"]`);
-                if (item) moveToAvailable(item);
+                removeFromAppliedById(athleteId);
+                const itemAvailable = availableList.querySelector(`[data-athlete-id="${athleteId}"]`);
+                if (itemAvailable && availableCount() >= 6) {
+                    unmarkSelectedInAvailable(itemAvailable);
+                }
             }
         }).catch(console.error);
     }
@@ -249,6 +309,62 @@
     availableList?.querySelectorAll('.btn-add').forEach(btn => {
         btn.addEventListener('click', () => toggle(btn.dataset.athleteId, 'add'));
     });
+
+    // Инициализация: если спортсмен уже в заявке и список длинный, подсветить его в доступных
+    // dedupe applied list by athlete id
+    const seen = new Set();
+    (appliedList?.querySelectorAll('[data-athlete-id]') || []).forEach(el => {
+        const id = el.dataset.athleteId;
+        if (seen.has(id)) {
+            el.remove();
+        } else {
+            seen.add(id);
+        }
+    });
+
+    // sort helper by surname then name
+    function sortList(container) {
+        if (!container) return;
+        const items = Array.from(container.querySelectorAll('.list-group-item'));
+        items.sort((a, b) => {
+            const aText = (a.querySelector('.fw-semibold')?.textContent || '').toLocaleLowerCase();
+            const bText = (b.querySelector('.fw-semibold')?.textContent || '').toLocaleLowerCase();
+            return aText.localeCompare(bText, 'ru');
+        });
+        items.forEach(item => container.append(item));
+    }
+
+    sortList(appliedList);
+    sortList(availableList);
+
+    // Если на сервере пришли элементы без кнопки исключить (например, после перезахода), добавляем её
+    (appliedList?.querySelectorAll('.list-group-item') || []).forEach(el => {
+        if (!el.querySelector('.btn-remove')) {
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-sm btn-outline-danger btn-remove';
+            removeBtn.dataset.athleteId = el.dataset.athleteId;
+            removeBtn.textContent = 'Исключить';
+            removeBtn.addEventListener('click', () => toggle(removeBtn.dataset.athleteId, 'remove'));
+            el.append(removeBtn);
+        }
+    });
+
+    const appliedIds = new Set(Array.from(appliedList?.querySelectorAll('[data-athlete-id]') || []).map(el => el.dataset.athleteId));
+    if (availableCount() >= 6) {
+        (availableList?.querySelectorAll('[data-athlete-id]') || []).forEach(el => {
+            if (appliedIds.has(el.dataset.athleteId)) {
+                markSelectedInAvailable(el);
+            }
+        });
+    } else {
+        (availableList?.querySelectorAll('[data-athlete-id]') || []).forEach(el => {
+            if (appliedIds.has(el.dataset.athleteId)) {
+                el.remove();
+            }
+        });
+        ensureEmptyPlaceholder();
+    }
 
     function getCookie(name) {
         const value = `; ${document.cookie}`;
