@@ -294,10 +294,13 @@
                     }
                 }
             } else if (data.status === 'removed') {
+                const appliedItem = appliedList?.querySelector(`[data-athlete-id="${athleteId}"]`);
                 removeFromAppliedById(athleteId);
-                const itemAvailable = availableList.querySelector(`[data-athlete-id="${athleteId}"]`);
+                const itemAvailable = availableList?.querySelector(`[data-athlete-id="${athleteId}"]`);
                 if (itemAvailable && availableCount() >= 6) {
                     unmarkSelectedInAvailable(itemAvailable);
+                } else if (!itemAvailable && availableList && availableCount() < 6 && appliedItem) {
+                    moveToAvailable(appliedItem);
                 }
             }
         }).catch(console.error);
