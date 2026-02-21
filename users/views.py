@@ -17,7 +17,8 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from .models import User
-from config.settings import BOT_NAME, BOT_TOKEN, TELEGRAM_LOG_CHAT_ID, TELEGRAM_ADMIN_IDS
+from config.settings import BOT_NAME, BOT_TOKEN, TELEGRAM_LOG_CHAT_ID, TELEGRAM_ADMIN_IDS, XFER_TOKEN_POST_USE_TTL_SECONDS
+import redis
 
 
 logger = logging.getLogger("auth.telegram")
@@ -192,22 +193,37 @@ class TelegramCallbackView(View):
         if not token:
             return HttpResponseBadRequest("Отсутствует токен авторизации")
 
-        try:
-            # Проверяем, существует ли пользователь с указанным токеном
-            user = User.objects.get(token=token)
-        except User.DoesNotExist:
-            logger.warning(
-                "Попытка входа с неверным токеном (окончание %s)",
-                token[-6:] if token else "unknown",
-            )
-            return HttpResponse("Неверный токен или пользователь не найден", status=404)
+        # Проверяем кэш одноразовых токенов, если он ещё живёт после первого использования
+        user = None
+        redis_client = redis.Redis.from_url(getattr(settings, "REDIS_XFER_URL", "redis://localhost:6379/1"), decode_responses=True)
+        cached_user_id = redis_client.get(f"xfer_token:{token}")
+        if cached_user_id:
+            try:
+                user = User.objects.get(pk=int(cached_user_id))
+            except User.DoesNotExist:
+                user = None
+        if not user:
+            try:
+                # Проверяем, существует ли пользователь с указанным токеном
+                user = User.objects.get(token=token)
+            except User.DoesNotExist:
+                logger.warning(
+                    "Попытка входа с неверным токеном (окончание %s)",
+                    token[-6:] if token else "unknown",
+                )
+                return HttpResponse("Неверный токен или пользователь не найден", status=404)
 
         # Авторизуем пользователя
         login(request, user)
 
-        # Очищаем токен после успешной авторизации
+        # Очищаем токен после успешной авторизации, но оставляем 60 сек. для второго браузера
         user.token = None
         user.save(update_fields=["token"])
+        redis_client.setex(
+            f"xfer_token:{token}",
+            int(getattr(settings, "XFER_TOKEN_POST_USE_TTL_SECONDS", 60)),
+            user.id,
+        )
 
         request.session.pop("telegram_token", None)
 
