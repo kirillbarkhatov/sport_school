@@ -45,11 +45,6 @@
                     <strong>не ограничен</strong>
                 {% endif %}
             </div>
-            <div class="d-flex flex-wrap gap-2 mt-3">
-                <button type="button" class="btn btn-outline-secondary btn-sm" id="open-external-btn">
-                    Открыть во внешнем браузере
-                </button>
-            </div>
         </div>
     </div>
 
@@ -182,7 +177,6 @@
     const toggleUrl = "{% url 'school:competition_apply_toggle' pk=competition.pk token=application_link.token %}";
     const xferIssueUrl = "{% url 'users:xfer_issue' %}";
     const applyUrl = "{{ apply_url }}";
-    const openExternalBtn = document.getElementById('open-external-btn');
 
     function ensureEmptyPlaceholder() {
         const currentEmpty = document.getElementById(appliedEmptyId);
@@ -269,10 +263,6 @@
 
     async function issueXferAndOpen() {
         if (!xferIssueUrl) return;
-        if (openExternalBtn) {
-            openExternalBtn.disabled = true;
-            openExternalBtn.textContent = 'Открываем...';
-        }
         try {
             const resp = await fetch(xferIssueUrl, {
                 method: 'POST',
@@ -285,21 +275,11 @@
             const data = await resp.json();
             if (data?.url) {
                 window.location = data.url;
-            } else {
-                alert('Не удалось подготовить ссылку. Попробуйте ещё раз.');
             }
         } catch (err) {
             console.error(err);
-            alert('Не удалось открыть внешний браузер. Попробуйте ещё раз.');
-        } finally {
-            if (openExternalBtn) {
-                openExternalBtn.textContent = 'Открыть во внешнем браузере';
-                openExternalBtn.disabled = false;
-            }
         }
     }
-
-    openExternalBtn?.addEventListener('click', issueXferAndOpen);
 
     function isTelegramWebView() {
         const ua = navigator.userAgent || '';

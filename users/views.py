@@ -221,7 +221,7 @@ class TelegramCallbackView(View):
         )
         send_admin_message(_format_user_login_message(user, request))
 
-        next_url = request.session.pop("next_url", None)
+        next_url = request.session.pop("next_url", None) or request.GET.get("next")
         def _is_competition_apply(url: str | None) -> bool:
             if not url:
                 return False
