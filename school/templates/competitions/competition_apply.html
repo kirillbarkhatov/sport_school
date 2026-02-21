@@ -269,8 +269,10 @@
 
     async function issueXferAndOpen() {
         if (!xferIssueUrl) return;
-        openExternalBtn.disabled = true;
-        openExternalBtn.textContent = 'Открываем...';
+        if (openExternalBtn) {
+            openExternalBtn.disabled = true;
+            openExternalBtn.textContent = 'Открываем...';
+        }
         try {
             const resp = await fetch(xferIssueUrl, {
                 method: 'POST',
@@ -290,12 +292,27 @@
             console.error(err);
             alert('Не удалось открыть внешний браузер. Попробуйте ещё раз.');
         } finally {
-            openExternalBtn.textContent = 'Открыть во внешнем браузере';
-            openExternalBtn.disabled = false;
+            if (openExternalBtn) {
+                openExternalBtn.textContent = 'Открыть во внешнем браузере';
+                openExternalBtn.disabled = false;
+            }
         }
     }
 
     openExternalBtn?.addEventListener('click', issueXferAndOpen);
+
+    function isTelegramWebView() {
+        const ua = navigator.userAgent || '';
+        return /Telegram/i.test(ua);
+    }
+
+    // Автоперенос сессии наружу, если страница открыта во встроенном браузере TG
+    const autoKey = `xfer_autorun_comp_{{ competition.pk }}`;
+    if (isTelegramWebView() && !sessionStorage.getItem(autoKey)) {
+        sessionStorage.setItem(autoKey, '1');
+        // небольшая задержка, чтобы дать подгрузиться странице
+        setTimeout(issueXferAndOpen, 300);
+    }
 })();
 </script>
 </body>
