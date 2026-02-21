@@ -873,23 +873,21 @@ class CompetitionApplyToggleView(LoginRequiredMixin, View):
         if athlete_id_int not in available_ids:
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
 
-        application, _ = CompetitionApplication.objects.get_or_create(
-            competition=competition,
-            user=request.user,
-        )
-
         if action == "add":
+            application, _ = CompetitionApplication.objects.get_or_create(
+                competition=competition,
+                user=request.user,
+            )
             CompetitionEntry.objects.get_or_create(
                 competition=competition,
                 athlete_id=athlete_id_int,
-                application=application,
+                defaults={"application": application},
             )
             return JsonResponse({"success": True, "status": "added"})
 
         CompetitionEntry.objects.filter(
             competition=competition,
             athlete_id=athlete_id_int,
-            application=application,
         ).delete()
         return JsonResponse({"success": True, "status": "removed"})
 
