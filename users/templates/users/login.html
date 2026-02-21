@@ -38,9 +38,6 @@
                         {% endif %}
                         <div class="d-flex gap-2">
                             <a class="btn btn-primary flex-fill" href="{{ dashboard_url }}">Перейти в систему</a>
-                            <button type="button" class="btn btn-outline-secondary" id="xfer-open">
-                                Открыть во внешнем браузере
-                            </button>
                             <form method="post" action="{% url 'users:logout' %}">
                                 {% csrf_token %}
                                 <button type="submit" class="btn btn-outline-danger">
@@ -73,39 +70,5 @@
     </div>
 </div>
 <script src="{% static 'js/bootstrap.bundle.min.js' %}"></script>
-<script>
-(() => {
-    const btn = document.getElementById('xfer-open');
-    if (!btn) return;
-    const csrf = document.querySelector('input[name=\"csrfmiddlewaretoken\"]')?.value;
-    btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        btn.textContent = 'Готовим ссылку...';
-        try {
-            const resp = await fetch("{% url 'users:xfer_issue' %}", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-CSRFToken': csrf,
-                },
-                credentials: 'include',
-                body: new URLSearchParams({ next: "{{ dashboard_url }}" }),
-            });
-            const data = await resp.json();
-            if (data?.url) {
-                window.location = data.url;
-            } else {
-                alert('Не удалось открыть во внешнем браузере. Попробуйте ещё раз.');
-            }
-        } catch (e) {
-            console.error(e);
-            alert('Не удалось открыть во внешнем браузере. Попробуйте ещё раз.');
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Открыть во внешнем браузере';
-        }
-    });
-})();
-</script>
 </body>
 </html>

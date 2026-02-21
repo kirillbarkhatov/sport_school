@@ -175,8 +175,6 @@
     const appliedEmptyId = 'applied-empty';
     const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
     const toggleUrl = "{% url 'school:competition_apply_toggle' pk=competition.pk token=application_link.token %}";
-    const xferIssueUrl = "{% url 'users:xfer_issue' %}";
-    const applyUrl = "{{ apply_url }}";
 
     function ensureEmptyPlaceholder() {
         const currentEmpty = document.getElementById(appliedEmptyId);
@@ -259,29 +257,6 @@
         return null;
     }
 
-    const csrfHeader = csrfToken || getCookie('csrftoken');
-
-    async function issueXferAndOpen() {
-        if (!xferIssueUrl) return;
-        try {
-            const resp = await fetch(xferIssueUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-CSRFToken': csrfHeader,
-                },
-                credentials: 'include',
-                body: new URLSearchParams({ next: applyUrl }),
-            });
-            const data = await resp.json();
-            if (data?.url) {
-                window.location = data.url;
-            }
-        } catch (err) {
-            console.error(err);
-        }
-    }
-
     function isTelegramWebView() {
         const ua = navigator.userAgent || '';
         return /Telegram/i.test(ua);
@@ -289,11 +264,7 @@
 
     // Автоперенос сессии наружу, если страница открыта во встроенном браузере TG
     const autoKey = `xfer_autorun_comp_{{ competition.pk }}`;
-    if (isTelegramWebView() && !sessionStorage.getItem(autoKey)) {
-        sessionStorage.setItem(autoKey, '1');
-        // небольшая задержка, чтобы дать подгрузиться странице
-        setTimeout(issueXferAndOpen, 300);
-    }
+    // Логика отключена: оставляем хук, если нужно включить обратно.
 })();
 </script>
 </body>
