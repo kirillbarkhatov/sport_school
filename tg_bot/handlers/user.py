@@ -816,6 +816,13 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
+        is_privileged = await user_is_admin(tg_id) or await user_is_manager(tg_id) or await user_is_coach(tg_id)
+        if not is_privileged and not user.is_bot_full_access:
+            await query.message.reply_text(
+                "Доступ к функциям бота будет открыт администратором. Сейчас доступны только авторизация и заявки."
+            )
+            return
+
         if data == "user:schedule":
             await _send_schedule_overview(query, user)
             return
@@ -1070,6 +1077,13 @@ async def handle_main_menu_text(update: Update, context: ContextTypes.DEFAULT_TY
     user = await _load_user(update.effective_user.id)
     if not user:
         await message.reply_text("⚠️ Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
+        return True
+
+    is_privileged = await user_is_admin(update.effective_user.id) or await user_is_manager(update.effective_user.id) or await user_is_coach(update.effective_user.id)
+    if not is_privileged and not user.is_bot_full_access:
+        await message.reply_text(
+            "Доступ к функциям бота пока ограничен. Администратор откроет его после одобрения."
+        )
         return True
 
     link = user.person_link
