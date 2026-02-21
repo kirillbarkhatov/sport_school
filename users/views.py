@@ -136,11 +136,11 @@ class LoginPageView(TemplateView):
         next_url = self.request.session.get("next_url")
         comp_id = self._extract_competition_id(next_url)
         if comp_id:
-            start_payload = f"comp:{comp_id}:{token}"
+            start_payload = f"comp_{comp_id}_{token}"
             context["is_competition_flow"] = True
             context["competition_id"] = comp_id
         else:
-            start_payload = f"auth:{token}"
+            start_payload = f"auth_{token}"
             context["is_competition_flow"] = False
             context["competition_id"] = None
 
