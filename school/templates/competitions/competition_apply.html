@@ -45,6 +45,11 @@
                     <strong>не ограничен</strong>
                 {% endif %}
             </div>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="open-external-btn">
+                    Открыть во внешнем браузере
+                </button>
+            </div>
         </div>
     </div>
 
@@ -175,6 +180,9 @@
     const appliedEmptyId = 'applied-empty';
     const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
     const toggleUrl = "{% url 'school:competition_apply_toggle' pk=competition.pk token=application_link.token %}";
+    const xferIssueUrl = "{% url 'users:xfer_issue' %}";
+    const applyUrl = "{{ apply_url }}";
+    const openExternalBtn = document.getElementById('open-external-btn');
 
     function ensureEmptyPlaceholder() {
         const currentEmpty = document.getElementById(appliedEmptyId);
@@ -249,6 +257,45 @@
     availableList?.querySelectorAll('.btn-add').forEach(btn => {
         btn.addEventListener('click', () => toggle(btn.dataset.athleteId, 'add'));
     });
+
+    function getCookie(name) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+        if (parts.length === 2) return parts.pop().split(';').shift();
+        return null;
+    }
+
+    const csrfHeader = csrfToken || getCookie('csrftoken');
+
+    async function issueXferAndOpen() {
+        if (!xferIssueUrl) return;
+        openExternalBtn.disabled = true;
+        openExternalBtn.textContent = 'Открываем...';
+        try {
+            const resp = await fetch(xferIssueUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrfHeader,
+                },
+                body: new URLSearchParams({ next: applyUrl }),
+            });
+            const data = await resp.json();
+            if (data?.url) {
+                window.location = data.url;
+            } else {
+                alert('Не удалось подготовить ссылку. Попробуйте ещё раз.');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Не удалось открыть внешний браузер. Попробуйте ещё раз.');
+        } finally {
+            openExternalBtn.textContent = 'Открыть во внешнем браузере';
+            openExternalBtn.disabled = false;
+        }
+    }
+
+    openExternalBtn?.addEventListener('click', issueXferAndOpen);
 })();
 </script>
 </body>
