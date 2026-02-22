@@ -7,6 +7,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.db.models.functions import Coalesce
 from django.http import FileResponse, Http404, JsonResponse, HttpResponse
@@ -30,6 +31,13 @@ from school.forms import (
     DocumentAIAnalysisFilterForm,
 )
 from school.document_ai import validate_signed_document_token
+from school.document_binding import (
+    bind_document_to_athlete,
+    bind_document_to_competition,
+    create_athlete_from_analysis,
+    create_competition_from_analysis,
+    get_binding_context,
+)
 from school.models import (
     Athlete,
     Family,
@@ -44,6 +52,8 @@ from school.models import (
     CompetitionDocument,
     Document,
     DocumentAIAnalysis,
+    DocumentType,
+    AthleteDocument,
 )
 from school.tasks import enqueue_documents_for_ai_analysis
 from users.mixins import ApprovedUserRequiredMixin
@@ -799,7 +809,141 @@ class DocumentAIAnalysisListView(ApprovedUserRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["filter_form"] = self.get_filter_form()
+        context["gender_choices"] = Person.GENDER_CHOICES
         return context
+
+
+class DocumentBindingContextView(ApprovedUserRequiredMixin, View):
+    def get(self, request, document_id):
+        document = get_object_or_404(Document.objects.select_related("ai_analysis"), pk=document_id)
+        context = get_binding_context(document)
+        return JsonResponse(context)
+
+
+class DocumentBindCompetitionView(ApprovedUserRequiredMixin, View):
+    def post(self, request, document_id):
+        document = get_object_or_404(Document, pk=document_id)
+        competition = get_object_or_404(Competition, pk=request.POST.get("competition_id"))
+        doc_type = request.POST.get("doc_type") or DocumentType.OTHER
+        title = request.POST.get("title") or ""
+
+        if doc_type not in {value for value, _ in DocumentType.choices}:
+            messages.error(request, "Некорректный тип документа.")
+            return redirect("school:documents_analysis_list")
+
+        with transaction.atomic():
+            link, created = CompetitionDocument.objects.get_or_create(
+                competition=competition,
+                document=document,
+                defaults={
+                    "doc_type": doc_type,
+                    "title": title,
+                    "is_public": False,
+                },
+            )
+            if not created:
+                link.doc_type = doc_type
+                if title:
+                    link.title = title
+                link.save(update_fields=["doc_type", "title"])
+            DocumentAIAnalysis.objects.filter(document=document).update(
+                auto_bound=False,
+                bound_entity_type="competition",
+                bound_entity_id=competition.id,
+                bound_at=timezone.now(),
+            )
+
+        messages.success(request, "Документ привязан к соревнованию.")
+        return redirect("school:documents_analysis_list")
+
+
+class DocumentBindAthleteView(ApprovedUserRequiredMixin, View):
+    def post(self, request, document_id):
+        document = get_object_or_404(Document, pk=document_id)
+        athlete = get_object_or_404(Athlete, pk=request.POST.get("athlete_id"))
+        doc_type = request.POST.get("doc_type") or DocumentType.OTHER
+
+        if doc_type not in {value for value, _ in DocumentType.choices}:
+            messages.error(request, "Некорректный тип документа.")
+            return redirect("school:documents_analysis_list")
+
+        with transaction.atomic():
+            link, created = AthleteDocument.objects.get_or_create(
+                athlete=athlete,
+                document=document,
+                defaults={"doc_type": doc_type},
+            )
+            if not created:
+                link.doc_type = doc_type
+                link.save(update_fields=["doc_type"])
+            DocumentAIAnalysis.objects.filter(document=document).update(
+                auto_bound=False,
+                bound_entity_type="athlete",
+                bound_entity_id=athlete.id,
+                bound_at=timezone.now(),
+            )
+
+        messages.success(request, "Документ привязан к спортсмену.")
+        return redirect("school:documents_analysis_list")
+
+
+class DocumentCreateCompetitionFromAIView(ApprovedUserRequiredMixin, View):
+    def post(self, request, document_id):
+        document = get_object_or_404(Document.objects.select_related("ai_analysis"), pk=document_id)
+        if not getattr(document, "ai_analysis", None):
+            messages.error(request, "Для документа нет AI-анализа.")
+            return redirect("school:documents_analysis_list")
+
+        with transaction.atomic():
+            competition = create_competition_from_analysis(document)
+            doc_type = request.POST.get("doc_type") or DocumentType.OTHER
+            bind_document_to_competition(
+                document=document,
+                competition=competition,
+                doc_type=doc_type,
+                title=document.ai_analysis.title or "",
+            )
+            DocumentAIAnalysis.objects.filter(document=document).update(
+                auto_bound=False,
+                bound_entity_type="competition",
+                bound_entity_id=competition.id,
+                bound_at=timezone.now(),
+            )
+
+        messages.success(request, "Создано новое соревнование и выполнена привязка документа.")
+        return redirect("school:documents_analysis_list")
+
+
+class DocumentCreateAthleteFromAIView(ApprovedUserRequiredMixin, View):
+    def post(self, request, document_id):
+        document = get_object_or_404(Document.objects.select_related("ai_analysis"), pk=document_id)
+        if not getattr(document, "ai_analysis", None):
+            messages.error(request, "Для документа нет AI-анализа.")
+            return redirect("school:documents_analysis_list")
+
+        gender = request.POST.get("gender")
+        allowed_genders = {choice[0] for choice in Person.GENDER_CHOICES}
+        if gender not in allowed_genders:
+            messages.error(request, "Выберите пол для создания спортсмена.")
+            return redirect("school:documents_analysis_list")
+
+        with transaction.atomic():
+            athlete = create_athlete_from_analysis(document=document, gender=gender)
+            doc_type = request.POST.get("doc_type") or DocumentType.OTHER
+            bind_document_to_athlete(
+                document=document,
+                athlete=athlete,
+                doc_type=doc_type,
+            )
+            DocumentAIAnalysis.objects.filter(document=document).update(
+                auto_bound=False,
+                bound_entity_type="athlete",
+                bound_entity_id=athlete.id,
+                bound_at=timezone.now(),
+            )
+
+        messages.success(request, "Создан новый спортсмен и выполнена привязка документа.")
+        return redirect("school:documents_analysis_list")
 
 
 class CompetitionEntryToggleView(ApprovedUserRequiredMixin, View):

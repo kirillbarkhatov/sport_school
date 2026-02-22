@@ -23,6 +23,7 @@ from .document_ai import (
     hash_signed_url,
     make_signed_document_url,
 )
+from .document_binding import auto_bind_document_by_analysis
 from .models import AthleteContract, Document, DocumentAIAnalysis
 from .services import ensure_monthly_service_for_contract
 
@@ -215,6 +216,10 @@ def _apply_result_to_analysis(
             "error_message": None,
             "source_persistent_url": persistent_url,
             "source_signed_url_hash": source_signed_url_hash,
+            "auto_bound": False,
+            "bound_entity_type": None,
+            "bound_entity_id": None,
+            "bound_at": None,
             "is_analyzed_successfully": True,
             "document_updated_at_snapshot": document.updated_at,
             "analyzed_at": timezone.now(),
@@ -247,6 +252,10 @@ def _apply_result_to_analysis(
             "error_message": error_item["message"],
             "source_persistent_url": persistent_url,
             "source_signed_url_hash": source_signed_url_hash,
+            "auto_bound": False,
+            "bound_entity_type": None,
+            "bound_entity_id": None,
+            "bound_at": None,
             "is_analyzed_successfully": False,
             "document_updated_at_snapshot": document.updated_at,
             "analyzed_at": timezone.now(),
@@ -269,6 +278,10 @@ def _apply_result_to_analysis(
         "error_message": "Документ отсутствует в results/errors ответа анализатора",
         "source_persistent_url": persistent_url,
         "source_signed_url_hash": source_signed_url_hash,
+        "auto_bound": False,
+        "bound_entity_type": None,
+        "bound_entity_id": None,
+        "bound_at": None,
         "is_analyzed_successfully": False,
         "document_updated_at_snapshot": document.updated_at,
         "analyzed_at": timezone.now(),
@@ -451,6 +464,15 @@ def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: s
             error_item=error_item,
             batch_status=batch_result.status,
         )
+        if result_item:
+            bind_result = auto_bind_document_by_analysis(document)
+            if bind_result.bound and hasattr(document, "ai_analysis"):
+                DocumentAIAnalysis.objects.filter(document=document).update(
+                    auto_bound=True,
+                    bound_entity_type=bind_result.entity_type,
+                    bound_entity_id=bind_result.entity_id,
+                    bound_at=timezone.now(),
+                )
 
     logger.info(
         "docs-ai batch complete request_id=%s status=%s documents=%s results=%s errors=%s",

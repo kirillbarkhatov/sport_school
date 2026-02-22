@@ -598,6 +598,10 @@ class DocumentType(models.TextChoices):
     PARENT_CONSENT = "parent_consent", "Согласие родителей"
     MED_CERT = "medical_certificate", "Медицинская справка"
     INSURANCE = "insurance", "Страховка"
+    PASSPORT = "passport", "Паспорт"
+    BIRTH_CERTIFICATE = "birth_certificate", "Свидетельство о рождении"
+    RANK_BOOK = "rank_book", "Разрядная книжка"
+    RUSADA_CERTIFICATE = "rusada_certificate", "Сертификат РУСАДА"
     OTHER = "other", "Прочее"
 class Document(models.Model):
     """Базовый загружаемый файл."""
@@ -778,6 +782,16 @@ class DocumentAIAnalysis(models.Model):
         blank=True,
         verbose_name="Hash signed URL",
     )
+    auto_bound = models.BooleanField(default=False, verbose_name="Автопривязка выполнена")
+    bound_entity_type = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name="Тип связанной сущности",
+        help_text="competition | athlete",
+    )
+    bound_entity_id = models.PositiveBigIntegerField(blank=True, null=True, verbose_name="ID связанной сущности")
+    bound_at = models.DateTimeField(blank=True, null=True, verbose_name="Время привязки")
     is_analyzed_successfully = models.BooleanField(default=False, verbose_name="Успешно проанализирован")
     document_updated_at_snapshot = models.DateTimeField(
         blank=True,
@@ -801,6 +815,7 @@ class DocumentAIAnalysis(models.Model):
             models.Index(fields=["analyzed_at"]),
             models.Index(fields=["document_updated_at_snapshot"]),
             models.Index(fields=["request_id"]),
+            models.Index(fields=["bound_entity_type", "bound_entity_id"]),
         ]
 
 

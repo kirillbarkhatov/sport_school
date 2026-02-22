@@ -45,7 +45,7 @@ services:
 
   celery_worker:
     build: .
-    command: poetry run celery -A config worker --loglevel=info
+    command: poetry run celery -A config worker --loglevel=info -Q docs_analysis,celery
     volumes:
       - .:/app
     env_file:
