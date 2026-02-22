@@ -28,6 +28,11 @@ urlpatterns = [
         name="competition_entries_toggle",
     ),
     path("competitions/<int:pk>/export/", views.competition_export, name="competition_export"),
+    path("competitions/<int:pk>/export/type2/", views.competition_export_type2, name="competition_export_type2"),
+    path("competitions/<int:pk>/export/word/", views.competition_export_word_type1, name="competition_export_word_type1"),
+    path("competitions/<int:pk>/export/word2/", views.competition_export_word_type2, name="competition_export_word_type2"),
+    path("competitions/<int:pk>/export/word3/", views.competition_export_word_type3, name="competition_export_word_type3"),
+    path("competitions/<int:pk>/export/word4/", views.competition_export_word_type4, name="competition_export_word_type4"),
     path("competitions/<int:pk>/apply/<str:token>/", views.CompetitionApplyView.as_view(), name="competition_apply"),
     path(
         "competitions/<int:pk>/apply/<str:token>/toggle/",

@@ -1,6 +1,7 @@
 import json
 import secrets
 from datetime import date
+from io import BytesIO
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -935,30 +936,12 @@ def competition_export(request, pk):
     else:
         subloc = ""
     date_part = ""
-    MONTHS_RU = {
-        1: "января",
-        2: "февраля",
-        3: "марта",
-        4: "апреля",
-        5: "мая",
-        6: "июня",
-        7: "июля",
-        8: "августа",
-        9: "сентября",
-        10: "октября",
-        11: "ноября",
-        12: "декабря",
-    }
-
-    def fmt_ru(d):
-        return f"{d.day} {MONTHS_RU.get(d.month, '')} {d.year}"
-
     if competition.start_date and competition.end_date and competition.start_date != competition.end_date:
-        date_part = f"{fmt_ru(competition.start_date)} - {fmt_ru(competition.end_date)}"
+        date_part = f"{fmt_ru_date(competition.start_date)} - {fmt_ru_date(competition.end_date)}"
     elif competition.start_date:
-        date_part = fmt_ru(competition.start_date)
+        date_part = fmt_ru_date(competition.start_date)
     elif competition.date:
-        date_part = fmt_ru(competition.date)
+        date_part = fmt_ru_date(competition.date)
     subtitle = " ".join(filter(None, [subloc, date_part, "от команды Всеволожского района"])).strip()
 
     table_rows = []
@@ -1025,4 +1008,607 @@ def competition_export(request, pk):
     )
     resp = HttpResponse(xml_content, content_type="application/vnd.ms-excel")
     resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}.xls\"'
+    return resp
+
+
+MONTHS_RU = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
+
+
+def fmt_ru_date(d):
+    if not d:
+        return ""
+    return f"{d.day} {MONTHS_RU.get(d.month, '')} {d.year}"
+
+
+def _group_entries_by_birth_year(entries):
+    groups = [
+        ("Мальчики и девочки 2016-2017 г.р.", (2016, 2017)),
+        ("Мальчики и девочки 2014-2015 г.р.", (2014, 2015)),
+        ("Юноши и девушки 2012-2013 г.р.", (2012, 2013)),
+        ("Юноши и девушки 2010-2011 г.р.", (2010, 2011)),
+    ]
+    result = []
+    for title, (start_year, end_year) in groups:
+        filtered = [
+            e for e in entries if e.athlete.person.date_of_birth and start_year <= e.athlete.person.date_of_birth.year <= end_year
+        ]
+        # keep deterministic order: by surname, name
+        filtered.sort(key=lambda e: (e.athlete.person.surname or "", e.athlete.person.name or ""))
+        result.append((title, filtered))
+    return result
+
+
+def competition_export_type2(request, pk):
+    competition = get_object_or_404(Competition, pk=pk)
+    entries = list(
+        competition.entries.select_related("athlete__person", "athlete__person__club").all()
+    )
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Border, Side, Font
+    except ImportError:
+        return HttpResponse("openpyxl не установлен", status=500)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Именная заявка"
+
+    thin = Side(border_style="thin", color="000000")
+    border_all = Border(top=thin, bottom=thin, left=thin, right=thin)
+
+    def write_header():
+        ws.merge_cells("A1:G1")
+        ws.merge_cells("A2:G2")
+        ws.merge_cells("A3:G3")
+        ws.merge_cells("A4:G4")
+        ws.merge_cells("A5:G5")
+        ws.merge_cells("A6:G6")
+        ws.merge_cells("A7:G7")
+        ws.merge_cells("A8:G8")
+
+        ws["A2"].value = "ИМЕННАЯ ЗАЯВКА"
+        ws["A2"].font = Font(bold=True, size=14)
+        ws["A2"].alignment = Alignment(horizontal="center")
+
+        ws["A3"].value = f"на участие в соревнованиях «{competition.name}»"
+        ws["A3"].alignment = Alignment(horizontal="center")
+
+        ws["A4"].value = f"Место проведения: {competition.location}"
+        date_str = ""
+        if competition.start_date and competition.end_date and competition.start_date != competition.end_date:
+            date_str = f"{fmt_ru_date(competition.start_date)} — {fmt_ru_date(competition.end_date)}"
+        elif competition.start_date:
+            date_str = fmt_ru_date(competition.start_date)
+        elif competition.date:
+            date_str = fmt_ru_date(competition.date)
+        ws["A5"].value = f"Сроки проведения: {date_str}"
+        ws["A7"].value = "От физкультурно-спортивной организации: ________________________________________________"
+        ws["A8"].value = "Руководитель команды: __________________________ Контакты: _______________________"
+        ws["A9"].value = "Сопровождающий команды: ________________________ Контакты: _______________________"
+
+    write_header()
+
+    start_row = 11
+    headers = ["№ п/п", "Фамилия, Имя", "Д.р.", "Спортивный разряд", "Наименование ФСО", "Муниципальный район", "Допуск врача (подпись, штамп)"]
+    column_widths = [5, 26, 10, 18, 26, 18, 24]
+    for idx, width in enumerate(column_widths, start=1):
+        ws.column_dimensions[chr(64 + idx)].width = width
+
+    grouped = _group_entries_by_birth_year(entries)
+    row_cursor = start_row
+    for group_title, group_entries in grouped:
+        ws.merge_cells(start_row=row_cursor, start_column=1, end_row=row_cursor, end_column=7)
+        cell = ws.cell(row=row_cursor, column=1, value=group_title)
+        cell.font = Font(bold=True, underline="single")
+        row_cursor += 1
+
+        # header
+        for col_idx, title in enumerate(headers, start=1):
+            c = ws.cell(row=row_cursor, column=col_idx, value=title)
+            c.font = Font(bold=True)
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = border_all
+        row_cursor += 1
+
+        if group_entries:
+            for idx, entry in enumerate(group_entries, start=1):
+                person = entry.athlete.person
+                values = [
+                    idx,
+                    " ".join(filter(None, [person.surname, person.name])),
+                    person.date_of_birth.strftime("%d.%m.%Y") if person.date_of_birth else "",
+                    entry.athlete.rank or "",
+                    person.club.name if person.club else "",
+                    "Всеволожский",
+                    "",
+                ]
+                for col_idx, val in enumerate(values, start=1):
+                    c = ws.cell(row=row_cursor, column=col_idx, value=val)
+                    c.border = border_all
+                    c.alignment = Alignment(vertical="center")
+                row_cursor += 1
+        else:
+            # two empty rows with numbering
+            for idx in (1, 2):
+                ws.cell(row=row_cursor, column=1, value=idx).border = border_all
+                for col_idx in range(2, 8):
+                    ws.cell(row=row_cursor, column=col_idx).border = border_all
+                row_cursor += 1
+
+        # spacer line
+        row_cursor += 1
+
+    # footer
+    ws.merge_cells(start_row=row_cursor, start_column=1, end_row=row_cursor, end_column=7)
+    ws.cell(row=row_cursor, column=1, value="К соревнованиям допущено ______ человек.")
+    row_cursor += 2
+    ws.merge_cells(start_row=row_cursor, start_column=1, end_row=row_cursor, end_column=7)
+    ws.cell(row=row_cursor, column=1, value="Врач (ФИО) __________________________ / ____________ / ____________/")
+    row_cursor += 1
+    ws.merge_cells(start_row=row_cursor, start_column=1, end_row=row_cursor, end_column=7)
+    ws.cell(row=row_cursor, column=1, value="Представитель команды __________________________ / ____________ / ____________/")
+
+    # align all text left by default
+    for row in ws.iter_rows(min_row=1, max_row=row_cursor, min_col=1, max_col=7):
+        for cell in row:
+            if cell.alignment is None:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    resp = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_type2.xlsx\"'
+    return resp
+
+
+def _get_org_from_entries(entries):
+    for entry in entries:
+        if entry.athlete.person.club:
+            return entry.athlete.person.club.name
+    return ""
+
+
+def _medical_value(entry):
+    cert = entry.athlete.medical_certificate
+    if cert:
+        return cert
+    return "Да"  # default marker like on примеры
+
+
+def competition_export_word_type1(request, pk):
+    competition = get_object_or_404(Competition, pk=pk)
+    entries = list(
+        competition.entries.select_related("athlete__person", "athlete__person__club").all()
+    )
+    try:
+        from docx import Document
+        from docx.shared import Cm, Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+    except ImportError:
+        return HttpResponse("python-docx не установлен", status=500)
+
+    doc = Document()
+    section = doc.sections[0]
+    section.top_margin = Cm(2)
+    section.bottom_margin = Cm(2)
+    section.left_margin = Cm(2)
+    section.right_margin = Cm(2)
+
+    def add_para(text, bold=False, align="left", underline=False, font_size=12):
+        p = doc.add_paragraph()
+        if align == "center":
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(text)
+        run.bold = bold
+        if underline:
+            run.underline = True
+        run.font.size = Pt(font_size)
+        run.font.name = "Times New Roman"
+        r = run._element
+        r.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
+        return p
+
+    add_para("ИМЕННАЯ ЗАЯВКА", bold=True, align="center", font_size=14)
+    add_para(f"на участие в соревнованиях «{competition.name}»", align="center")
+    add_para(f"Место проведения: {competition.location}")
+    date_str = ""
+    if competition.start_date and competition.end_date and competition.start_date != competition.end_date:
+        date_str = f"{fmt_ru_date(competition.start_date)} — {fmt_ru_date(competition.end_date)}"
+    elif competition.start_date:
+        date_str = fmt_ru_date(competition.start_date)
+    elif competition.date:
+        date_str = fmt_ru_date(competition.date)
+    add_para(f"Сроки проведения: {date_str}")
+    add_para("От физкультурно-спортивной организации: ________________________________________________")
+    add_para("Руководитель команды: __________________________ Контакты: _______________________")
+    add_para("Сопровождающий команды: ________________________ Контакты: _______________________")
+
+    table_headers = ["№ п/п", "Фамилия, Имя", "Д.р.", "Спортивный разряд", "Наименование ФСО", "Муниципальный район", "Допуск врача (подпись, штамп)"]
+    # ширины под макет, суммарно ≈ ширина страницы после полей
+    # чуть сузил, чтобы гарантированно вписаться в страницу с полями 2 см
+    col_width_cm = [0.9, 4.4, 1.5, 1.9, 2.7, 2.1, 2.0]
+
+    grouped = _group_entries_by_birth_year(entries)
+    for title, group_entries in grouped:
+        add_para("")  # spacer
+        add_para(title, bold=True, underline=True)
+        table = doc.add_table(rows=1, cols=len(table_headers))
+        table.style = "Table Grid"
+        table.autofit = False
+        table.allow_autofit = False
+        for i, width in enumerate(col_width_cm):
+            table.columns[i].width = Cm(width)
+        hdr_cells = table.rows[0].cells
+        for idx, text in enumerate(table_headers):
+            hdr_cells[idx].text = text
+            hdr_cells[idx].paragraphs[0].runs[0].font.bold = True
+            hdr_cells[idx].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        rows_to_render = group_entries if group_entries else [None, None]
+        for idx, entry in enumerate(rows_to_render, start=1):
+            row_cells = table.add_row().cells
+            if entry is None:
+                vals = [idx, "", "", "", "", "", ""]
+            else:
+                person = entry.athlete.person
+                vals = [
+                    idx,
+                    " ".join(filter(None, [person.surname, person.name])),
+                    person.date_of_birth.strftime("%d.%m.%Y") if person.date_of_birth else "",
+                    entry.athlete.rank or "",
+                    person.club.name if person.club else "",
+                    "Всеволожский",
+                    "",
+                ]
+            for ci, val in enumerate(vals):
+                row_cells[ci].text = str(val) if val is not None else ""
+
+    add_para("")
+    add_para("К соревнованиям допущено ______ человек.")
+    add_para("Врач (ФИО) __________________________ / ____________ / ____________/")
+    add_para("Представитель команды __________________________ / ____________ / ____________/")
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    resp = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_w1.docx\"'
+    return resp
+
+
+def _set_font(run, size=12, bold=False, underline=False, color=None):
+    from docx.shared import Pt
+
+    run.font.size = Pt(size)
+    run.font.name = "Times New Roman"
+    run.bold = bold
+    run.underline = underline
+    if color:
+        run.font.color.rgb = color
+
+
+def competition_export_word_type2(request, pk):
+    competition = get_object_or_404(Competition, pk=pk)
+    entries = list(
+        competition.entries.select_related("athlete__person", "athlete__person__club").order_by(
+            "athlete__person__surname", "athlete__person__name"
+        )
+    )
+    try:
+        from docx import Document
+        from docx.shared import Cm, Pt, RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+    except ImportError:
+        return HttpResponse("python-docx не установлен", status=500)
+
+    doc = Document()
+    section = doc.sections[0]
+    section.top_margin = Cm(2)
+    section.bottom_margin = Cm(2)
+    section.left_margin = Cm(2.5)
+    section.right_margin = Cm(2.5)
+
+    def add_p(text, bold=False, center=False, size=12, underline=False, color=None):
+        p = doc.add_paragraph()
+        if center:
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(text)
+        _set_font(run, size=size, bold=bold, underline=underline, color=color)
+        run._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
+        return p
+
+    org = _get_org_from_entries(entries) or "________________________________"
+
+    add_p("ИМЕННАЯ ЗАЯВКА", bold=True, center=True, size=14)
+    add_p(f"на участие в физкультурных соревнованиях по горнолыжному спорту «{competition.name}»", center=True)
+    add_p(f"Место проведения: {competition.location}")
+    date_str = fmt_ru_date(competition.start_date or competition.date)
+    add_p(f"Дата проведения: {date_str}")
+    add_p(f"от организации: {org}", color=RGBColor(0xCC, 0x00, 0x00))
+
+    headers = ["№ п/п", "ФИО (полностью)", "Год рожд. (полностью)", "Спорт. разряд", "Допуск Врача"]
+    widths = [0.9, 6.8, 2.4, 2.1, 2.0]  # подгонка под ширину страницы с полями 2.5 см
+
+    groups = [
+        ("Девочки 2016-2017 г.р.", (2016, 2017), "female"),
+        ("Мальчики 2016-2017 г.р.", (2016, 2017), "male"),
+        ("Мальчики 2014-2015 г.р.", (2014, 2015), "male"),
+        ("Девушки 2012-2013 г.р.", (2012, 2013), "female"),
+        ("Юноши 2010-2011 г.р.", (2010, 2011), "male"),
+    ]
+
+    def in_bucket(entry, start, end, gender):
+        dob = entry.athlete.person.date_of_birth
+        if not dob:
+            return False
+        if gender and entry.athlete.person.gender != gender:
+            return False
+        return start <= dob.year <= end
+
+    for title, (start, end), gender in groups:
+        subset = [e for e in entries if in_bucket(e, start, end, gender)]
+        if not subset:
+            continue
+        add_p("")  # spacer
+        add_p(title, bold=True)
+        table = doc.add_table(rows=1, cols=len(headers))
+        table.style = "Table Grid"
+        table.autofit = False
+        table.allow_autofit = False
+        for idx, w in enumerate(widths):
+            table.columns[idx].width = Cm(w)
+        for i, h in enumerate(headers):
+            cell = table.rows[0].cells[i]
+            cell.text = h
+            cell.paragraphs[0].runs[0].bold = True
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for idx, entry in enumerate(subset, start=1):
+            p = entry.athlete.person
+            vals = [
+                idx,
+                " ".join(filter(None, [p.surname, p.name, p.middlename])),
+                p.date_of_birth.strftime("%d.%m.%Y") if p.date_of_birth else "",
+                entry.athlete.rank or "",
+                _medical_value(entry),
+            ]
+            row = table.add_row().cells
+            for ci, val in enumerate(vals):
+                row[ci].text = str(val)
+
+    add_p("")
+    add_p(f"К соревнованиям допущено {len(entries)} человек")
+    add_p("Врач (ФИО) _____________________________   м.п. Дата: ____________")
+    add_p("Руководитель команды: ________________________")
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    resp = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_w2.docx\"'
+    return resp
+
+
+def competition_export_word_type3(request, pk):
+    competition = get_object_or_404(Competition, pk=pk)
+    entries = list(
+        competition.entries.select_related("athlete__person", "athlete__person__club").order_by(
+            "athlete__person__surname", "athlete__person__name"
+        )
+    )
+    try:
+        from docx import Document
+        from docx.shared import Cm, Pt, RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+    except ImportError:
+        return HttpResponse("python-docx не установлен", status=500)
+
+    doc = Document()
+    section = doc.sections[0]
+    section.top_margin = Cm(2)
+    section.bottom_margin = Cm(2)
+    section.left_margin = Cm(2.2)
+    section.right_margin = Cm(2.2)
+
+    def add_p(text, bold=False, center=False, size=12, underline=False, color=None):
+        p = doc.add_paragraph()
+        if center:
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(text)
+        _set_font(run, size=size, bold=bold, underline=underline, color=color)
+        run._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
+        return p
+
+    org = _get_org_from_entries(entries) or "Kanaev Ski Club"
+    contact = "+7(921)559-51-14"
+
+    add_p("ИМЕННАЯ ЗАЯВКА", bold=True, center=True, size=14)
+    add_p(f"на участие в соревнованиях «{competition.name}»", center=True)
+    add_p(f"место проведение {competition.location}")
+    add_p(f"сроки проведения {fmt_ru_date(competition.start_date or competition.date)}")
+    add_p(f"от физкультурно-спортивной организации {org}")
+    add_p("руководитель команды Канаев Д.Т.")
+    add_p(f"сопровождающий команды Козлеев М.С.")
+    add_p(f"контакты {contact}")
+
+    headers = ["№", "Фамилия, Имя", "Год рождения", "Спортивный разряд", "Наименование ФСО"]
+    widths = [0.9, 6.0, 2.5, 2.5, 3.4]  # адаптировано под ширину страницы
+
+    table = doc.add_table(rows=1, cols=len(headers))
+    table.style = "Table Grid"
+    table.autofit = False
+    table.allow_autofit = False
+    for idx, w in enumerate(widths):
+        table.columns[idx].width = Cm(w)
+    for i, h in enumerate(headers):
+        cell = table.rows[0].cells[i]
+        cell.text = h
+        cell.paragraphs[0].runs[0].bold = True
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    for idx, entry in enumerate(entries, start=1):
+        p = entry.athlete.person
+        vals = [
+            idx,
+            " ".join(filter(None, [p.surname, p.name])),
+            p.date_of_birth.year if p.date_of_birth else "",
+            entry.athlete.rank or "",
+            p.club.name if p.club else org,
+        ]
+        row = table.add_row().cells
+        for ci, val in enumerate(vals):
+            row[ci].text = str(val)
+
+    add_p("")
+    add_p(f"К соревнованиям допущено {len(entries)} человек")
+    add_p("Врач (ФИО) ________________________________")
+    add_p("")
+    add_p("Руководитель физкультурно-спортивной организации")
+    add_p("______________________________________________", center=True)
+    add_p("Подпись печать", center=True)
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    resp = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_w3.docx\"'
+    return resp
+
+
+def competition_export_word_type4(request, pk):
+    competition = get_object_or_404(Competition, pk=pk)
+    entries = list(
+        competition.entries.select_related("athlete__person", "athlete__person__club").order_by(
+            "athlete__person__surname", "athlete__person__name"
+        )
+    )
+    try:
+        from docx import Document
+        from docx.shared import Cm, Pt
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+    except ImportError:
+        return HttpResponse("python-docx не установлен", status=500)
+
+    doc = Document()
+    section = doc.sections[0]
+    section.top_margin = Cm(2)
+    section.bottom_margin = Cm(2)
+    section.left_margin = Cm(1.8)
+    section.right_margin = Cm(1.8)
+
+    def add_p(text, bold=False, center=False, size=12):
+        p = doc.add_paragraph()
+        if center:
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(text)
+        _set_font(run, size=size, bold=bold)
+        run._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
+        return p
+
+    org = _get_org_from_entries(entries) or "Kanaev Ski Club"
+
+    add_p("ИМЕННАЯ ЗАЯВКА", bold=True, center=True, size=14)
+    add_p(f"на участие в соревнованиях {competition.name}")
+    add_p(f"место проведение: {competition.location}")
+    add_p(f"сроки проведения {fmt_ru_date(competition.start_date or competition.date)}")
+    add_p(f"от физкультурно-спортивной организации: {org}")
+    add_p("руководитель команды Канаев Д.Т.")
+    add_p("контакты +79811221000")
+    add_p("сопровождающий команды: Козлеев М.С.")
+    add_p("контакты +79215595114")
+
+    headers = ["№ п/п", "Фамилия, Имя", "Год рождения", "Спортивный разряд", "Наименование ФСО", "Муниципальный район", "Допуск врача"]
+    widths = [0.8, 4.5, 1.7, 2.0, 2.6, 2.1, 1.8]  # подгонка под ширину страницы
+
+    groups = [
+        ("Девочки 2016-2017", (2016, 2017), "female"),
+        ("Мальчики 2016-2017 г.р.", (2016, 2017), "male"),
+        ("Мальчики 2014-2015 г.р.", (2014, 2015), "male"),
+    ]
+
+    def in_bucket(entry, start, end, gender):
+        dob = entry.athlete.person.date_of_birth
+        if not dob:
+            return False
+        if gender and entry.athlete.person.gender != gender:
+            return False
+        return start <= dob.year <= end
+
+    for title, (start, end), gender in groups:
+        subset = [e for e in entries if in_bucket(e, start, end, gender)]
+        if not subset:
+            continue
+        add_p("")
+        add_p(title, bold=True)
+        table = doc.add_table(rows=1, cols=len(headers))
+        table.style = "Table Grid"
+        table.autofit = False
+        table.allow_autofit = False
+        for idx, w in enumerate(widths):
+            table.columns[idx].width = Cm(w)
+        for i, h in enumerate(headers):
+            cell = table.rows[0].cells[i]
+            cell.text = h
+            cell.paragraphs[0].runs[0].bold = True
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for idx, entry in enumerate(subset, start=1):
+            p = entry.athlete.person
+            vals = [
+                idx,
+                " ".join(filter(None, [p.surname, p.name])),
+                p.date_of_birth.strftime("%d.%m.%Y") if p.date_of_birth else "",
+                entry.athlete.rank or "",
+                p.club.name if p.club else org,
+                "Всеволожский",
+                _medical_value(entry),
+            ]
+            row = table.add_row().cells
+            for ci, val in enumerate(vals):
+                row[ci].text = str(val)
+
+    add_p("")
+    add_p(f"К соревнованиям допущено {len(entries)} человек")
+    add_p("Врач (ФИО) __________________________")
+    add_p("Представитель команды __________________________")
+    add_p("Руководитель физкультурно-спортивной организации")
+    add_p("______________________________________________", center=True)
+    add_p("Подпись печать", center=True)
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    resp = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_w4.docx\"'
     return resp

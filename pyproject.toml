@@ -24,6 +24,8 @@ requests = "^2.32.3"
 pyjwt = "^2.10.1"
 django-storages = "^1.14.3"
 boto3 = "^1.35.43"
+openpyxl = "^3.1.5"
+python-docx = "^1.1.2"
 
 
 [tool.poetry.group.dev.dependencies]
