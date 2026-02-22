@@ -24,6 +24,7 @@ from school.forms import (
     FamilyMemberForm,
     CompetitionForm,
     CompetitionApplyAthleteForm,
+    CompetitionDocumentUploadForm,
 )
 from school.models import (
     Athlete,
@@ -36,6 +37,8 @@ from school.models import (
     CompetitionApplication,
     CompetitionApplicationLink,
     Person,
+    CompetitionDocument,
+    Document,
 )
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
@@ -418,7 +421,7 @@ class CompetitionListView(ApprovedUserRequiredMixin, ListView):
 
     def get_queryset(self):
         return (
-            Competition.objects.prefetch_related("entries__athlete__person")
+            Competition.objects.prefetch_related("entries__athlete__person", "documents__document")
             .select_related("application_link")
             .order_by(Coalesce("start_date", "date").desc(nulls_last=True), "-name")
         )
@@ -507,6 +510,7 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             if link and link.expires_at:
                 initial["application_deadline"] = link.expires_at
         form = CompetitionForm(instance=competition, initial=initial)
+        document_form = CompetitionDocumentUploadForm()
         club_id = request.GET.get("club") or ""
         year_from = request.GET.get("year_from") or ""
         year_to = request.GET.get("year_to") or ""
@@ -537,6 +541,8 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "apply_url": request.build_absolute_uri(
                 reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
             ) if competition and link else "",
+            "competition_documents": competition.documents.select_related("document") if competition else [],
+            "document_form": document_form,
         }
         return render(request, self.template_name, context)
 
@@ -590,6 +596,7 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             order="surname",
         )
         link = CompetitionApplicationLink.objects.filter(competition=competition).first() if competition else None
+        document_form = CompetitionDocumentUploadForm()
         context = {
             "form": form,
             "competition": competition,
@@ -604,8 +611,39 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "apply_url": request.build_absolute_uri(
                 reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
             ) if competition and link else "",
+            "competition_documents": competition.documents.select_related("document") if competition else [],
+            "document_form": document_form,
         }
         return render(request, self.template_name, context)
+
+
+class CompetitionDocumentUploadView(ApprovedUserRequiredMixin, View):
+    """Загрузка документов соревнования (общих)."""
+
+    def post(self, request, pk):
+        competition = get_object_or_404(Competition, pk=pk)
+        form = CompetitionDocumentUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            form.save(competition=competition, user=request.user)
+            messages.success(request, "Документ загружен.")
+        else:
+            messages.error(request, "Не удалось загрузить документ. Проверьте форму.")
+        return redirect("school:competition_edit", pk=pk)
+
+
+class CompetitionDocumentDeleteView(ApprovedUserRequiredMixin, View):
+    """Удаление документа соревнования."""
+
+    def post(self, request, pk, doc_id):
+        competition = get_object_or_404(Competition, pk=pk)
+        link = get_object_or_404(CompetitionDocument, pk=doc_id, competition=competition)
+        doc = link.document
+        link.delete()
+        # удаляем сам файл, если больше не используется
+        if not doc.competition_links.exists() and not doc.athlete_links.exists():
+            doc.delete()
+        messages.success(request, "Документ удалён.")
+        return redirect("school:competition_edit", pk=pk)
 
 
 class CompetitionEntryToggleView(ApprovedUserRequiredMixin, View):

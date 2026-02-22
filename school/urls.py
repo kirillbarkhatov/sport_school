@@ -33,6 +33,8 @@ urlpatterns = [
     path("competitions/<int:pk>/export/word2/", views.competition_export_word_type2, name="competition_export_word_type2"),
     path("competitions/<int:pk>/export/word3/", views.competition_export_word_type3, name="competition_export_word_type3"),
     path("competitions/<int:pk>/export/word4/", views.competition_export_word_type4, name="competition_export_word_type4"),
+    path("competitions/<int:pk>/documents/upload/", views.CompetitionDocumentUploadView.as_view(), name="competition_documents_upload"),
+    path("competitions/<int:pk>/documents/<int:doc_id>/delete/", views.CompetitionDocumentDeleteView.as_view(), name="competition_documents_delete"),
     path("competitions/<int:pk>/apply/<str:token>/", views.CompetitionApplyView.as_view(), name="competition_apply"),
     path(
         "competitions/<int:pk>/apply/<str:token>/toggle/",

@@ -38,6 +38,20 @@
                         <div>{{ competition.discipline|default:"—" }}</div>
                     </div>
                     <div>
+                        <div class="text-muted small">Годы рождения</div>
+                        <div>
+                            {% if competition.birth_year_from and competition.birth_year_to %}
+                                {{ competition.birth_year_from }}–{{ competition.birth_year_to }} г.р.
+                            {% elif competition.birth_year_from %}
+                                {{ competition.birth_year_from }} г.р. и старше
+                            {% elif competition.birth_year_to %}
+                                до {{ competition.birth_year_to }} г.р.
+                            {% else %}
+                                Не указано
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
                         <div class="text-muted small">Срок подачи заявки</div>
                         <div>
                             {% if deadline %}
@@ -52,6 +66,20 @@
                     <span class="text-muted small">Участников: {{ competition.entries.count }}</span>
                     <div class="btn-group btn-group-sm">
                         <a href="{% url 'school:competition_edit' competition.pk %}" class="btn btn-outline-primary">Редактировать</a>
+                        {% if competition.documents.all %}
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                Документы ({{ competition.documents.count }})
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                {% for doc in competition.documents.all %}
+                                    <li><a class="dropdown-item" href="{{ doc.document.file.url }}" target="_blank">{{ doc.title|default:doc.document.original_name }}</a></li>
+                                {% empty %}
+                                    <li><span class="dropdown-item-text text-muted">Нет документов</span></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
                         <button type="button" class="btn btn-outline-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                             Выгрузить заявку
                         </button>
