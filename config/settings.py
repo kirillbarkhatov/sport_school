@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "rest_framework",
+    "storages",
     "django_filters",
     "corsheaders",
     "school",
@@ -162,7 +163,7 @@ STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-MEDIA_URL = "media/"
+MEDIA_URL = os.getenv("MEDIA_URL", "media/")
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 # Default primary key field type
@@ -178,6 +179,44 @@ def require_setting(name: str) -> str:
     if not value:
         raise ImproperlyConfigured(f"{name} environment variable must be set")
     return value
+
+
+# Хранилище файлов: локально (по умолчанию) или S3-совместимое (Yandex Object Storage)
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "filesystem").lower()
+
+if STORAGE_BACKEND == "s3":
+    AWS_ACCESS_KEY_ID = require_setting("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = require_setting("AWS_SECRET_ACCESS_KEY")
+    AWS_STORAGE_BUCKET_NAME = require_setting("AWS_STORAGE_BUCKET_NAME")
+    AWS_S3_ENDPOINT_URL = os.getenv("AWS_S3_ENDPOINT_URL")
+    AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME")
+    AWS_S3_SIGNATURE_VERSION = "s3v4"
+    AWS_S3_ADDRESSING_STYLE = "virtual"
+    AWS_DEFAULT_ACL = None
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_QUERYSTRING_AUTH = True  # presigned URL’ы для приватных объектов
+    AWS_S3_OBJECT_PARAMETERS = {"CacheControl": "max-age=86400"}
+
+    custom_domain = os.getenv("AWS_S3_CUSTOM_DOMAIN")
+    if custom_domain:
+        MEDIA_URL = f"https://{custom_domain.rstrip('/')}/"
+    else:
+        # если задан endpoint напрямую (например https://storage.yandexcloud.net)
+        base = AWS_S3_ENDPOINT_URL.rstrip("/") if AWS_S3_ENDPOINT_URL else ""
+        MEDIA_URL = f"{base}/{AWS_STORAGE_BUCKET_NAME}/"
+
+    STORAGES = {
+        "default": {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+else:
+    # filesystem по умолчанию
+    if not MEDIA_URL.startswith("/"):
+        MEDIA_URL = "/" + MEDIA_URL
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
 
 
 # Настройки для телеграмма
