@@ -1,0 +1,32 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Массовая загрузка документов{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">Массовая загрузка документов</h2>
+    <a href="{% url 'school:documents_analysis_list' %}" class="btn btn-outline-secondary btn-sm">К результатам AI-анализа</a>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <form method="post" enctype="multipart/form-data" class="row g-3">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+                <div class="col-12">
+                    <div class="alert alert-danger mb-0">{{ form.non_field_errors }}</div>
+                </div>
+            {% endif %}
+            <div class="col-12">
+                <label class="form-label">Файлы</label>
+                {{ form.files }}
+                {% if form.files.errors %}<div class="text-danger small mt-1">{{ form.files.errors }}</div>{% endif %}
+                <div class="form-text">Загрузите один или несколько файлов. Привязка и тип документа будут заполнены позже по результатам AI-анализа.</div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Загрузить и поставить в анализ</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

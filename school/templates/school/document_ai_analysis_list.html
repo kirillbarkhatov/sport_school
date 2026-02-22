@@ -1,0 +1,562 @@
+{% extends 'school/base.html' %}
+
+{% block title %}AI-анализ документов{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">AI-анализ документов</h2>
+    <a href="{% url 'school:documents_bulk_upload' %}" class="btn btn-outline-primary btn-sm">Массовая загрузка</a>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Статус</label>
+                {{ filter_form.status }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Тип AI</label>
+                {{ filter_form.doc_type }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Сущность</label>
+                {{ filter_form.entity }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Период с</label>
+                {{ filter_form.date_from }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Период по</label>
+                {{ filter_form.date_to }}
+            </div>
+            <div class="col-12 col-md-2 d-grid">
+                <button type="submit" class="btn btn-primary">Фильтровать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Документ</th>
+                        <th>Сущность</th>
+                        <th>Статус</th>
+                        <th>Тип AI</th>
+                        <th>Confidence</th>
+                        <th>Ключевые поля</th>
+                        <th>analyzed_at</th>
+                        <th>Ошибка</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for item in items %}
+                    {% with analysis=item.ai_analysis %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">
+                                <a href="{{ item.file.url }}" target="_blank" title="{{ item.original_name }}">
+                                    {{ item.original_name|truncatechars:20 }}
+                                </a>
+                            </div>
+                            <div class="small text-muted">ID {{ item.id }}</div>
+                        </td>
+                        <td>
+                            {% if item.competition_links.all or item.athlete_links.all %}
+                                {% for link in item.competition_links.all %}
+                                    <div class="small">🏆 {{ link.competition.name }}</div>
+                                {% endfor %}
+                                {% for link in item.athlete_links.all %}
+                                    <div class="small">👤 {{ link.athlete.person.surname }} {{ link.athlete.person.name }}</div>
+                                {% endfor %}
+                            {% else %}
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-secondary js-bind-document"
+                                    data-document-id="{{ item.id }}"
+                                >
+                                    Привязать
+                                </button>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if analysis %}
+                                {% if analysis.status == 'pending' %}
+                                    <span class="badge text-bg-warning">Идёт анализ</span>
+                                {% elif analysis.status == 'ok' %}
+                                    <span class="badge text-bg-success">Успешно</span>
+                                {% elif analysis.status == 'partial' %}
+                                    <span class="badge text-bg-info">Частично</span>
+                                {% elif analysis.status == 'error' %}
+                                    <span class="badge text-bg-danger">Ошибка</span>
+                                {% elif analysis.status == 'failed_validation' %}
+                                    <span class="badge text-bg-danger">Ошибка валидации</span>
+                                {% elif analysis.status == 'failed_openai' %}
+                                    <span class="badge text-bg-danger">Ошибка AI</span>
+                                {% elif analysis.status == 'failed_download' %}
+                                    <span class="badge text-bg-danger">Ошибка загрузки</span>
+                                {% else %}
+                                    {{ analysis.status }}
+                                {% endif %}
+                            {% else %}
+                                <span class="badge text-bg-secondary">Без анализа</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if analysis %}{{ analysis.doc_type|default:"-" }}{% else %}-{% endif %}</td>
+                        <td>{% if analysis and analysis.confidence != None %}{{ analysis.confidence|floatformat:2 }}{% else %}-{% endif %}</td>
+                        <td class="small">
+                            {% if analysis and analysis.doc_type == 'competition_general' %}
+                                {{ analysis.extracted.competition_name|default:'-' }} / {{ analysis.extracted.discipline|default:'-' }}
+                            {% elif analysis and analysis.doc_type == 'athlete_specific' %}
+                                {% with p=analysis.extracted.person %}
+                                    {{ p.full_name|default:'-' }} / {{ analysis.extracted.document_name|default:'-' }}
+                                {% endwith %}
+                            {% elif analysis and analysis.doc_type == 'other' %}
+                                {{ analysis.extracted.summary|default:'-' }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>{% if analysis %}{{ analysis.analyzed_at|date:'d.m.Y H:i'|default:'-' }}{% else %}-{% endif %}</td>
+                        <td class="small">
+                            {% if analysis and analysis.error_stage %}
+                                <div><strong>{{ analysis.error_stage }}</strong></div>
+                                <div class="text-danger">{{ analysis.error_message }}</div>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td class="text-nowrap">
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="document_id" value="{{ item.id }}">
+                                {% if analysis and analysis.status == 'pending' %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled>В процессе</button>
+                                {% elif analysis and analysis.is_analyzed_successfully %}
+                                    <input type="hidden" name="force" value="1">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Переанализ</button>
+                                {% else %}
+                                    <button type="submit" class="btn btn-sm btn-primary">Запустить анализ</button>
+                                {% endif %}
+                            </form>
+                        </td>
+                    </tr>
+                    {% endwith %}
+                {% empty %}
+                    <tr><td colspan="9" class="text-center text-muted py-4">Нет данных</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% if is_paginated %}
+    <div class="card-footer d-flex justify-content-between align-items-center">
+        <span class="small text-muted">Страница {{ page_obj.number }} из {{ paginator.num_pages }}</span>
+        <div class="btn-group">
+            {% if page_obj.has_previous %}
+                <a class="btn btn-outline-secondary btn-sm" href="?{% if request.GET %}{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}{% endif %}page={{ page_obj.previous_page_number }}">Назад</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+                <a class="btn btn-outline-secondary btn-sm" href="?{% if request.GET %}{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}{% endif %}page={{ page_obj.next_page_number }}">Вперёд</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div
+    id="bind-config"
+    data-url-context-template="{% url 'school:document_binding_context' 0 %}"
+    data-url-bind-competition-template="{% url 'school:document_bind_competition' 0 %}"
+    data-url-bind-athlete-template="{% url 'school:document_bind_athlete' 0 %}"
+    data-url-create-competition-template="{% url 'school:document_create_competition_from_ai' 0 %}"
+    data-url-create-athlete-template="{% url 'school:document_create_athlete_from_ai' 0 %}"
+></div>
+
+<div class="modal fade" id="bindDocumentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Привязка документа</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="bind-loading" class="text-muted">Загрузка данных...</div>
+
+                <div id="bind-content" class="d-none">
+                    <div class="small text-muted mb-2" id="bind-ai-summary"></div>
+
+                    <div id="block-competition" class="d-none">
+                        <h6>Документ соревнования</h6>
+                        <div id="competition-ai-preview" class="small mb-3"></div>
+                        <div id="competition-suggested" class="mb-3"></div>
+
+                        <form id="form-bind-competition" method="post" class="row g-2 mb-3">
+                            {% csrf_token %}
+                            <div class="col-md-8">
+                                <label class="form-label">Выбрать соревнование</label>
+                                <select name="competition_id" id="bind-competition-select" class="form-select"></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Тип документа</label>
+                                <select name="doc_type" id="bind-competition-doc-type" class="form-select"></select>
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-primary">Привязать к выбранному соревнованию</button>
+                            </div>
+                        </form>
+
+                        <form id="form-create-competition" method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="doc_type" id="create-competition-doc-type">
+                            <button type="submit" class="btn btn-outline-primary">Создать соревнование из данных AI и привязать</button>
+                        </form>
+                    </div>
+
+                    <div id="block-athlete" class="d-none">
+                        <h6>Документ спортсмена</h6>
+                        <div id="athlete-ai-preview" class="small mb-3"></div>
+                        <div id="athlete-suggested" class="mb-3"></div>
+
+                        <form id="form-bind-athlete" method="post" class="row g-2 mb-3">
+                            {% csrf_token %}
+                            <div class="col-md-8">
+                                <label class="form-label">Выбрать спортсмена</label>
+                                <select name="athlete_id" id="bind-athlete-select" class="form-select"></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Тип документа</label>
+                                <select name="doc_type" id="bind-athlete-doc-type" class="form-select"></select>
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-primary">Привязать к выбранному спортсмену</button>
+                            </div>
+                        </form>
+
+                        <form id="form-create-athlete" method="post" class="row g-2">
+                            {% csrf_token %}
+                            <div class="col-md-4">
+                                <label class="form-label">Пол при создании</label>
+                                <select name="gender" class="form-select">
+                                    {% for value, label in gender_choices %}
+                                        <option value="{{ value }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Тип документа</label>
+                                <select name="doc_type" id="create-athlete-doc-type" class="form-select"></select>
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-outline-primary">Создать спортсмена из данных AI и привязать</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div id="block-manual" class="d-none">
+                        <h6>Документ без AI-анализа</h6>
+                        <form id="form-manual-bind" class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label">Тип сущности</label>
+                                <select id="manual-entity-type" class="form-select">
+                                    <option value="competition">Соревнование</option>
+                                    <option value="athlete">Спортсмен</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Тип документа</label>
+                                <select id="manual-doc-type" class="form-select"></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Сущность</label>
+                                <select id="manual-entity-select" class="form-select"></select>
+                            </div>
+                            <div class="col-12">
+                                <button type="button" id="manual-bind-submit" class="btn btn-primary">Привязать</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    window.addEventListener("load", function() {
+        const cfg = document.getElementById("bind-config");
+        const modalEl = document.getElementById("bindDocumentModal");
+        if (!cfg || !modalEl) return;
+
+        const modal = new bootstrap.Modal(modalEl);
+        let currentDocumentId = null;
+        let cachedContext = null;
+
+        const blockCompetition = document.getElementById("block-competition");
+        const blockAthlete = document.getElementById("block-athlete");
+        const blockManual = document.getElementById("block-manual");
+        const bindContent = document.getElementById("bind-content");
+        const bindLoading = document.getElementById("bind-loading");
+        const aiSummary = document.getElementById("bind-ai-summary");
+
+        const formBindCompetition = document.getElementById("form-bind-competition");
+        const formBindAthlete = document.getElementById("form-bind-athlete");
+        const formCreateCompetition = document.getElementById("form-create-competition");
+        const formCreateAthlete = document.getElementById("form-create-athlete");
+
+        const competitionSelect = document.getElementById("bind-competition-select");
+        const athleteSelect = document.getElementById("bind-athlete-select");
+        const competitionDocTypeSelect = document.getElementById("bind-competition-doc-type");
+        const athleteDocTypeSelect = document.getElementById("bind-athlete-doc-type");
+        const createCompetitionDocType = document.getElementById("create-competition-doc-type");
+        const createAthleteDocType = document.getElementById("create-athlete-doc-type");
+
+        const manualEntityType = document.getElementById("manual-entity-type");
+        const manualDocType = document.getElementById("manual-doc-type");
+        const manualEntitySelect = document.getElementById("manual-entity-select");
+        const manualBindSubmit = document.getElementById("manual-bind-submit");
+
+        function urlFromTemplate(template, id) {
+            return template.replace("/0/", `/${id}/`);
+        }
+
+        function clearAndFillOptions(select, options, valueKey = "id", labelFn = (x) => x.name) {
+            select.innerHTML = "";
+            options.forEach((opt) => {
+                const node = document.createElement("option");
+                node.value = opt[valueKey];
+                node.textContent = labelFn(opt);
+                select.appendChild(node);
+            });
+        }
+
+        function fillDocTypeOptions(select, options, suggested) {
+            select.innerHTML = "";
+            options.forEach((opt) => {
+                const node = document.createElement("option");
+                node.value = opt.value;
+                node.textContent = opt.label;
+                if (suggested && suggested === opt.value) node.selected = true;
+                select.appendChild(node);
+            });
+        }
+
+        function renderCompetitionBlock(ctx) {
+            blockCompetition.classList.remove("d-none");
+            blockAthlete.classList.add("d-none");
+            blockManual.classList.add("d-none");
+
+            const extracted = ctx.analysis_extracted || {};
+            const eventDates = extracted.event_dates || {};
+            document.getElementById("competition-ai-preview").textContent =
+                `Название: ${extracted.competition_name || "-"}, Даты: ${eventDates.from || "-"} — ${eventDates.to || "-"}`;
+
+            clearAndFillOptions(
+                competitionSelect,
+                ctx.competitions || [],
+                "id",
+                (item) => `${item.name} (${item.start_date || item.date || "-"})`
+            );
+            fillDocTypeOptions(competitionDocTypeSelect, ctx.competition_doc_types || [], ctx.suggested?.suggested_doc_type);
+            createCompetitionDocType.value = competitionDocTypeSelect.value || "other";
+            competitionDocTypeSelect.addEventListener("change", () => {
+                createCompetitionDocType.value = competitionDocTypeSelect.value;
+            });
+
+            const suggestedBlock = document.getElementById("competition-suggested");
+            suggestedBlock.innerHTML = "";
+            if (ctx.suggested && ctx.suggested.competition) {
+                const s = ctx.suggested.competition;
+                const wrapper = document.createElement("div");
+                wrapper.className = "alert alert-info py-2";
+                wrapper.innerHTML = `<div class=\"small mb-2\">Найдено совпадение: <strong>${s.name}</strong></div>`;
+                const btn = document.createElement("button");
+                btn.className = "btn btn-sm btn-primary";
+                btn.textContent = "Привязать к найденному соревнованию";
+                btn.type = "button";
+                btn.addEventListener("click", () => {
+                    competitionSelect.value = String(s.id);
+                    formBindCompetition.submit();
+                });
+                wrapper.appendChild(btn);
+                suggestedBlock.appendChild(wrapper);
+            }
+        }
+
+        function renderAthleteBlock(ctx) {
+            blockCompetition.classList.add("d-none");
+            blockAthlete.classList.remove("d-none");
+            blockManual.classList.add("d-none");
+
+            const extracted = ctx.analysis_extracted || {};
+            const person = extracted.person || {};
+            const fullName = person.full_name || [person.last_name, person.first_name, person.middle_name].filter(Boolean).join(" ");
+            document.getElementById("athlete-ai-preview").textContent =
+                `ФИО: ${fullName || "-"}, ДР: ${person.birth_date || "-"}, Тип документа: ${extracted.document_name || "-"}`;
+
+            clearAndFillOptions(
+                athleteSelect,
+                ctx.athletes || [],
+                "id",
+                (item) => `${item.full_name} (${item.birth_date || "-"})`
+            );
+            fillDocTypeOptions(athleteDocTypeSelect, ctx.athlete_doc_types || [], ctx.suggested?.suggested_doc_type);
+            fillDocTypeOptions(createAthleteDocType, ctx.athlete_doc_types || [], ctx.suggested?.suggested_doc_type);
+
+            const suggestedBlock = document.getElementById("athlete-suggested");
+            suggestedBlock.innerHTML = "";
+            if (ctx.suggested && ctx.suggested.athlete) {
+                const s = ctx.suggested.athlete;
+                const level = ctx.suggested.match_level || "fio";
+                const levelLabel = {
+                    fio: "ФИО",
+                    fi: "ФИ",
+                    surname: "фамилии",
+                }[level] || "ФИО";
+                const wrapper = document.createElement("div");
+                wrapper.className = "alert alert-info py-2";
+                wrapper.innerHTML = `<div class=\"small mb-2\">Найдено совпадение по ${levelLabel}: <strong>${s.full_name}</strong></div>`;
+                const btn = document.createElement("button");
+                btn.className = "btn btn-sm btn-primary";
+                btn.type = "button";
+                btn.textContent = "Привязать к найденному спортсмену";
+                btn.addEventListener("click", () => {
+                    athleteSelect.value = String(s.id);
+                    formBindAthlete.submit();
+                });
+                wrapper.appendChild(btn);
+                suggestedBlock.appendChild(wrapper);
+            } else if (ctx.suggested && (ctx.suggested.by_name_athletes || []).length) {
+                const matchLevel = ctx.suggested.match_level || "name";
+                const labels = {
+                    fio: "ФИО",
+                    fi: "ФИ",
+                    surname: "фамилии",
+                };
+                const wrapper = document.createElement("div");
+                wrapper.className = "alert alert-info py-2 small";
+                wrapper.textContent = `Точного уникального совпадения нет. Ниже кандидаты по ${labels[matchLevel] || "имени"}.`;
+                suggestedBlock.appendChild(wrapper);
+            } else if (ctx.suggested && (ctx.suggested.by_birth_date_athletes || []).length) {
+                const wrapper = document.createElement("div");
+                wrapper.className = "alert alert-warning py-2 small";
+                wrapper.textContent = "Точного совпадения по ФИО нет. Ниже в списке есть кандидаты по дате рождения.";
+                suggestedBlock.appendChild(wrapper);
+            }
+
+            if (ctx.suggested && (ctx.suggested.by_name_athletes || []).length) {
+                clearAndFillOptions(
+                    athleteSelect,
+                    ctx.suggested.by_name_athletes,
+                    "id",
+                    (item) => `${item.full_name} (${item.birth_date || "-"})`
+                );
+            } else if (ctx.suggested && (ctx.suggested.by_birth_date_athletes || []).length) {
+                clearAndFillOptions(
+                    athleteSelect,
+                    ctx.suggested.by_birth_date_athletes,
+                    "id",
+                    (item) => `${item.full_name} (${item.birth_date || "-"})`
+                );
+            }
+        }
+
+        function renderManualBlock(ctx) {
+            blockCompetition.classList.add("d-none");
+            blockAthlete.classList.add("d-none");
+            blockManual.classList.remove("d-none");
+
+            function refreshManual() {
+                const entityType = manualEntityType.value;
+                if (entityType === "competition") {
+                    fillDocTypeOptions(manualDocType, ctx.competition_doc_types || [], null);
+                    clearAndFillOptions(
+                        manualEntitySelect,
+                        ctx.competitions || [],
+                        "id",
+                        (item) => `${item.name} (${item.start_date || item.date || "-"})`
+                    );
+                } else {
+                    fillDocTypeOptions(manualDocType, ctx.athlete_doc_types || [], null);
+                    clearAndFillOptions(
+                        manualEntitySelect,
+                        ctx.athletes || [],
+                        "id",
+                        (item) => `${item.full_name} (${item.birth_date || "-"})`
+                    );
+                }
+            }
+
+            refreshManual();
+            manualEntityType.onchange = refreshManual;
+            manualBindSubmit.onclick = () => {
+                if (manualEntityType.value === "competition") {
+                    competitionSelect.value = manualEntitySelect.value;
+                    competitionDocTypeSelect.value = manualDocType.value;
+                    formBindCompetition.submit();
+                } else {
+                    athleteSelect.value = manualEntitySelect.value;
+                    athleteDocTypeSelect.value = manualDocType.value;
+                    formBindAthlete.submit();
+                }
+            };
+        }
+
+        function bindForms(docId) {
+            formBindCompetition.action = urlFromTemplate(cfg.dataset.urlBindCompetitionTemplate, docId);
+            formBindAthlete.action = urlFromTemplate(cfg.dataset.urlBindAthleteTemplate, docId);
+            formCreateCompetition.action = urlFromTemplate(cfg.dataset.urlCreateCompetitionTemplate, docId);
+            formCreateAthlete.action = urlFromTemplate(cfg.dataset.urlCreateAthleteTemplate, docId);
+        }
+
+        async function openBindingModal(documentId) {
+            currentDocumentId = documentId;
+            cachedContext = null;
+            bindLoading.classList.remove("d-none");
+            bindContent.classList.add("d-none");
+            blockCompetition.classList.add("d-none");
+            blockAthlete.classList.add("d-none");
+            blockManual.classList.add("d-none");
+            modal.show();
+
+            const contextUrl = urlFromTemplate(cfg.dataset.urlContextTemplate, documentId);
+            const response = await fetch(contextUrl, { credentials: "same-origin" });
+            const ctx = await response.json();
+            cachedContext = ctx;
+
+            bindForms(documentId);
+            aiSummary.textContent = ctx.has_analysis
+                ? `AI: ${ctx.analysis_doc_type || "unknown"} / статус: ${ctx.analysis_status || "-"}`
+                : "AI-анализ отсутствует";
+
+            if (!ctx.has_analysis) {
+                renderManualBlock(ctx);
+            } else if (ctx.analysis_doc_type === "competition_general") {
+                renderCompetitionBlock(ctx);
+            } else if (ctx.analysis_doc_type === "athlete_specific") {
+                renderAthleteBlock(ctx);
+            } else {
+                renderManualBlock(ctx);
+            }
+
+            bindLoading.classList.add("d-none");
+            bindContent.classList.remove("d-none");
+        }
+
+        document.querySelectorAll(".js-bind-document").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const documentId = btn.dataset.documentId;
+                openBindingModal(documentId).catch(() => {
+                    bindLoading.textContent = "Не удалось загрузить данные для привязки.";
+                });
+            });
+        });
+    });
+</script>
+{% endblock %}

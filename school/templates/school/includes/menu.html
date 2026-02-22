@@ -34,6 +34,14 @@
                     <i class="bi bi-trophy"></i>
                     Соревнования
                 </a>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/documents/bulk-upload' %}active{% endif %}" href="{% url 'school:documents_bulk_upload' %}">
+                    <i class="bi bi-upload"></i>
+                    Массовая загрузка документов
+                </a>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/documents/analysis' %}active{% endif %}" href="{% url 'school:documents_analysis_list' %}">
+                    <i class="bi bi-table"></i>
+                    AI-анализ документов
+                </a>
 
                 {% if user.is_staff or user.is_superuser %}
                 <span class="nav-section-title mt-3">Разделы находящиеся в разработке</span>
