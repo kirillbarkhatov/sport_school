@@ -27,6 +27,7 @@ from .models import (
     Club,
     Document,
     CompetitionDocument,
+    DocumentAIAnalysis,
 )
 from .services import compute_contract_defaults
 from .models import DocumentType
@@ -647,6 +648,97 @@ class CompetitionDocumentUploadForm(forms.Form):
         )
         return doc
 
+
+class MultiFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
+
+
+class MultiFileField(forms.FileField):
+    widget = MultiFileInput
+
+    def clean(self, data, initial=None):
+        cleaned = []
+        files = data if isinstance(data, (list, tuple)) else [data]
+        for item in files:
+            if item is None:
+                continue
+            cleaned.append(super().clean(item, initial))
+        if self.required and not cleaned:
+            raise forms.ValidationError("Добавьте хотя бы один файл.")
+        return cleaned
+
+
+class BulkDocumentUploadForm(forms.Form):
+    files = MultiFileField(
+        label="Файлы",
+        widget=MultiFileInput(attrs={"multiple": True, "class": "form-control"}),
+    )
+
+    MAX_SIZE = 20 * 1024 * 1024  # 20 MB
+
+    def clean_files(self):
+        files = self.cleaned_data.get("files") or []
+        for f in files:
+            if f.size > self.MAX_SIZE:
+                raise forms.ValidationError(f"Файл {f.name} превышает 20 МБ.")
+        return files
+
+    def save(self, *, user):
+        files = self.cleaned_data["files"]
+
+        created_document_ids = []
+
+        for uploaded in files:
+            document = Document.objects.create(
+                file=uploaded,
+                original_name=getattr(uploaded, "name", "") or "",
+                mime_type=getattr(uploaded, "content_type", "") or "",
+                size=uploaded.size,
+                uploaded_by=user,
+                description="",
+            )
+            created_document_ids.append(document.id)
+
+        return created_document_ids
+
+
+class DocumentAIAnalysisFilterForm(forms.Form):
+    status = forms.ChoiceField(
+        required=False,
+        choices=[("", "Все статусы"), ("not_analyzed", "Без анализа"), *DocumentAIAnalysis.Status.choices],
+        label="Статус",
+    )
+    doc_type = forms.ChoiceField(
+        required=False,
+        choices=[("", "Все типы"), *DocumentAIAnalysis.DocType.choices],
+        label="Тип AI",
+    )
+    entity = forms.ChoiceField(
+        required=False,
+        choices=(
+            ("", "Любая сущность"),
+            ("competition", "Соревнование"),
+            ("athlete", "Спортсмен"),
+            ("mixed", "Смешанная"),
+            ("other", "Без привязки"),
+        ),
+        label="Сущность",
+    )
+    date_from = forms.DateField(
+        required=False,
+        label="С",
+        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
+    )
+    date_to = forms.DateField(
+        required=False,
+        label="По",
+        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in ("status", "doc_type", "entity"):
+            self.fields[field_name].widget.attrs.setdefault("class", "form-select")
 
 def _next_contract_number(family):
     last = (

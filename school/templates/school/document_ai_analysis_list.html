@@ -1,0 +1,162 @@
+{% extends 'school/base.html' %}
+
+{% block title %}AI-анализ документов{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">AI-анализ документов</h2>
+    <a href="{% url 'school:documents_bulk_upload' %}" class="btn btn-outline-primary btn-sm">Массовая загрузка</a>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Статус</label>
+                {{ filter_form.status }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Тип AI</label>
+                {{ filter_form.doc_type }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Сущность</label>
+                {{ filter_form.entity }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Период с</label>
+                {{ filter_form.date_from }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Период по</label>
+                {{ filter_form.date_to }}
+            </div>
+            <div class="col-12 col-md-2 d-grid">
+                <button type="submit" class="btn btn-primary">Фильтровать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Документ</th>
+                        <th>Сущность</th>
+                        <th>Статус</th>
+                        <th>Тип AI</th>
+                        <th>Confidence</th>
+                        <th>Ключевые поля</th>
+                        <th>analyzed_at</th>
+                        <th>Ошибка</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for item in items %}
+                    {% with analysis=item.ai_analysis %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">
+                                <a href="{{ item.file.url }}" target="_blank" title="{{ item.original_name }}">
+                                    {{ item.original_name|truncatechars:20 }}
+                                </a>
+                            </div>
+                            <div class="small text-muted">ID {{ item.id }}</div>
+                        </td>
+                        <td>
+                            {% for link in item.competition_links.all %}
+                                <div class="small">🏆 {{ link.competition.name }}</div>
+                            {% endfor %}
+                            {% for link in item.athlete_links.all %}
+                                <div class="small">👤 {{ link.athlete.person.surname }} {{ link.athlete.person.name }}</div>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% if analysis %}
+                                {% if analysis.status == 'pending' %}
+                                    <span class="badge text-bg-warning">Идёт анализ</span>
+                                {% elif analysis.status == 'ok' %}
+                                    <span class="badge text-bg-success">Успешно</span>
+                                {% elif analysis.status == 'partial' %}
+                                    <span class="badge text-bg-info">Частично</span>
+                                {% elif analysis.status == 'error' %}
+                                    <span class="badge text-bg-danger">Ошибка</span>
+                                {% elif analysis.status == 'failed_validation' %}
+                                    <span class="badge text-bg-danger">Ошибка валидации</span>
+                                {% elif analysis.status == 'failed_openai' %}
+                                    <span class="badge text-bg-danger">Ошибка AI</span>
+                                {% elif analysis.status == 'failed_download' %}
+                                    <span class="badge text-bg-danger">Ошибка загрузки</span>
+                                {% else %}
+                                    {{ analysis.status }}
+                                {% endif %}
+                            {% else %}
+                                <span class="badge text-bg-secondary">Без анализа</span>
+                            {% endif %}
+                        </td>
+                        <td>{% if analysis %}{{ analysis.doc_type|default:"-" }}{% else %}-{% endif %}</td>
+                        <td>{% if analysis and analysis.confidence != None %}{{ analysis.confidence|floatformat:2 }}{% else %}-{% endif %}</td>
+                        <td class="small">
+                            {% if analysis and analysis.doc_type == 'competition_general' %}
+                                {{ analysis.extracted.competition_name|default:'-' }} / {{ analysis.extracted.discipline|default:'-' }}
+                            {% elif analysis and analysis.doc_type == 'athlete_specific' %}
+                                {% with p=analysis.extracted.person %}
+                                    {{ p.full_name|default:'-' }} / {{ analysis.extracted.document_name|default:'-' }}
+                                {% endwith %}
+                            {% elif analysis and analysis.doc_type == 'other' %}
+                                {{ analysis.extracted.summary|default:'-' }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>{% if analysis %}{{ analysis.analyzed_at|date:'d.m.Y H:i'|default:'-' }}{% else %}-{% endif %}</td>
+                        <td class="small">
+                            {% if analysis and analysis.error_stage %}
+                                <div><strong>{{ analysis.error_stage }}</strong></div>
+                                <div class="text-danger">{{ analysis.error_message }}</div>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td class="text-nowrap">
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="document_id" value="{{ item.id }}">
+                                {% if analysis and analysis.status == 'pending' %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled>В процессе</button>
+                                {% elif analysis and analysis.is_analyzed_successfully %}
+                                    <input type="hidden" name="force" value="1">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Переанализ</button>
+                                {% else %}
+                                    <button type="submit" class="btn btn-sm btn-primary">Запустить анализ</button>
+                                {% endif %}
+                            </form>
+                        </td>
+                    </tr>
+                    {% endwith %}
+                {% empty %}
+                    <tr><td colspan="9" class="text-center text-muted py-4">Нет данных</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% if is_paginated %}
+    <div class="card-footer d-flex justify-content-between align-items-center">
+        <span class="small text-muted">Страница {{ page_obj.number }} из {{ paginator.num_pages }}</span>
+        <div class="btn-group">
+            {% if page_obj.has_previous %}
+                <a class="btn btn-outline-secondary btn-sm" href="?{% if request.GET %}{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}{% endif %}page={{ page_obj.previous_page_number }}">Назад</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+                <a class="btn btn-outline-secondary btn-sm" href="?{% if request.GET %}{% for k,v in request.GET.items %}{% if k != 'page' %}{{ k }}={{ v }}&{% endif %}{% endfor %}{% endif %}page={{ page_obj.next_page_number }}">Вперёд</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -224,6 +224,7 @@
 <div class="card shadow-sm mt-3">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Документы соревнования</span>
+        <a href="{% url 'school:documents_bulk_upload' %}" class="btn btn-outline-secondary btn-sm">Массовая загрузка</a>
     </div>
     <div class="card-body">
         {% if competition %}

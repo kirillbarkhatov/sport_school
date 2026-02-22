@@ -599,11 +599,6 @@ class DocumentType(models.TextChoices):
     MED_CERT = "medical_certificate", "Медицинская справка"
     INSURANCE = "insurance", "Страховка"
     OTHER = "other", "Прочее"
-
-def default_birth_year_from():
-    return timezone.now().year - 7
-
-
 class Document(models.Model):
     """Базовый загружаемый файл."""
 
@@ -621,6 +616,7 @@ class Document(models.Model):
     )
     description = models.CharField(max_length=255, blank=True, verbose_name="Описание")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Загружено")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
 
     def save(self, *args, **kwargs):
         if self.file:
@@ -637,6 +633,10 @@ class Document(models.Model):
     class Meta:
         verbose_name = "Документ"
         verbose_name_plural = "Документы"
+        indexes = [
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["updated_at"]),
+        ]
 
 
 class CompetitionDocument(models.Model):
@@ -675,6 +675,10 @@ class CompetitionDocument(models.Model):
         verbose_name = "Документ соревнования"
         verbose_name_plural = "Документы соревнования"
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["competition", "doc_type"]),
+            models.Index(fields=["document"]),
+        ]
 
 
 class AthleteDocument(models.Model):
@@ -709,6 +713,95 @@ class AthleteDocument(models.Model):
         verbose_name = "Документ спортсмена"
         verbose_name_plural = "Документы спортсменов"
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["athlete", "doc_type"]),
+            models.Index(fields=["document"]),
+        ]
+
+
+class DocumentAIAnalysis(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Ожидает"
+        OK = "ok", "Успешно"
+        PARTIAL = "partial", "Частично"
+        ERROR = "error", "Ошибка"
+        FAILED_VALIDATION = "failed_validation", "Ошибка валидации"
+        FAILED_OPENAI = "failed_openai", "Ошибка AI"
+        FAILED_DOWNLOAD = "failed_download", "Ошибка загрузки документа"
+
+    class DocType(models.TextChoices):
+        COMPETITION_GENERAL = "competition_general", "Соревнование (общий)"
+        ATHLETE_SPECIFIC = "athlete_specific", "Спортсмен (личный)"
+        OTHER = "other", "Другое"
+
+    class ErrorStage(models.TextChoices):
+        DOWNLOAD = "download", "Загрузка"
+        OPENAI = "openai", "AI"
+        VALIDATION = "validation", "Валидация"
+
+    document = models.OneToOneField(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="ai_analysis",
+        verbose_name="Документ",
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.PENDING,
+        verbose_name="Статус анализа",
+    )
+    request_id = models.CharField(max_length=100, blank=True, verbose_name="Request ID")
+    doc_type = models.CharField(
+        max_length=32,
+        choices=DocType.choices,
+        blank=True,
+        null=True,
+        verbose_name="Тип документа AI",
+    )
+    confidence = models.FloatField(blank=True, null=True, verbose_name="Уверенность")
+    title = models.CharField(max_length=255, blank=True, null=True, verbose_name="Заголовок")
+    extracted = models.JSONField(default=dict, blank=True, verbose_name="Нормализованные данные")
+    issues = models.JSONField(default=list, blank=True, verbose_name="Проблемы")
+    raw_response = models.JSONField(default=dict, blank=True, verbose_name="Сырой ответ")
+    error_stage = models.CharField(
+        max_length=16,
+        choices=ErrorStage.choices,
+        blank=True,
+        null=True,
+        verbose_name="Стадия ошибки",
+    )
+    error_message = models.TextField(blank=True, null=True, verbose_name="Текст ошибки")
+    source_persistent_url = models.URLField(max_length=1000, blank=True, verbose_name="Постоянный URL источника")
+    source_signed_url_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name="Hash signed URL",
+    )
+    is_analyzed_successfully = models.BooleanField(default=False, verbose_name="Успешно проанализирован")
+    document_updated_at_snapshot = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Снимок updated_at документа",
+    )
+    analyzed_at = models.DateTimeField(blank=True, null=True, verbose_name="Время анализа")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    def __str__(self):
+        return f"AI {self.document_id}: {self.status}"
+
+    class Meta:
+        verbose_name = "AI-анализ документа"
+        verbose_name_plural = "AI-анализ документов"
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["doc_type"]),
+            models.Index(fields=["is_analyzed_successfully"]),
+            models.Index(fields=["analyzed_at"]),
+            models.Index(fields=["document_updated_at_snapshot"]),
+            models.Index(fields=["request_id"]),
+        ]
 
 
 class Club(models.Model):

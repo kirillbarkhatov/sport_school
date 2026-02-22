@@ -35,6 +35,9 @@ urlpatterns = [
     path("competitions/<int:pk>/export/word4/", views.competition_export_word_type4, name="competition_export_word_type4"),
     path("competitions/<int:pk>/documents/upload/", views.CompetitionDocumentUploadView.as_view(), name="competition_documents_upload"),
     path("competitions/<int:pk>/documents/<int:doc_id>/delete/", views.CompetitionDocumentDeleteView.as_view(), name="competition_documents_delete"),
+    path("documents/bulk-upload/", views.BulkDocumentUploadView.as_view(), name="documents_bulk_upload"),
+    path("documents/analysis/", views.DocumentAIAnalysisListView.as_view(), name="documents_analysis_list"),
+    path("documents/signed/<int:document_id>/", views.SignedDocumentAccessView.as_view(), name="document_signed_access"),
     path("competitions/<int:pk>/apply/<str:token>/", views.CompetitionApplyView.as_view(), name="competition_apply"),
     path(
         "competitions/<int:pk>/apply/<str:token>/toggle/",

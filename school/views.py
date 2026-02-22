@@ -3,12 +3,13 @@ import secrets
 from datetime import date
 from io import BytesIO
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Prefetch, Q
 from django.db.models.functions import Coalesce
-from django.http import JsonResponse, HttpResponse
+from django.http import FileResponse, Http404, JsonResponse, HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
@@ -25,7 +26,10 @@ from school.forms import (
     CompetitionForm,
     CompetitionApplyAthleteForm,
     CompetitionDocumentUploadForm,
+    BulkDocumentUploadForm,
+    DocumentAIAnalysisFilterForm,
 )
+from school.document_ai import validate_signed_document_token
 from school.models import (
     Athlete,
     Family,
@@ -39,7 +43,9 @@ from school.models import (
     Person,
     CompetitionDocument,
     Document,
+    DocumentAIAnalysis,
 )
+from school.tasks import enqueue_documents_for_ai_analysis
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
     get_athlete_queryset_for_user,
@@ -624,7 +630,8 @@ class CompetitionDocumentUploadView(ApprovedUserRequiredMixin, View):
         competition = get_object_or_404(Competition, pk=pk)
         form = CompetitionDocumentUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            form.save(competition=competition, user=request.user)
+            doc = form.save(competition=competition, user=request.user)
+            enqueue_documents_for_ai_analysis.delay(document_ids=[doc.id])
             messages.success(request, "Документ загружен.")
         else:
             messages.error(request, "Не удалось загрузить документ. Проверьте форму.")
@@ -644,6 +651,155 @@ class CompetitionDocumentDeleteView(ApprovedUserRequiredMixin, View):
             doc.delete()
         messages.success(request, "Документ удалён.")
         return redirect("school:competition_edit", pk=pk)
+
+
+class SignedDocumentAccessView(View):
+    """Короткоживущий доступ к документу по signed URL (для AI сервиса)."""
+
+    def get(self, request, document_id):
+        token = request.GET.get("token")
+        if not token:
+            raise Http404("Missing signed token")
+
+        document = get_object_or_404(Document, pk=document_id)
+        max_age = int(getattr(settings, "DOCS_ANALYZER_SIGNED_URL_TTL_SEC", 300))
+        try:
+            _, signed_updated_ts, _ = validate_signed_document_token(
+                document_id=document_id,
+                token=token,
+                max_age=max_age,
+            )
+        except PermissionError as exc:
+            raise Http404(str(exc)) from exc
+
+        current_updated_ts = int(document.updated_at.timestamp()) if document.updated_at else 0
+        if signed_updated_ts != current_updated_ts:
+            raise Http404("Document version has changed")
+
+        file_obj = document.file.open(mode="rb")
+        response = FileResponse(
+            file_obj,
+            as_attachment=False,
+            filename=document.original_name or document.file.name.rsplit("/", 1)[-1],
+            content_type=document.mime_type or "application/octet-stream",
+        )
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class BulkDocumentUploadView(ApprovedUserRequiredMixin, View):
+    template_name = "school/document_bulk_upload.html"
+
+    def _get_form(self, request, *, data=None, files=None):
+        return BulkDocumentUploadForm(data=data, files=files)
+
+    def get(self, request):
+        form = self._get_form(request)
+        return render(request, self.template_name, {"form": form})
+
+    def post(self, request):
+        form = self._get_form(request, data=request.POST, files=request.FILES)
+        if not form.is_valid():
+            messages.error(request, "Не удалось выполнить массовую загрузку. Проверьте форму.")
+            return render(request, self.template_name, {"form": form})
+
+        created_document_ids = form.save(user=request.user)
+        enqueue_documents_for_ai_analysis.delay(document_ids=created_document_ids)
+        messages.success(
+            request,
+            f"Загружено документов: {len(created_document_ids)}. Анализ поставлен в очередь.",
+        )
+        return redirect("school:documents_bulk_upload")
+
+
+class DocumentAIAnalysisListView(ApprovedUserRequiredMixin, ListView):
+    model = Document
+    template_name = "school/document_ai_analysis_list.html"
+    context_object_name = "items"
+    paginate_by = 50
+
+    def get_filter_form(self):
+        return DocumentAIAnalysisFilterForm(self.request.GET or None)
+
+    def post(self, request, *args, **kwargs):
+        document_id = request.POST.get("document_id")
+        force = request.POST.get("force") == "1"
+        try:
+            document_id_int = int(document_id)
+        except (TypeError, ValueError):
+            messages.error(request, "Некорректный ID документа.")
+            return redirect("school:documents_analysis_list")
+
+        if not Document.objects.filter(pk=document_id_int).exists():
+            messages.error(request, "Документ не найден.")
+            return redirect("school:documents_analysis_list")
+
+        enqueue_documents_for_ai_analysis.delay(document_ids=[document_id_int], force=force)
+        if force:
+            messages.success(request, f"Документ #{document_id_int} поставлен на переанализ.")
+        else:
+            messages.success(request, f"Документ #{document_id_int} поставлен в анализ.")
+        return redirect("school:documents_analysis_list")
+
+    def get_queryset(self):
+        queryset = (
+            Document.objects.select_related("ai_analysis")
+            .prefetch_related(
+                "competition_links__competition",
+                "athlete_links__athlete__person",
+            )
+            .order_by("-ai_analysis__analyzed_at", "-updated_at")
+        )
+
+        form = self.get_filter_form()
+        if not form.is_valid():
+            return queryset
+
+        status = form.cleaned_data.get("status")
+        doc_type = form.cleaned_data.get("doc_type")
+        entity = form.cleaned_data.get("entity")
+        date_from = form.cleaned_data.get("date_from")
+        date_to = form.cleaned_data.get("date_to")
+
+        if status:
+            if status == "not_analyzed":
+                queryset = queryset.filter(ai_analysis__isnull=True)
+            else:
+                queryset = queryset.filter(ai_analysis__status=status)
+        if doc_type:
+            queryset = queryset.filter(ai_analysis__doc_type=doc_type)
+        if date_from:
+            queryset = queryset.filter(ai_analysis__analyzed_at__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(ai_analysis__analyzed_at__date__lte=date_to)
+
+        if entity == "competition":
+            queryset = queryset.filter(
+                competition_links__isnull=False,
+                athlete_links__isnull=True,
+            )
+        elif entity == "athlete":
+            queryset = queryset.filter(
+                competition_links__isnull=True,
+                athlete_links__isnull=False,
+            )
+        elif entity == "mixed":
+            queryset = queryset.filter(
+                competition_links__isnull=False,
+                athlete_links__isnull=False,
+            )
+        elif entity == "other":
+            queryset = queryset.filter(
+                competition_links__isnull=True,
+                athlete_links__isnull=True,
+            )
+
+        return queryset.distinct()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["filter_form"] = self.get_filter_form()
+        return context
 
 
 class CompetitionEntryToggleView(ApprovedUserRequiredMixin, View):

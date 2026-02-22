@@ -373,6 +373,28 @@ CELERY_BEAT_SCHEDULE = {
         "task": "assistant.tasks.send_upcoming_trainings_snapshot_task",
         "schedule": crontab(hour=3, minute=4),
     },
+    "docs-ai-orchestrator": {
+        "task": "school.tasks.enqueue_documents_for_ai_analysis",
+        "schedule": crontab(minute="*/30"),
+        "options": {"queue": os.getenv("CELERY_QUEUE_DOCS_ANALYSIS", "docs_analysis")},
+    },
+}
+
+DOCS_ANALYZER_URL = os.getenv("DOCS_ANALYZER_URL", "http://192.168.0.4:8001")
+DOCS_ANALYZER_TIMEOUT_SEC = float(os.getenv("DOCS_ANALYZER_TIMEOUT_SEC", "30"))
+DOCS_ANALYZER_BATCH_SIZE = int(os.getenv("DOCS_ANALYZER_BATCH_SIZE", "20"))
+DOCS_ANALYZER_CONCURRENCY = int(os.getenv("DOCS_ANALYZER_CONCURRENCY", "5"))
+DOCS_ANALYZER_MAX_URLS = int(os.getenv("DOCS_ANALYZER_MAX_URLS", "20"))
+DOCS_ANALYZER_SIGNED_URL_TTL_SEC = int(os.getenv("DOCS_ANALYZER_SIGNED_URL_TTL_SEC", "300"))
+DOCS_ANALYZER_RETRY_MAX = int(os.getenv("DOCS_ANALYZER_RETRY_MAX", "4"))
+DOCS_ANALYZER_RETRY_BACKOFF_SEC = int(os.getenv("DOCS_ANALYZER_RETRY_BACKOFF_SEC", "15"))
+CELERY_QUEUE_DOCS_ANALYSIS = os.getenv("CELERY_QUEUE_DOCS_ANALYSIS", "docs_analysis")
+DOCS_STORAGE_SYNC_PREFIX = os.getenv("DOCS_STORAGE_SYNC_PREFIX", "documents")
+DOCS_SYNC_ON_STARTUP = os.getenv("DOCS_SYNC_ON_STARTUP", "True") == "True"
+CELERY_TASK_ROUTES = {
+    "school.tasks.enqueue_documents_for_ai_analysis": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
+    "school.tasks.analyze_documents_batch_task": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
+    "school.tasks.sync_documents_from_storage_task": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
 }
 
 AI_ASSISTANT_ENABLED = os.getenv("AI_ASSISTANT_ENABLED", "False") == "True"
