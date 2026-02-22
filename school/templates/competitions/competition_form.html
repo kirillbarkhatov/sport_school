@@ -114,8 +114,10 @@
                 <div class="col-12">
                     <label class="form-label small text-muted mb-1">Ссылка на заявку</label>
                     <div class="input-group">
-                        <input class="form-control" type="text" value="{{ apply_url }}" readonly>
+                        <input id="apply-link" class="form-control" type="text" value="{{ apply_url }}" readonly>
+                        <button class="btn btn-outline-secondary" type="button" id="copy-apply-link">Копировать</button>
                     </div>
+                    <div class="form-text" id="apply-link-hint">Нажми, чтобы скопировать</div>
                 </div>
             {% endif %}
         </form>
@@ -406,6 +408,27 @@
     document.querySelectorAll('.btn-remove').forEach(btn => {
         btn.addEventListener('click', () => toggle(btn.dataset.athleteId, 'remove'));
     });
+
+    // Copy apply link
+    const copyBtn = document.getElementById('copy-apply-link');
+    const copyInput = document.getElementById('apply-link');
+    const copyHint = document.getElementById('apply-link-hint');
+    function copyApplyLink() {
+        if (!copyInput) return;
+        const text = copyInput.value || '';
+        const onDone = () => {
+            if (copyHint) copyHint.textContent = 'Скопировано в буфер обмена';
+        };
+        if (navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(text).then(onDone).catch(() => {});
+        } else {
+            copyInput.select();
+            document.execCommand('copy');
+            onDone();
+        }
+    }
+    copyBtn?.addEventListener('click', copyApplyLink);
+    copyInput?.addEventListener('click', copyApplyLink);
 })();
 </script>
 {% endblock %}
