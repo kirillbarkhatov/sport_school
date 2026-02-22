@@ -703,21 +703,70 @@ class BulkDocumentUploadView(ApprovedUserRequiredMixin, View):
     def _get_form(self, request, *, data=None, files=None):
         return BulkDocumentUploadForm(data=data, files=files)
 
+    @staticmethod
+    def _chunk_size():
+        return int(getattr(settings, "DOCS_BULK_UPLOAD_CHUNK_SIZE", 20))
+
     def get(self, request):
         form = self._get_form(request)
-        return render(request, self.template_name, {"form": form})
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "bulk_upload_chunk_size": self._chunk_size(),
+            },
+        )
 
     def post(self, request):
         form = self._get_form(request, data=request.POST, files=request.FILES)
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         if not form.is_valid():
+            if is_ajax:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "errors": form.errors.get_json_data(),
+                        "non_field_errors": form.non_field_errors(),
+                    },
+                    status=400,
+                )
             messages.error(request, "Не удалось выполнить массовую загрузку. Проверьте форму.")
-            return render(request, self.template_name, {"form": form})
+            return render(
+                request,
+                self.template_name,
+                {
+                    "form": form,
+                    "bulk_upload_chunk_size": self._chunk_size(),
+                },
+            )
 
-        created_document_ids = form.save(user=request.user)
-        enqueue_documents_for_ai_analysis.delay(document_ids=created_document_ids)
+        save_result = form.save(user=request.user)
+        document_ids = save_result["document_ids"]
+        created_ids = save_result.get("created_ids") or []
+        # Auto-analysis is only for brand new uploads.
+        enqueue_ids = list(dict.fromkeys(created_ids))
+        if enqueue_ids:
+            enqueue_documents_for_ai_analysis.delay(document_ids=enqueue_ids)
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "uploaded": save_result["total_count"],
+                    "created": save_result["created_count"],
+                    "reused": save_result["reused_count"],
+                    "document_ids": document_ids,
+                    "queued_document_ids": enqueue_ids,
+                }
+            )
         messages.success(
             request,
-            f"Загружено документов: {len(created_document_ids)}. Анализ поставлен в очередь.",
+            (
+                "Обработано документов: "
+                f"{save_result['total_count']} "
+                f"(новых: {save_result['created_count']}, дублей: {save_result['reused_count']}). "
+                "Анализ поставлен в очередь."
+            ),
         )
         return redirect("school:documents_bulk_upload")
 

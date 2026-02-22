@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
+from difflib import SequenceMatcher
 from typing import Any
 
 from .models import Athlete, AthleteDocument, Competition, CompetitionDocument, Document, DocumentAIAnalysis, DocumentType, Person
@@ -136,6 +137,64 @@ def _collect_athlete_candidates_by_name(
         "fi": fi_candidates,
         "surname": surname_candidates,
     }
+
+
+def _resolve_unique_with_birth_date(cands: list[Athlete], birth_date: date | None) -> Athlete | None:
+    if len(cands) == 1:
+        return cands[0]
+    if birth_date and cands:
+        by_dob = [a for a in cands if a.person.date_of_birth == birth_date]
+        if len(by_dob) == 1:
+            return by_dob[0]
+    return None
+
+
+def _similarity(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _find_athlete_fuzzy_match(
+    *,
+    last_name: str,
+    first_name: str,
+    middle_name: str,
+    birth_date: date | None,
+) -> Athlete | None:
+    # Fuzzy auto-bind is allowed only when surname+name are present.
+    if not last_name or not first_name:
+        return None
+
+    athletes = list(Athlete.objects.select_related("person").all())
+    target_fio = f"{last_name}{first_name}{middle_name}".strip()
+    target_fi = f"{last_name}{first_name}".strip()
+
+    # 1) Fuzzy by ФИО first.
+    if middle_name and len(target_fio) >= 8:
+        fuzzy_fio_candidates: list[Athlete] = []
+        for athlete in athletes:
+            ln, fn, mn = _athlete_name_parts(athlete)
+            candidate_fio = f"{ln}{fn}{mn}".strip()
+            if _similarity(target_fio, candidate_fio) >= 0.90:
+                fuzzy_fio_candidates.append(athlete)
+        resolved = _resolve_unique_with_birth_date(fuzzy_fio_candidates, birth_date)
+        if resolved:
+            return resolved
+
+    # 2) Then fuzzy by ФИ.
+    if len(target_fi) >= 6:
+        fuzzy_fi_candidates: list[Athlete] = []
+        for athlete in athletes:
+            ln, fn, _ = _athlete_name_parts(athlete)
+            candidate_fi = f"{ln}{fn}".strip()
+            if _similarity(target_fi, candidate_fi) >= 0.90:
+                fuzzy_fi_candidates.append(athlete)
+        resolved = _resolve_unique_with_birth_date(fuzzy_fi_candidates, birth_date)
+        if resolved:
+            return resolved
+
+    return None
 
 
 def infer_competition_doc_type(analysis: DocumentAIAnalysis) -> str:
@@ -273,13 +332,7 @@ def find_athlete_auto_bind_match(analysis: DocumentAIAnalysis) -> Athlete | None
     candidates = _collect_athlete_candidates_by_name(analysis)
 
     def _resolve(cands: list[Athlete]) -> Athlete | None:
-        if len(cands) == 1:
-            return cands[0]
-        if birth_date and cands:
-            by_dob = [a for a in cands if a.person.date_of_birth == birth_date]
-            if len(by_dob) == 1:
-                return by_dob[0]
-        return None
+        return _resolve_unique_with_birth_date(cands, birth_date)
 
     fio = _resolve(candidates["fio"])
     if fio:
@@ -288,6 +341,17 @@ def find_athlete_auto_bind_match(analysis: DocumentAIAnalysis) -> Athlete | None
     fi = _resolve(candidates["fi"])
     if fi:
         return fi
+
+    # Fallback: fuzzy by ФИО -> ФИ (never by birth date alone).
+    last_name, first_name, middle_name = _extract_name_parts_from_analysis(analysis)
+    fuzzy = _find_athlete_fuzzy_match(
+        last_name=last_name,
+        first_name=first_name,
+        middle_name=middle_name,
+        birth_date=birth_date,
+    )
+    if fuzzy:
+        return fuzzy
 
     return None
 

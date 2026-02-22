@@ -10,13 +10,16 @@
 
 <div class="card shadow-sm">
     <div class="card-body">
-        <form method="post" enctype="multipart/form-data" class="row g-3">
+        <form method="post" enctype="multipart/form-data" class="row g-3" id="bulk-upload-form" data-chunk-size="{{ bulk_upload_chunk_size|default:20 }}">
             {% csrf_token %}
             {% if form.non_field_errors %}
                 <div class="col-12">
                     <div class="alert alert-danger mb-0">{{ form.non_field_errors }}</div>
                 </div>
             {% endif %}
+            <div class="col-12 d-none" id="bulk-upload-progress-wrap">
+                <div class="alert alert-info mb-0" id="bulk-upload-progress-text">Загрузка...</div>
+            </div>
             <div class="col-12">
                 <label class="form-label">Файлы</label>
                 {{ form.files }}
@@ -24,9 +27,94 @@
                 <div class="form-text">Загрузите один или несколько файлов. Привязка и тип документа будут заполнены позже по результатам AI-анализа.</div>
             </div>
             <div class="col-12">
-                <button type="submit" class="btn btn-primary">Загрузить и поставить в анализ</button>
+                <div class="form-check">
+                    {{ form.deduplicate }}
+                    <label class="form-check-label" for="{{ form.deduplicate.id_for_label }}">
+                        {{ form.deduplicate.label }}
+                    </label>
+                </div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary" id="bulk-upload-submit">Загрузить и поставить в анализ</button>
             </div>
         </form>
     </div>
 </div>
+<script>
+(() => {
+    const form = document.getElementById("bulk-upload-form");
+    if (!form) return;
+
+    const fileInput = form.querySelector('input[type="file"][name="files"]');
+    const submitBtn = document.getElementById("bulk-upload-submit");
+    const progressWrap = document.getElementById("bulk-upload-progress-wrap");
+    const progressText = document.getElementById("bulk-upload-progress-text");
+    const deduplicateInput = form.querySelector('input[name="deduplicate"]');
+    const chunkSize = Math.max(parseInt(form.dataset.chunkSize || "20", 10) || 20, 1);
+    const csrfToken = form.querySelector('input[name="csrfmiddlewaretoken"]')?.value || "";
+
+    const setProgress = (text, isError = false) => {
+        progressWrap.classList.remove("d-none");
+        progressText.classList.toggle("alert-info", !isError);
+        progressText.classList.toggle("alert-danger", isError);
+        progressText.textContent = text;
+    };
+
+    const toChunks = (files, size) => {
+        const chunks = [];
+        for (let i = 0; i < files.length; i += size) {
+            chunks.push(files.slice(i, i + size));
+        }
+        return chunks;
+    };
+
+    form.addEventListener("submit", async (event) => {
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+            return;
+        }
+
+        event.preventDefault();
+        submitBtn.disabled = true;
+
+        const files = Array.from(fileInput.files);
+        const chunks = toChunks(files, chunkSize);
+        let uploaded = 0;
+
+        try {
+            for (let i = 0; i < chunks.length; i++) {
+                const chunk = chunks[i];
+                setProgress(`Загрузка пакета ${i + 1}/${chunks.length} (${uploaded}/${files.length})...`);
+
+                const formData = new FormData();
+                chunk.forEach((file) => formData.append("files", file));
+                if (deduplicateInput && deduplicateInput.checked) {
+                    formData.append("deduplicate", "on");
+                }
+
+                const response = await fetch(form.action || window.location.href, {
+                    method: "POST",
+                    headers: {
+                        "X-CSRFToken": csrfToken,
+                        "X-Requested-With": "XMLHttpRequest",
+                    },
+                    body: formData,
+                    credentials: "same-origin",
+                });
+
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || !payload.ok) {
+                    throw new Error(payload.non_field_errors?.join(" ") || "Ошибка загрузки файлов.");
+                }
+                uploaded += Number(payload.uploaded || chunk.length);
+            }
+
+            setProgress(`Успешно загружено ${uploaded} из ${files.length}. Перезагрузка списка...`);
+            window.location.reload();
+        } catch (error) {
+            setProgress(error.message || "Не удалось загрузить документы.", true);
+            submitBtn.disabled = false;
+        }
+    });
+})();
+</script>
 {% endblock %}

@@ -390,12 +390,18 @@ DOCS_ANALYZER_RETRY_MAX = int(os.getenv("DOCS_ANALYZER_RETRY_MAX", "4"))
 DOCS_ANALYZER_RETRY_BACKOFF_SEC = int(os.getenv("DOCS_ANALYZER_RETRY_BACKOFF_SEC", "15"))
 CELERY_QUEUE_DOCS_ANALYSIS = os.getenv("CELERY_QUEUE_DOCS_ANALYSIS", "docs_analysis")
 DOCS_STORAGE_SYNC_PREFIX = os.getenv("DOCS_STORAGE_SYNC_PREFIX", "documents")
-DOCS_SYNC_ON_STARTUP = os.getenv("DOCS_SYNC_ON_STARTUP", "True") == "True"
+DOCS_SYNC_ON_STARTUP = os.getenv("DOCS_SYNC_ON_STARTUP", "False") == "True"
+DOCS_SYNC_STARTUP_COOLDOWN_SEC = int(os.getenv("DOCS_SYNC_STARTUP_COOLDOWN_SEC", "180"))
+DOCS_BULK_UPLOAD_CHUNK_SIZE = int(os.getenv("DOCS_BULK_UPLOAD_CHUNK_SIZE", "20"))
+DOCS_AI_ORCHESTRATOR_ENABLED = os.getenv("DOCS_AI_ORCHESTRATOR_ENABLED", "False") == "True"
 CELERY_TASK_ROUTES = {
     "school.tasks.enqueue_documents_for_ai_analysis": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
     "school.tasks.analyze_documents_batch_task": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
     "school.tasks.sync_documents_from_storage_task": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
 }
+
+if not DOCS_AI_ORCHESTRATOR_ENABLED:
+    CELERY_BEAT_SCHEDULE.pop("docs-ai-orchestrator", None)
 
 AI_ASSISTANT_ENABLED = os.getenv("AI_ASSISTANT_ENABLED", "False") == "True"
 AI_ASSISTANT_BASE_URL = os.getenv("AI_ASSISTANT_BASE_URL", "http://109.207.171.231")
