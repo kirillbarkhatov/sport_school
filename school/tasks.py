@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from collections import defaultdict
 import mimetypes
+import random
+import time
 from pathlib import PurePosixPath
 from typing import Any
+from uuid import UUID
 from uuid import uuid4
 
 import requests
-from celery import shared_task
+from celery import chain, shared_task
 from celery.exceptions import MaxRetriesExceededError
 from celery.utils.log import get_task_logger
 from django.conf import settings
+from django.core.cache import cache
 from django.core.files.storage import default_storage
 from django.db.models import Count
 from django.utils import timezone
@@ -24,7 +28,7 @@ from .document_ai import (
     make_signed_document_url,
 )
 from .document_binding import auto_bind_document_by_analysis
-from .models import AthleteContract, Document, DocumentAIAnalysis
+from .models import AthleteContract, Document, DocumentAIAnalysis, DocumentAIJob, DocumentAIJobItem
 from .services import ensure_monthly_service_for_contract
 
 logger = get_task_logger(__name__)
@@ -43,11 +47,126 @@ def _queue_name() -> str:
 
 
 def _batch_size() -> int:
-    return max(1, int(getattr(settings, "DOCS_ANALYZER_BATCH_SIZE", 20)))
+    return max(1, int(getattr(settings, "DOCS_ANALYZER_BATCH_SIZE", 3)))
 
 
 def _retry_kwargs() -> dict[str, Any]:
-    return {"max_retries": int(getattr(settings, "DOCS_ANALYZER_RETRY_MAX", 4))}
+    return {"max_retries": int(getattr(settings, "DOCS_ANALYZER_RETRY_MAX", 1))}
+
+
+def _to_job_uuid(job_id: str | UUID | None) -> UUID | None:
+    if job_id is None:
+        return None
+    if isinstance(job_id, UUID):
+        return job_id
+    try:
+        return UUID(str(job_id))
+    except (TypeError, ValueError):
+        logger.warning("docs-ai invalid job_id=%s", job_id)
+        return None
+
+
+def _job_query(job_id: str | UUID | None):
+    parsed_job_id = _to_job_uuid(job_id)
+    if parsed_job_id is None:
+        return DocumentAIJob.objects.none()
+    return DocumentAIJob.objects.filter(pk=parsed_job_id)
+
+
+def _job_item_query(job_id: str | UUID | None):
+    parsed_job_id = _to_job_uuid(job_id)
+    if parsed_job_id is None:
+        return DocumentAIJobItem.objects.none()
+    return DocumentAIJobItem.objects.filter(job_id=parsed_job_id)
+
+
+def _reserve_budget_counter(*, key: str, amount: int, limit: int) -> bool:
+    if limit <= 0 or amount <= 0:
+        return True
+
+    cache.add(key, 0, timeout=90)
+    try:
+        current = int(cache.incr(key, amount))
+    except Exception:
+        current = int(cache.get(key, 0) or 0) + amount
+        cache.set(key, current, timeout=90)
+
+    if current <= limit:
+        return True
+
+    try:
+        cache.decr(key, amount)
+    except Exception:
+        fallback_value = max(0, int(cache.get(key, 0) or 0) - amount)
+        cache.set(key, fallback_value, timeout=90)
+    return False
+
+
+def _try_reserve_docs_analyzer_budget(*, document_count: int) -> bool:
+    minute_key = timezone.now().strftime("%Y%m%d%H%M")
+    docs_per_min_limit = int(getattr(settings, "DOCS_ANALYZER_DOCS_PER_MIN_LIMIT", 0))
+    tokens_per_min_limit = int(getattr(settings, "DOCS_ANALYZER_TOKENS_PER_MIN_LIMIT", 0))
+    tokens_per_doc = int(getattr(settings, "DOCS_ANALYZER_TOKENS_PER_DOC_ESTIMATE", 0))
+
+    docs_ok = _reserve_budget_counter(
+        key=f"docs-ai:budget:docs:{minute_key}",
+        amount=max(0, int(document_count)),
+        limit=docs_per_min_limit,
+    )
+    if not docs_ok:
+        return False
+
+    estimated_tokens = max(0, int(document_count)) * max(0, tokens_per_doc)
+    if estimated_tokens <= 0 or tokens_per_min_limit <= 0:
+        return True
+
+    tokens_ok = _reserve_budget_counter(
+        key=f"docs-ai:budget:tokens:{minute_key}",
+        amount=estimated_tokens,
+        limit=tokens_per_min_limit,
+    )
+    return tokens_ok
+
+
+def _refresh_job_status(job_id: str | UUID | None) -> None:
+    job_qs = _job_query(job_id)
+    job = job_qs.first()
+    if job is None:
+        return
+
+    items_qs = DocumentAIJobItem.objects.filter(job=job)
+    total = int(job.total_documents)
+    pending = items_qs.filter(status=DocumentAIJobItem.Status.PENDING).count()
+    in_progress = items_qs.filter(status=DocumentAIJobItem.Status.IN_PROGRESS).count()
+    completed = items_qs.filter(status=DocumentAIJobItem.Status.COMPLETED).count()
+    failed = items_qs.filter(status=DocumentAIJobItem.Status.FAILED).count()
+
+    now = timezone.now()
+    update_fields: list[str] = []
+    if total == 0:
+        next_status = DocumentAIJob.Status.COMPLETED
+    elif pending > 0 or in_progress > 0:
+        next_status = DocumentAIJob.Status.IN_PROGRESS
+    elif failed > 0:
+        next_status = DocumentAIJob.Status.FAILED
+    else:
+        next_status = DocumentAIJob.Status.COMPLETED
+
+    if job.status != next_status:
+        job.status = next_status
+        update_fields.append("status")
+
+    if next_status == DocumentAIJob.Status.IN_PROGRESS and job.started_at is None:
+        job.started_at = now
+        update_fields.append("started_at")
+
+    if next_status in {DocumentAIJob.Status.COMPLETED, DocumentAIJob.Status.FAILED} and job.finished_at is None:
+        job.finished_at = now
+        update_fields.append("finished_at")
+
+    if update_fields:
+        update_fields.append("updated_at")
+        job.save(update_fields=update_fields)
 
 
 def _needs_analysis(document: Document, *, force: bool = False) -> bool:
@@ -289,8 +408,63 @@ def _apply_result_to_analysis(
     DocumentAIAnalysis.objects.update_or_create(document=document, defaults=defaults)
 
 
+def create_documents_ai_job(
+    *,
+    document_ids: list[int] | None = None,
+    force: bool = False,
+    created_by_id: int | None = None,
+) -> DocumentAIJob:
+    queryset = (
+        Document.objects.all()
+        .select_related("ai_analysis")
+        .annotate(
+            competition_links_count=Count("competition_links", distinct=True),
+            athlete_links_count=Count("athlete_links", distinct=True),
+        )
+        .order_by("id")
+    )
+    if document_ids:
+        queryset = queryset.filter(id__in=document_ids)
+
+    documents = [doc for doc in queryset if _needs_analysis(doc, force=force)]
+    job = DocumentAIJob.objects.create(
+        created_by_id=created_by_id,
+        force=force,
+        status=DocumentAIJob.Status.PENDING,
+        total_documents=len(documents),
+    )
+
+    if documents:
+        DocumentAIJobItem.objects.bulk_create(
+            [
+                DocumentAIJobItem(
+                    job=job,
+                    document=doc,
+                    status=DocumentAIJobItem.Status.PENDING,
+                )
+                for doc in documents
+            ]
+        )
+        enqueue_documents_for_ai_analysis.delay(
+            document_ids=[doc.id for doc in documents],
+            force=force,
+            job_id=str(job.id),
+        )
+    else:
+        job.status = DocumentAIJob.Status.COMPLETED
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at", "updated_at"])
+
+    return job
+
+
 @shared_task
-def enqueue_documents_for_ai_analysis(document_ids: list[int] | None = None, *, force: bool = False) -> dict[str, int]:
+def enqueue_documents_for_ai_analysis(
+    document_ids: list[int] | None = None,
+    *,
+    force: bool = False,
+    job_id: str | None = None,
+) -> dict[str, int]:
     queryset = (
         Document.objects.all()
         .select_related("ai_analysis")
@@ -307,6 +481,7 @@ def enqueue_documents_for_ai_analysis(document_ids: list[int] | None = None, *, 
     documents = [doc for doc in queryset if _needs_analysis(doc, force=force)]
     if not documents:
         logger.info("docs-ai enqueue skipped: no documents to analyze")
+        _refresh_job_status(job_id)
         return {"selected": 0, "queued": 0}
 
     for doc in documents:
@@ -318,15 +493,24 @@ def enqueue_documents_for_ai_analysis(document_ids: list[int] | None = None, *, 
 
     total_queued = 0
     batch_size = _batch_size()
-    for context_key, ids in grouped.items():
+    signatures = []
+    for context_key in sorted(grouped.keys()):
+        ids = grouped[context_key]
         for idx, start in enumerate(range(0, len(ids), batch_size), start=1):
             batch_ids = ids[start : start + batch_size]
             request_id = _build_batch_request_id(context_key, idx)
-            analyze_documents_batch_task.apply_async(
-                kwargs={"document_ids": batch_ids, "request_id": request_id, "force": force},
-                queue=_queue_name(),
+            signatures.append(
+                analyze_documents_batch_task.si(
+                    document_ids=batch_ids,
+                    request_id=request_id,
+                    force=force,
+                    job_id=job_id,
+                ).set(queue=_queue_name())
             )
             total_queued += len(batch_ids)
+
+    if signatures:
+        chain(*signatures).apply_async(queue=_queue_name())
 
     logger.info(
         "docs-ai enqueue completed selected=%s queued=%s groups=%s",
@@ -334,6 +518,8 @@ def enqueue_documents_for_ai_analysis(document_ids: list[int] | None = None, *, 
         total_queued,
         len(grouped),
     )
+    if job_id:
+        _refresh_job_status(job_id)
     return {"selected": len(documents), "queued": total_queued}
 
 
@@ -376,8 +562,15 @@ def sync_documents_from_storage_task(*, prefix: str | None = None, enqueue_analy
     }
 
 
-@shared_task(bind=True)
-def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: str, force: bool = False) -> dict[str, Any]:
+@shared_task(bind=True, acks_late=True)
+def analyze_documents_batch_task(
+    self,
+    *,
+    document_ids: list[int],
+    request_id: str,
+    force: bool = False,
+    job_id: str | None = None,
+) -> dict[str, Any]:
     documents = [
         document
         for document in Document.objects.filter(id__in=document_ids).select_related("ai_analysis").order_by("id")
@@ -385,7 +578,31 @@ def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: s
     ]
     if not documents:
         logger.info("docs-ai batch skipped request_id=%s reason=no_documents_to_analyze", request_id)
+        _refresh_job_status(job_id)
         return {"request_id": request_id, "processed": 0}
+
+    _job_item_query(job_id).filter(document_id__in=[doc.id for doc in documents]).update(
+        status=DocumentAIJobItem.Status.IN_PROGRESS,
+        request_id=request_id,
+        error_message=None,
+    )
+    _refresh_job_status(job_id)
+
+    while not _try_reserve_docs_analyzer_budget(document_count=len(documents)):
+        defer_base = int(getattr(settings, "DOCS_ANALYZER_BUDGET_BACKOFF_SEC", 20))
+        defer_jitter = int(getattr(settings, "DOCS_ANALYZER_BUDGET_BACKOFF_JITTER_SEC", 5))
+        defer_countdown = defer_base + random.randint(0, max(0, defer_jitter))
+        _job_item_query(job_id).filter(document_id__in=[doc.id for doc in documents]).update(
+            status=DocumentAIJobItem.Status.IN_PROGRESS,
+            error_message=f"Ожидание budget guard ({defer_countdown}s)",
+        )
+        logger.info(
+            "docs-ai batch waiting for budget request_id=%s documents=%s sleep=%s",
+            request_id,
+            len(documents),
+            defer_countdown,
+        )
+        time.sleep(defer_countdown)
 
     for document in documents:
         _upsert_analysis_pending(document=document, request_id=request_id)
@@ -398,7 +615,7 @@ def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: s
     payload = build_analyzer_payload(
         request_id=request_id,
         signed_urls=list(signed_url_to_document.keys()),
-        concurrency=int(getattr(settings, "DOCS_ANALYZER_CONCURRENCY", 5)),
+        concurrency=int(getattr(settings, "DOCS_ANALYZER_CONCURRENCY", 2)),
         max_urls=int(getattr(settings, "DOCS_ANALYZER_MAX_URLS", _batch_size())),
     )
 
@@ -412,9 +629,10 @@ def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: s
     try:
         batch_result = call_docs_analyzer(payload=payload)
     except requests.RequestException as exc:
-        max_retries = int(getattr(settings, "DOCS_ANALYZER_RETRY_MAX", 4))
+        max_retries = int(getattr(settings, "DOCS_ANALYZER_RETRY_MAX", 1))
         base_backoff = int(getattr(settings, "DOCS_ANALYZER_RETRY_BACKOFF_SEC", 15))
-        countdown = base_backoff * (2 ** max(self.request.retries, 0))
+        jitter_sec = int(getattr(settings, "DOCS_ANALYZER_RETRY_JITTER_SEC", 5))
+        countdown = base_backoff * (2 ** max(self.request.retries, 0)) + random.randint(0, max(0, jitter_sec))
         retries_left = max_retries - self.request.retries
         logger.warning(
             "docs-ai batch network/openai error request_id=%s retry=%s retries_left=%s countdown=%s error=%s",
@@ -436,7 +654,19 @@ def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: s
                     error_message=str(exc),
                     source_signed_url_hash=hash_signed_url(signed_url),
                 )
-            raise
+            _job_item_query(job_id).filter(document_id__in=[doc.id for doc in documents]).update(
+                status=DocumentAIJobItem.Status.FAILED,
+                request_id=request_id,
+                error_message=str(exc),
+            )
+            _refresh_job_status(job_id)
+            return {
+                "request_id": request_id,
+                "status": "failed_openai",
+                "processed": len(documents),
+                "results": 0,
+                "errors": len(documents),
+            }
     except AnalyzerContractError as exc:
         logger.error("docs-ai batch contract error request_id=%s error=%s", request_id, exc)
         for signed_url, document in signed_url_to_document.items():
@@ -448,6 +678,12 @@ def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: s
                 error_message=str(exc),
                 source_signed_url_hash=hash_signed_url(signed_url),
             )
+        _job_item_query(job_id).filter(document_id__in=[doc.id for doc in documents]).update(
+            status=DocumentAIJobItem.Status.FAILED,
+            request_id=request_id,
+            error_message=str(exc),
+        )
+        _refresh_job_status(job_id)
         return {"request_id": request_id, "processed": len(documents), "status": "failed_validation"}
 
     results_map = {item["source_url"]: item for item in batch_result.results}
@@ -473,6 +709,20 @@ def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: s
                     bound_entity_id=bind_result.entity_id,
                     bound_at=timezone.now(),
                 )
+            _job_item_query(job_id).filter(document_id=document.id).update(
+                status=DocumentAIJobItem.Status.COMPLETED,
+                request_id=batch_result.request_id,
+                error_message=None,
+            )
+        else:
+            error_message = "Документ отсутствует в results/errors ответа анализатора"
+            if error_item:
+                error_message = error_item.get("message", error_message)
+            _job_item_query(job_id).filter(document_id=document.id).update(
+                status=DocumentAIJobItem.Status.FAILED,
+                request_id=batch_result.request_id,
+                error_message=error_message,
+            )
 
     logger.info(
         "docs-ai batch complete request_id=%s status=%s documents=%s results=%s errors=%s",
@@ -482,6 +732,7 @@ def analyze_documents_batch_task(self, *, document_ids: list[int], request_id: s
         len(batch_result.results),
         len(batch_result.errors),
     )
+    _refresh_job_status(job_id)
     return {
         "request_id": batch_result.request_id,
         "status": batch_result.status,

@@ -16,12 +16,21 @@
 ### Новые env/settings
 - `DOCS_ANALYZER_URL` (default: `http://192.168.0.4:8001`)
 - `DOCS_ANALYZER_TIMEOUT_SEC` (default: `30`)
-- `DOCS_ANALYZER_BATCH_SIZE` (default: `20`)
-- `DOCS_ANALYZER_CONCURRENCY` (default: `5`)
-- `DOCS_ANALYZER_MAX_URLS` (default: `20`)
+- `DOCS_ANALYZER_BATCH_SIZE` (default: `3`)
+- `DOCS_ANALYZER_CONCURRENCY` (default: `2`)
+- `DOCS_ANALYZER_MAX_URLS` (default: `3`)
 - `DOCS_ANALYZER_SIGNED_URL_TTL_SEC` (default: `300`)
-- `DOCS_ANALYZER_RETRY_MAX` (default: `4`)
+- `DOCS_ANALYZER_RETRY_MAX` (default: `1`)
 - `DOCS_ANALYZER_RETRY_BACKOFF_SEC` (default: `15`)
+- `DOCS_ANALYZER_RETRY_JITTER_SEC` (default: `5`)
+- `DOCS_ANALYZER_TASK_RATE_LIMIT` (default: `10/m`)
+- `DOCS_ANALYZER_DOCS_PER_MIN_LIMIT` (default: `120`)
+- `DOCS_ANALYZER_TOKENS_PER_MIN_LIMIT` (default: `0`, выключен)
+- `DOCS_ANALYZER_TOKENS_PER_DOC_ESTIMATE` (default: `3000`)
+- `DOCS_ANALYZER_BUDGET_BACKOFF_SEC` (default: `20`)
+- `DOCS_ANALYZER_BUDGET_BACKOFF_JITTER_SEC` (default: `5`)
+- `CELERY_TASK_ACKS_LATE` (default: `True`)
+- `CELERY_WORKER_PREFETCH_MULTIPLIER` (default: `1`)
 - `CELERY_QUEUE_DOCS_ANALYSIS` (default: `docs_analysis`)
 - `DOCS_STORAGE_SYNC_PREFIX` (default: `documents`)
 - `DOCS_SYNC_ON_STARTUP` (default: `True`)
@@ -38,27 +47,32 @@
 - Новые/обновлённые документы автоматически ставятся в AI-анализ.
 
 ### Команды запуска
-1. Worker:
+1. Worker для AI-документов (строго последовательно):
 ```bash
-poetry run celery -A config worker --loglevel=info -Q docs_analysis,celery
+poetry run celery -A config worker --loglevel=info -Q docs_analysis -c 1
 ```
 
-2. Beat:
+2. Общий worker для остальных задач:
+```bash
+poetry run celery -A config worker --loglevel=info -Q celery -c 4
+```
+
+3. Beat:
 ```bash
 poetry run celery -A config beat --loglevel=info
 ```
 
-3. Ручной запуск оркестратора анализа:
+4. Ручной запуск оркестратора анализа:
 ```bash
 poetry run python manage.py enqueue_docs_analysis
 ```
 
-4. Ручной запуск синка bucket -> Document:
+5. Ручной запуск синка bucket -> Document:
 ```bash
 poetry run python manage.py sync_bucket_documents
 ```
 
-5. Ручной async-запуск синка bucket -> Document:
+6. Ручной async-запуск синка bucket -> Document:
 ```bash
 poetry run python manage.py sync_bucket_documents --async
 ```

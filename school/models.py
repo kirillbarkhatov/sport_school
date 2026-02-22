@@ -1,4 +1,5 @@
 from decimal import Decimal
+import uuid
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -823,6 +824,95 @@ class DocumentAIAnalysis(models.Model):
             models.Index(fields=["document_updated_at_snapshot"]),
             models.Index(fields=["request_id"]),
             models.Index(fields=["bound_entity_type", "bound_entity_id"]),
+        ]
+
+
+class DocumentAIJob(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Ожидает"
+        IN_PROGRESS = "in_progress", "В процессе"
+        COMPLETED = "completed", "Завершено"
+        FAILED = "failed", "Ошибка"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        verbose_name="Статус job",
+    )
+    created_by = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="document_ai_jobs",
+        verbose_name="Кем создано",
+    )
+    force = models.BooleanField(default=False, verbose_name="Принудительный анализ")
+    total_documents = models.PositiveIntegerField(default=0, verbose_name="Документов в job")
+    error_message = models.TextField(blank=True, null=True, verbose_name="Текст ошибки job")
+    started_at = models.DateTimeField(blank=True, null=True, verbose_name="Начало обработки")
+    finished_at = models.DateTimeField(blank=True, null=True, verbose_name="Окончание обработки")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    def __str__(self):
+        return f"AI Job {self.pk} ({self.status})"
+
+    class Meta:
+        verbose_name = "AI job документов"
+        verbose_name_plural = "AI jobs документов"
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["updated_at"]),
+        ]
+
+
+class DocumentAIJobItem(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Ожидает"
+        IN_PROGRESS = "in_progress", "В процессе"
+        COMPLETED = "completed", "Завершено"
+        FAILED = "failed", "Ошибка"
+
+    job = models.ForeignKey(
+        DocumentAIJob,
+        on_delete=models.CASCADE,
+        related_name="items",
+        verbose_name="Job",
+    )
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="ai_job_items",
+        verbose_name="Документ",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        verbose_name="Статус документа в job",
+    )
+    request_id = models.CharField(max_length=100, blank=True, verbose_name="Request ID батча")
+    error_message = models.TextField(blank=True, null=True, verbose_name="Текст ошибки")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    def __str__(self):
+        return f"AI JobItem job={self.job_id} document={self.document_id} ({self.status})"
+
+    class Meta:
+        verbose_name = "AI job item документа"
+        verbose_name_plural = "AI job items документов"
+        constraints = [
+            models.UniqueConstraint(fields=["job", "document"], name="uniq_ai_job_item_job_document"),
+        ]
+        indexes = [
+            models.Index(fields=["job", "status"]),
+            models.Index(fields=["document"]),
+            models.Index(fields=["updated_at"]),
         ]
 
 
