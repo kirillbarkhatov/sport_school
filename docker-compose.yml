@@ -43,9 +43,23 @@ services:
       timeout: 3s
       retries: 5
 
-  celery_worker:
+  celery_worker_docs:
     build: .
-    command: poetry run celery -A config worker --loglevel=info -Q docs_analysis,celery
+    command: poetry run celery -A config worker --loglevel=info -Q docs_analysis -c 1
+    volumes:
+      - .:/app
+    env_file:
+      - ./.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    restart: always
+
+  celery_worker_default:
+    build: .
+    command: poetry run celery -A config worker --loglevel=info -Q celery -c 4
     volumes:
       - .:/app
     env_file:
