@@ -610,6 +610,12 @@ class Document(models.Model):
     original_name = models.CharField(max_length=255, verbose_name="Исходное имя")
     mime_type = models.CharField(max_length=100, blank=True, verbose_name="MIME-тип")
     size = models.PositiveIntegerField(default=0, verbose_name="Размер, байт")
+    content_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        verbose_name="SHA256 хеш содержимого",
+    )
     uploaded_by = models.ForeignKey(
         "users.User",
         on_delete=models.SET_NULL,
@@ -640,6 +646,7 @@ class Document(models.Model):
         indexes = [
             models.Index(fields=["created_at"]),
             models.Index(fields=["updated_at"]),
+            models.Index(fields=["size", "content_hash"]),
         ]
 
 

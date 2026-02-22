@@ -1,3 +1,5 @@
+import hashlib
+
 from django import forms
 from django.forms import BooleanField, BaseFormSet, formset_factory, inlineformset_factory
 
@@ -673,6 +675,12 @@ class BulkDocumentUploadForm(forms.Form):
         label="Файлы",
         widget=MultiFileInput(attrs={"multiple": True, "class": "form-control"}),
     )
+    deduplicate = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Не создавать дубли (использовать существующий документ при совпадении hash + size)",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
 
     MAX_SIZE = 20 * 1024 * 1024  # 20 MB
 
@@ -685,21 +693,54 @@ class BulkDocumentUploadForm(forms.Form):
 
     def save(self, *, user):
         files = self.cleaned_data["files"]
+        deduplicate = bool(self.cleaned_data.get("deduplicate"))
 
-        created_document_ids = []
+        document_ids: list[int] = []
+        created_ids: list[int] = []
+        reused_ids: list[int] = []
 
         for uploaded in files:
+            sha256 = hashlib.sha256()
+            for chunk in uploaded.chunks():
+                sha256.update(chunk)
+            content_hash = sha256.hexdigest()
+            uploaded.seek(0)
+
+            if deduplicate:
+                existing = (
+                    Document.objects.filter(
+                        size=uploaded.size,
+                        content_hash=content_hash,
+                    )
+                    .only("id")
+                    .order_by("id")
+                    .first()
+                )
+                if existing:
+                    document_ids.append(existing.id)
+                    reused_ids.append(existing.id)
+                    continue
+
             document = Document.objects.create(
                 file=uploaded,
                 original_name=getattr(uploaded, "name", "") or "",
                 mime_type=getattr(uploaded, "content_type", "") or "",
                 size=uploaded.size,
+                content_hash=content_hash,
                 uploaded_by=user,
                 description="",
             )
-            created_document_ids.append(document.id)
+            document_ids.append(document.id)
+            created_ids.append(document.id)
 
-        return created_document_ids
+        return {
+            "document_ids": document_ids,
+            "created_ids": created_ids,
+            "reused_ids": reused_ids,
+            "created_count": len(created_ids),
+            "reused_count": len(reused_ids),
+            "total_count": len(document_ids),
+        }
 
 
 class DocumentAIAnalysisFilterForm(forms.Form):
