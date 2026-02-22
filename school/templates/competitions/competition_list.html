@@ -37,7 +37,20 @@
                     <td class="text-end">
                         <div class="btn-group btn-group-sm">
                             <a href="{% url 'school:competition_edit' competition.pk %}" class="btn btn-outline-primary">Редактировать</a>
-                            <a href="{% url 'school:competition_export' competition.pk %}" class="btn btn-outline-success">Экспорт XLS</a>
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-outline-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                    Выгрузить заявку
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{% url 'school:competition_export' competition.pk %}">XLS тип 1</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'school:competition_export_type2' competition.pk %}">XLS тип 2</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{% url 'school:competition_export_word_type1' competition.pk %}">Word тип 1</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'school:competition_export_word_type2' competition.pk %}">Word тип 2</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'school:competition_export_word_type3' competition.pk %}">Word тип 3</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'school:competition_export_word_type4' competition.pk %}">Word тип 4</a></li>
+                                </ul>
+                            </div>
                         </div>
                     </td>
                 </tr>
