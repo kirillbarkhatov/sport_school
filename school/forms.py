@@ -539,10 +539,12 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
 
     class Meta:
         model = Competition
-        fields = ["name", "start_date", "end_date", "location", "description"]
+        fields = ["name", "start_date", "end_date", "location", "competition_type", "discipline", "description"]
         widgets = {
             "start_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "end_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "competition_type": forms.Select(attrs={"class": "form-select"}),
+            "discipline": forms.TextInput(attrs={"placeholder": "Например, лыжные гонки"}),
             "description": forms.Textarea(attrs={"rows": 3}),
         }
 

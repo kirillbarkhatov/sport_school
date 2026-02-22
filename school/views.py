@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Prefetch, Q
+from django.db.models.functions import Coalesce
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
@@ -54,10 +55,6 @@ from users.utils import (
 class IndexView(ApprovedUserRequiredMixin, TemplateView):
     """Стартовая страница"""
     template_name = "school/index.html"
-
-    def get(self, request, *args, **kwargs):
-        """По умолчанию отправляем на компактный список спортсменов."""
-        return redirect("school:athlete_simple_list")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -420,7 +417,11 @@ class CompetitionListView(ApprovedUserRequiredMixin, ListView):
     template_name = "competitions/competition_list.html"
 
     def get_queryset(self):
-        return Competition.objects.prefetch_related("entries__athlete__person").order_by("-start_date", "-date", "name")
+        return (
+            Competition.objects.prefetch_related("entries__athlete__person")
+            .select_related("application_link")
+            .order_by(Coalesce("start_date", "date").desc(nulls_last=True), "-name")
+        )
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

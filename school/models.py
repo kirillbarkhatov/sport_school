@@ -448,11 +448,25 @@ class CampEnrollment(models.Model):
 class Competition(models.Model):
     """Модель «Соревнование»"""
 
+    TYPE_CHOICES = [
+        ("sport", "Спортивные"),
+        ("physical", "Физкультурные"),
+    ]
+
     name = models.CharField(max_length=100, verbose_name="Название соревнования")
     date = models.DateField(verbose_name="Дата проведения", blank=True, null=True)
     start_date = models.DateField(verbose_name="Дата начала", blank=True, null=True)
     end_date = models.DateField(verbose_name="Дата окончания", blank=True, null=True)
     location = models.CharField(max_length=100, verbose_name="Место проведения")
+    competition_type = models.CharField(
+        max_length=20,
+        choices=TYPE_CHOICES,
+        default="sport",
+        verbose_name="Тип соревнований",
+    )
+    discipline = models.CharField(
+        max_length=100, blank=True, null=True, verbose_name="Дисциплина"
+    )
     description = models.TextField(
         blank=True, null=True, verbose_name="Описание соревнования"
     )
