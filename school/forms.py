@@ -25,8 +25,11 @@ from .models import (
     Group,
     Competition,
     Club,
+    Document,
+    CompetitionDocument,
 )
 from .services import compute_contract_defaults
+from .models import DocumentType
 
 
 class StyleFormMixin:
@@ -539,14 +542,39 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
 
     class Meta:
         model = Competition
-        fields = ["name", "start_date", "end_date", "location", "competition_type", "discipline", "description"]
+        fields = [
+            "name",
+            "start_date",
+            "end_date",
+            "location",
+            "competition_type",
+            "discipline",
+            "description",
+            "birth_year_from",
+            "birth_year_to",
+        ]
         widgets = {
             "start_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "end_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "competition_type": forms.Select(attrs={"class": "form-select"}),
-            "discipline": forms.TextInput(attrs={"placeholder": "Например, лыжные гонки"}),
-            "description": forms.Textarea(attrs={"rows": 3}),
+            "discipline": forms.TextInput(attrs={"placeholder": "Например: Слалом-гигант"}),
+            "description": forms.Textarea(attrs={"rows": 3, "placeholder": "Комментарий"}),
+            "birth_year_from": forms.NumberInput(attrs={"placeholder": "2019", "min": 1900, "max": 2100}),
+            "birth_year_to": forms.NumberInput(attrs={"placeholder": "и старше", "min": 1900, "max": 2100}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.is_bound and not self.instance.pk and not self.initial.get("birth_year_from"):
+            self.initial["birth_year_from"] = timezone.now().year - 7
+
+    def clean(self):
+        data = super().clean()
+        by_from = data.get("birth_year_from")
+        by_to = data.get("birth_year_to")
+        if by_to and by_from and by_from > by_to:
+            self.add_error("birth_year_to", "Должен быть не меньше 'от'.")
+        return data
 
 
 class ClubForm(StyleFormMixin, forms.ModelForm):
@@ -566,6 +594,58 @@ class CompetitionApplyAthleteForm(StyleFormMixin, forms.Form):
     gender = forms.ChoiceField(choices=Person.GENDER_CHOICES, label="Пол")
     club = forms.ModelChoiceField(queryset=Club.objects.order_by("name"), label="Клуб")
     rank = forms.ChoiceField(choices=Athlete.RANK_CHOICES, label="Разряд")
+
+
+class CompetitionDocumentUploadForm(forms.Form):
+    file = forms.FileField(label="Файл", allow_empty_file=False)
+    doc_type = forms.ChoiceField(choices=DocumentType.choices, label="Тип")
+    title = forms.CharField(
+        max_length=255,
+        required=False,
+        label="Название/подпись",
+        help_text="Отображается в списке документов",
+    )
+    is_public = forms.BooleanField(required=False, label="Доступно участникам")
+    description = forms.CharField(
+        required=False,
+        label="Описание",
+        widget=forms.Textarea(attrs={"rows": 2, "class": "form-control"}),
+    )
+
+    MAX_SIZE = 20 * 1024 * 1024  # 20 MB
+
+    def clean_file(self):
+        f = self.cleaned_data["file"]
+        if f.size > self.MAX_SIZE:
+            raise forms.ValidationError("Файл слишком большой (макс. 20 МБ).")
+        return f
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name, field in self.fields.items():
+            if name == "is_public":
+                field.widget.attrs.setdefault("class", "form-check-input")
+            elif name != "description":
+                field.widget.attrs.setdefault("class", "form-control")
+
+    def save(self, *, competition, user):
+        uploaded = self.cleaned_data["file"]
+        doc = Document.objects.create(
+            file=uploaded,
+            original_name=getattr(uploaded, "name", "") or "",
+            mime_type=getattr(uploaded, "content_type", "") or "",
+            size=uploaded.size,
+            uploaded_by=user,
+            description=self.cleaned_data.get("description") or "",
+        )
+        CompetitionDocument.objects.create(
+            competition=competition,
+            document=doc,
+            doc_type=self.cleaned_data["doc_type"],
+            title=self.cleaned_data.get("title") or "",
+            is_public=bool(self.cleaned_data.get("is_public")),
+        )
+        return doc
 
 
 def _next_contract_number(family):

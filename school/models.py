@@ -42,6 +42,10 @@ class PaymentType(models.TextChoices):
     ADDITIONAL = "additional", "Доплата"
     FULL = "full", "Полная оплата"
 
+
+def default_birth_year_from():
+    return timezone.now().year - 7
+
 # всё из чат-гпт, проверить
 class Person(models.Model):
     """Модель «Человек»"""
@@ -470,6 +474,17 @@ class Competition(models.Model):
     description = models.TextField(
         blank=True, null=True, verbose_name="Описание соревнования"
     )
+    birth_year_from = models.PositiveIntegerField(
+        verbose_name="Год рождения (с)",
+        help_text="Самый ранний год рождения участников (старшие). Обязательно.",
+        default=default_birth_year_from,
+    )
+    birth_year_to = models.PositiveIntegerField(
+        verbose_name="Год рождения (по)",
+        help_text="Самый поздний допустимый год рождения (младшие). Оставьте пустым, если без верхней границы.",
+        blank=True,
+        null=True,
+    )
 
     def __str__(self):
         return self.name
@@ -569,6 +584,131 @@ class CompetitionEntry(models.Model):
     class Meta:
         verbose_name = "Участие в соревнованиях"
         verbose_name_plural = "Участия в соревнованиях"
+
+
+class DocumentType(models.TextChoices):
+    REGULATION = "regulation", "Регламент/Положение"
+    SCHEDULE = "schedule", "Расписание/Распорядок"
+    START_LIST = "start_list", "Стартовый лист"
+    START_LIST_SECOND = "start_list_second", "Стартовый лист второй попытки"
+    INTERMEDIATE_RESULTS = "intermediate_results", "Промежуточные результаты"
+    PRELIM_RESULTS = "prelim_results", "Результаты предварительные"
+    OFFICIAL_RESULTS = "official_results", "Результаты официальные"
+    APPLICATION_FORM = "application_form", "Форма заявки"
+    PARENT_CONSENT = "parent_consent", "Согласие родителей"
+    MED_CERT = "medical_certificate", "Медицинская справка"
+    INSURANCE = "insurance", "Страховка"
+    OTHER = "other", "Прочее"
+
+def default_birth_year_from():
+    return timezone.now().year - 7
+
+
+class Document(models.Model):
+    """Базовый загружаемый файл."""
+
+    file = models.FileField(upload_to="documents/%Y/%m/", max_length=255, verbose_name="Файл")
+    original_name = models.CharField(max_length=255, verbose_name="Исходное имя")
+    mime_type = models.CharField(max_length=100, blank=True, verbose_name="MIME-тип")
+    size = models.PositiveIntegerField(default=0, verbose_name="Размер, байт")
+    uploaded_by = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Кем загружено",
+        related_name="uploaded_documents",
+    )
+    description = models.CharField(max_length=255, blank=True, verbose_name="Описание")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Загружено")
+
+    def save(self, *args, **kwargs):
+        if self.file:
+            self.original_name = self.original_name or getattr(self.file, "name", "")
+            try:
+                self.size = self.file.size
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.original_name or "Документ"
+
+    class Meta:
+        verbose_name = "Документ"
+        verbose_name_plural = "Документы"
+
+
+class CompetitionDocument(models.Model):
+    """Файлы, относящиеся к соревнованию в целом."""
+
+    competition = models.ForeignKey(
+        Competition,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name="Соревнование",
+    )
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="competition_links",
+        verbose_name="Документ",
+    )
+    doc_type = models.CharField(
+        max_length=50,
+        choices=DocumentType.choices,
+        verbose_name="Тип документа",
+    )
+    title = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Название/подпись",
+        help_text="Отображается в списке документов",
+    )
+    is_public = models.BooleanField(default=False, verbose_name="Доступно участникам")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Добавлено")
+
+    def __str__(self):
+        return self.title or dict(DocumentType.choices).get(self.doc_type, "Документ")
+
+    class Meta:
+        verbose_name = "Документ соревнования"
+        verbose_name_plural = "Документы соревнования"
+        ordering = ["-created_at"]
+
+
+class AthleteDocument(models.Model):
+    """Личные документы спортсмена (база для будущего использования)."""
+
+    athlete = models.ForeignKey(
+        Athlete,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name="Спортсмен",
+    )
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.CASCADE,
+        related_name="athlete_links",
+        verbose_name="Документ",
+    )
+    doc_type = models.CharField(max_length=50, choices=DocumentType.choices, verbose_name="Тип документа")
+    issued_at = models.DateField(blank=True, null=True, verbose_name="Дата выдачи")
+    valid_until = models.DateField(blank=True, null=True, verbose_name="Действителен до")
+    is_default = models.BooleanField(
+        default=False,
+        verbose_name="Использовать по умолчанию",
+        help_text="Будет подставляться в заявки, если тип совпадает",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Добавлено")
+
+    def __str__(self):
+        return f"{self.athlete} — {self.get_doc_type_display()}"
+
+    class Meta:
+        verbose_name = "Документ спортсмена"
+        verbose_name_plural = "Документы спортсменов"
+        ordering = ["-created_at"]
 
 
 class Club(models.Model):
