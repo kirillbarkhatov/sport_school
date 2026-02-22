@@ -26,6 +26,18 @@
 {% load nav_utils %}
 {% with path=request.path %}
             <nav class="nav flex-column mb-auto px-2">
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}">
+                    <i class="bi bi-list-columns-reverse"></i>
+                    Спортсмены
+                </a>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/competitions' %}active{% endif %}" href="{% url 'school:competition_list' %}">
+                    <i class="bi bi-trophy"></i>
+                    Соревнования
+                </a>
+
+                {% if user.is_staff or user.is_superuser %}
+                <span class="nav-section-title mt-3">Разделы находящиеся в разработке</span>
+
                 <span class="nav-section-title">Обзор</span>
                 <a class="nav-link d-flex align-items-center gap-2 {% if request.resolver_match and request.resolver_match.url_name == 'index' %}active{% endif %}"
                    href="{% url 'school:index' %}">
@@ -42,13 +54,9 @@
                     <i class="bi bi-person-vcard"></i>
                     Участники
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete' %}active{% endif %}" href="{% url 'school:athlete_list' %}">
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete' and not path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_list' %}">
                     <i class="bi bi-person-running"></i>
-                    Спортсмены
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}">
-                    <i class="bi bi-list-columns-reverse"></i>
-                    Спортсмены (3 колонки)
+                    Спортсмены (расширенный список)
                 </a>
                 <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/groups' %}active{% endif %}" href="{% url 'groups:group_list' %}">
                     <i class="bi bi-diagram-3"></i>
@@ -58,16 +66,13 @@
                     <i class="bi bi-calendar-event"></i>
                     Занятия
                 </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/competitions' %}active{% endif %}" href="{% url 'school:competition_list' %}">
-                    <i class="bi bi-trophy"></i>
-                    Соревнования
-                </a>
 
                 <span class="nav-section-title mt-3">Коммуникации</span>
                 <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/notifications' %}active{% endif %}" href="{% url 'notifications:notification_list' %}">
                     <i class="bi bi-chat-dots"></i>
                     Уведомления
                 </a>
+                {% endif %}
             </nav>
             {% endwith %}
 

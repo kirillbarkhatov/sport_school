@@ -134,7 +134,7 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
 class PersonCompactForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Person
-        fields = ["surname", "name", "middlename", "date_of_birth"]
+        fields = ["surname", "name", "middlename", "date_of_birth", "club"]
         widgets = {
             "surname": forms.TextInput(attrs={"placeholder": "Фамилия"}),
             "name": forms.TextInput(attrs={"placeholder": "Имя"}),
@@ -143,6 +143,7 @@ class PersonCompactForm(StyleFormMixin, forms.ModelForm):
                 format="%Y-%m-%d",
                 attrs={"type": "date", "class": "form-control"},
             ),
+            "club": forms.Select(attrs={"class": "form-select"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -154,6 +155,9 @@ class PersonCompactForm(StyleFormMixin, forms.ModelForm):
                 self.initial.setdefault(
                     "date_of_birth", self.instance.date_of_birth.strftime("%Y-%m-%d")
                 )
+        if "club" in self.fields:
+            self.fields["club"].queryset = Club.objects.order_by("name")
+            self.fields["club"].widget.attrs.setdefault("class", "form-select")
 
 
 class ClassForm(StyleFormMixin, forms.ModelForm):

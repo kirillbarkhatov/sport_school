@@ -55,6 +55,10 @@ class IndexView(ApprovedUserRequiredMixin, TemplateView):
     """Стартовая страница"""
     template_name = "school/index.html"
 
+    def get(self, request, *args, **kwargs):
+        """По умолчанию отправляем на компактный список спортсменов."""
+        return redirect("school:athlete_simple_list")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
