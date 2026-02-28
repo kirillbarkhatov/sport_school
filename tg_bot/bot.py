@@ -37,6 +37,7 @@ from tg_bot.handlers.admin import (  # noqa: E402
     admin_panel,
     handle_admin_callback,
 )
+from tg_bot.handlers.documents import telegram_document_entry  # noqa: E402
 from tg_bot.handlers.coach import coach_panel, handle_coach_callback  # noqa: E402
 from tg_bot.handlers.auth import confirm, register, start  # noqa: E402
 from tg_bot.handlers.general import (  # noqa: E402
@@ -141,6 +142,7 @@ def build_application():
     )
 
     application.add_handler(InlineQueryHandler(inline_caps))
+    application.add_handler(MessageHandler(filters.Document.ALL, telegram_document_entry))
     application.add_handler(
         MessageHandler(
             filters.ChatType.PRIVATE & filters.TEXT & (~filters.COMMAND),
