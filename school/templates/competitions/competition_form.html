@@ -1,4 +1,5 @@
 {% extends 'school/base.html' %}
+{% load static %}
 
 {% block title %}{% if competition %}Редактирование соревнования{% else %}Новое соревнование{% endif %}{% endblock %}
 
@@ -146,7 +147,15 @@
                                     {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
                                         <div class="list-group-item d-flex justify-content-between align-items-center" data-athlete-id="{{ athlete.pk }}">
                                             <div>
-                                                <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
+                                                <div class="fw-semibold">
+                                                    <a
+                                                        href="{% url 'school:athlete_edit_compact' athlete.pk %}"
+                                                        class="text-decoration-none text-reset"
+                                                        data-athlete-item
+                                                        data-athlete-id="{{ athlete.pk }}"
+                                                        data-modal-url="{% url 'school:athlete_edit_compact' athlete.pk %}?modal=1"
+                                                    >{{ person.surname }} {{ person.name }}</a>
+                                                </div>
                                                 <div class="text-muted small">{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}</div>
                                             </div>
                                             <button type="button" class="btn btn-sm btn-outline-danger btn-remove" data-athlete-id="{{ athlete.pk }}">Исключить</button>
@@ -197,7 +206,15 @@
                          data-year="{% if person.date_of_birth %}{{ person.date_of_birth.year }}{% endif %}"
                          data-name="{{ person.surname|lower }}">
                         <div class="flex-grow-1">
-                            <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
+                            <div class="fw-semibold">
+                                <a
+                                    href="{% url 'school:athlete_edit_compact' athlete.pk %}"
+                                    class="text-decoration-none text-reset"
+                                    data-athlete-item
+                                    data-athlete-id="{{ athlete.pk }}"
+                                    data-modal-url="{% url 'school:athlete_edit_compact' athlete.pk %}?modal=1"
+                                >{{ person.surname }} {{ person.name }}</a>
+                            </div>
                             <div class="text-muted small d-flex justify-content-between">
                                 <span>{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% endif %}</span>
                                 <span>
@@ -299,10 +316,12 @@
         {% endif %}
     </div>
 </div>
+{% include "athletes/includes/edit_modals.html" %}
 {% endblock %}
 
 {% block content_2 %}
 {{ block.super }}
+<script src="{% static 'js/athlete_simple_list.js' %}"></script>
 <script>
 (() => {
     const search = document.getElementById('filter-search');
