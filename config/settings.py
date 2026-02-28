@@ -241,6 +241,21 @@ TELEGRAM_MANAGER_IDS = [
     for manager_id in os.getenv("TELEGRAM_MANAGER_IDS", "").split(",")
     if manager_id.strip()
 ]
+TELEGRAM_DOC_IMPORT_ENABLED = os.getenv("TELEGRAM_DOC_IMPORT_ENABLED", "False") == "True"
+TELEGRAM_DOC_IMPORT_CHAT_IDS = [
+    int(chat_id.strip())
+    for chat_id in os.getenv("TELEGRAM_DOC_IMPORT_CHAT_IDS", "").split(",")
+    if chat_id.strip().lstrip("-").isdigit()
+]
+_telegram_doc_ext = [
+    ext.strip().lower().lstrip(".")
+    for ext in os.getenv("TELEGRAM_DOC_IMPORT_ALLOWED_EXTENSIONS", "pdf,doc,docx").split(",")
+    if ext.strip()
+]
+TELEGRAM_DOC_IMPORT_ALLOWED_EXTENSIONS = tuple(_telegram_doc_ext or ["pdf", "doc", "docx"])
+TELEGRAM_DOC_IMPORT_MAX_SIZE_MB = int(os.getenv("TELEGRAM_DOC_IMPORT_MAX_SIZE_MB", "20"))
+TELEGRAM_DOC_IMPORT_DEDUPLICATE = os.getenv("TELEGRAM_DOC_IMPORT_DEDUPLICATE", "True") == "True"
+TELEGRAM_DOC_IMPORT_HTTP_TIMEOUT_SEC = float(os.getenv("TELEGRAM_DOC_IMPORT_HTTP_TIMEOUT_SEC", "30"))
 
 LOGIN_URL = "users:login_page"
 LOGIN_REDIRECT_URL = "school:index"
@@ -408,6 +423,7 @@ CELERY_TASK_ROUTES = {
     "school.tasks.enqueue_documents_for_ai_analysis": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
     "school.tasks.analyze_documents_batch_task": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
     "school.tasks.sync_documents_from_storage_task": {"queue": CELERY_QUEUE_DOCS_ANALYSIS},
+    "bot.tasks.process_telegram_document_task": {"queue": "celery"},
 }
 CELERY_TASK_ANNOTATIONS = {
     "school.tasks.analyze_documents_batch_task": {"rate_limit": DOCS_ANALYZER_TASK_RATE_LIMIT},
