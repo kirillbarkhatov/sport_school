@@ -29,6 +29,7 @@ from .document_ai import (
     make_signed_document_url,
 )
 from .document_binding import auto_bind_document_by_analysis
+from .document_binding import infer_athlete_doc_type
 from .document_binding import sync_athlete_document_from_analysis
 from .models import AthleteContract, AthleteDocument, Document, DocumentAIAnalysis, DocumentAIJob, DocumentAIJobItem, DocumentType
 from .services import ensure_monthly_service_for_contract
@@ -148,7 +149,15 @@ def monitor_athlete_document_analysis_status(*, athlete_document_id: int, timeou
         if analysis.is_analyzed_successfully:
             sync_athlete_document_from_analysis(link.document)
             link.refresh_from_db()
-            if link.valid_until:
+            if (
+                analysis.doc_type != DocumentAIAnalysis.DocType.ATHLETE_SPECIFIC
+                or infer_athlete_doc_type(analysis) != DocumentType.MED_CERT
+            ):
+                final_payload = {
+                    "state": "unrecognized",
+                    "message": "Справка не распознана",
+                }
+            elif link.valid_until:
                 final_payload = {
                     "state": "done",
                     "message": "Справка распознана",

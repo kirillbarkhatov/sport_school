@@ -40,6 +40,7 @@ from school.document_binding import (
     create_athlete_from_analysis,
     create_competition_from_analysis,
     get_binding_context,
+    infer_athlete_doc_type,
     sync_athlete_document_from_analysis,
 )
 from school.document_ingest import DocumentIngestValidationError, ingest_single_document
@@ -143,6 +144,51 @@ def _build_athlete_certificate_context(athlete: Athlete) -> dict[str, object]:
         "inactive_payload": inactive_payload,
         "has_active": bool(active_doc and active_doc.valid_until),
         "needs_clarification": bool(active_doc and active_doc.needs_valid_until_clarification),
+    }
+
+
+def _resolve_certificate_ui_state(active_document: AthleteDocument | None) -> dict[str, object]:
+    if not active_document:
+        return {
+            "badge_text": "Данные отсутствуют",
+            "badge_tone": "warning",
+            "show_clarify": False,
+            "is_unrecognized": False,
+        }
+
+    if active_document.valid_until:
+        return {
+            "badge_text": f"Действует до {active_document.valid_until.strftime('%d.%m.%Y')}",
+            "badge_tone": "success",
+            "show_clarify": False,
+            "is_unrecognized": False,
+        }
+
+    analysis = getattr(active_document.document, "ai_analysis", None)
+    if analysis and analysis.is_analyzed_successfully:
+        is_med_cert = (
+            analysis.doc_type == DocumentAIAnalysis.DocType.ATHLETE_SPECIFIC
+            and infer_athlete_doc_type(analysis) == DocumentType.MED_CERT
+        )
+        if is_med_cert:
+            return {
+                "badge_text": "Укажите дату вручную",
+                "badge_tone": "warning",
+                "show_clarify": True,
+                "is_unrecognized": False,
+            }
+        return {
+            "badge_text": "Справка не распознана",
+            "badge_tone": "danger",
+            "show_clarify": False,
+            "is_unrecognized": True,
+        }
+
+    return {
+        "badge_text": "Данные отсутствуют",
+        "badge_tone": "warning",
+        "show_clarify": False,
+        "is_unrecognized": False,
     }
 
 
@@ -365,6 +411,7 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
 
     def _build_context(self, request, athlete, person_form, athlete_form, *, saved: bool):
         certificate_ctx = _build_athlete_certificate_context(athlete)
+        cert_ui = _resolve_certificate_ui_state(certificate_ctx["active_document"])
         club_name = (athlete.person.club.name if athlete.person and athlete.person.club else "") or ""
         can_show_group = club_name.strip().lower() == KANAEV_CLUB_NAME.lower()
         return {
@@ -375,6 +422,7 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
             "can_show_group": can_show_group,
             "can_manage_certificates": _can_manage_athlete_certificates(request.user),
             **certificate_ctx,
+            **cert_ui,
         }
 
     def get(self, request, pk):
@@ -609,6 +657,11 @@ class AthleteCertificateStatusView(ApprovedUserRequiredMixin, View):
         if not athlete:
             return JsonResponse({"error": "not_found"}, status=404)
 
+        certificate_ctx = _build_athlete_certificate_context(athlete)
+        cert_ui = _resolve_certificate_ui_state(certificate_ctx["active_document"])
+        active_payload = certificate_ctx["active_payload"]
+        label = cert_ui["badge_text"]
+
         doc_id_raw = request.GET.get("athlete_document_id")
         processing = None
         if doc_id_raw:
@@ -617,21 +670,44 @@ class AthleteCertificateStatusView(ApprovedUserRequiredMixin, View):
             except (TypeError, ValueError):
                 doc_id_int = None
             if doc_id_int:
-                processing = cache.get(_monitor_cache_key(doc_id_int))
-
-        certificate_ctx = _build_athlete_certificate_context(athlete)
-        active_payload = certificate_ctx["active_payload"]
-        if active_payload:
-            label = f"Действует до {active_payload['valid_until'].strftime('%d.%m.%Y')}" if active_payload["valid_until"] else "Требуется уточнение по справке"
-        else:
-            label = "Отсутствуют данные о действующей справке"
+                link = (
+                    AthleteDocument.objects.select_related("document__ai_analysis")
+                    .filter(pk=doc_id_int, athlete=athlete)
+                    .first()
+                )
+                if link:
+                    analysis = getattr(link.document, "ai_analysis", None)
+                    if not analysis or analysis.status == DocumentAIAnalysis.Status.PENDING:
+                        processing = {"state": "processing", "message": "AI анализирует документ"}
+                    elif analysis.is_analyzed_successfully:
+                        link_ui = _resolve_certificate_ui_state(link)
+                        if link_ui["is_unrecognized"]:
+                            processing = {"state": "unrecognized", "message": "Справка не распознана"}
+                        elif link_ui["show_clarify"]:
+                            processing = {"state": "need_clarification", "message": "Укажите дату вручную"}
+                        else:
+                            processing = {"state": "done", "message": "Справка распознана"}
+                    elif analysis.status in {
+                        DocumentAIAnalysis.Status.FAILED_DOWNLOAD,
+                        DocumentAIAnalysis.Status.FAILED_OPENAI,
+                        DocumentAIAnalysis.Status.FAILED_VALIDATION,
+                        DocumentAIAnalysis.Status.ERROR,
+                    }:
+                        processing = {
+                            "state": "failed",
+                            "message": analysis.error_message or "Ошибка обработки документа",
+                        }
+                if processing is None:
+                    processing = cache.get(_monitor_cache_key(doc_id_int))
 
         return JsonResponse(
             {
                 "success": True,
                 "label": label,
                 "has_active": bool(active_payload and active_payload.get("valid_until")),
-                "needs_clarification": bool(active_payload and active_payload.get("needs_clarification")),
+                "needs_clarification": bool(cert_ui["show_clarify"]),
+                "is_unrecognized": bool(cert_ui["is_unrecognized"]),
+                "badge_tone": cert_ui["badge_tone"],
                 "active_certificate": active_payload,
                 "inactive_certificates": certificate_ctx["inactive_payload"],
                 "processing": processing,
@@ -675,10 +751,15 @@ class AthleteCertificateClarifyView(ApprovedUserRequiredMixin, View):
             ).exclude(pk=link.pk).update(is_actual=False)
 
         certificate_ctx = _build_athlete_certificate_context(athlete)
+        cert_ui = _resolve_certificate_ui_state(certificate_ctx["active_document"])
         return JsonResponse(
             {
                 "success": True,
                 "message": "Срок действия обновлён",
+                "label": cert_ui["badge_text"],
+                "badge_tone": cert_ui["badge_tone"],
+                "needs_clarification": cert_ui["show_clarify"],
+                "is_unrecognized": cert_ui["is_unrecognized"],
                 "active_certificate": certificate_ctx["active_payload"],
                 "inactive_certificates": certificate_ctx["inactive_payload"],
             }

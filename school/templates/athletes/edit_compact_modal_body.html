@@ -49,14 +49,10 @@
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <div class="fw-semibold">Справка спортсмена</div>
                 <span
-                    class="badge rounded-pill {% if active_payload and active_payload.valid_until %}text-bg-success{% else %}text-bg-warning{% endif %}"
+                    class="badge rounded-pill {% if badge_tone == 'success' %}text-bg-success{% elif badge_tone == 'danger' %}text-bg-danger{% else %}text-bg-warning{% endif %}"
                     data-cert-badge
                 >
-                    {% if active_payload and active_payload.valid_until %}
-                        Действует до {{ active_payload.valid_until|date:"d.m.Y" }}
-                    {% else %}
-                        Данные отсутствуют
-                    {% endif %}
+                    {{ badge_text }}
                 </span>
             </div>
             <div class="d-flex flex-column gap-2" data-certificate-section>
@@ -73,11 +69,20 @@
                 <div class="input-group input-group-sm">
                     <input
                         type="file"
-                        class="form-control"
+                        class="d-none"
                         accept=".pdf,image/*"
-                        capture="environment"
-                        data-certificate-input
+                        data-certificate-file-input
                     >
+                    <input
+                        type="file"
+                        class="d-none"
+                        accept="image/*"
+                        capture="environment"
+                        data-certificate-camera-input
+                    >
+                    <input type="text" class="form-control" value="" placeholder="Файл не выбран" readonly data-selected-file-name>
+                    <button type="button" class="btn btn-outline-secondary" data-pick-file>Выбрать файл</button>
+                    <button type="button" class="btn btn-outline-secondary" data-pick-photo>Сделать фото</button>
                     <button type="button" class="btn btn-outline-primary" data-upload-certificate>Загрузить</button>
                 </div>
                 <div class="small text-muted d-none" data-ai-timer>
@@ -85,8 +90,8 @@
                     <span class="ms-2" data-ai-status-text></span>
                 </div>
 
-                <div class="{% if not needs_clarification %}d-none{% endif %}" data-clarify-wrap>
-                    <div class="small mb-1">Требуется уточнение по справке</div>
+                <div class="{% if not show_clarify %}d-none{% endif %}" data-clarify-wrap>
+                    <div class="small mb-1">Укажите дату вручную</div>
                     <div class="input-group input-group-sm">
                         <input type="date" class="form-control" data-clarify-valid-until>
                         <button type="button" class="btn btn-outline-secondary" data-clarify-submit>Сохранить срок</button>
