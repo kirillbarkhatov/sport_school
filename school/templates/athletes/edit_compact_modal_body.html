@@ -1,0 +1,100 @@
+<form
+    method="post"
+    enctype="multipart/form-data"
+    id="compact-edit-form"
+    class="d-flex flex-column gap-3"
+    data-athlete-id="{{ athlete.id }}"
+    data-certificate-upload-url="{% url 'school:athlete_certificate_upload' athlete.id %}"
+    data-certificate-status-url="{% url 'school:athlete_certificate_status' athlete.id %}"
+    data-certificate-clarify-url-template="{% url 'school:athlete_certificate_clarify' athlete.id 0 %}"
+>
+    {% csrf_token %}
+
+    <div class="d-flex flex-column gap-2">
+        {{ person_form.surname }}
+        {{ person_form.name }}
+        {{ person_form.middlename }}
+    </div>
+
+    <div>
+        {{ person_form.date_of_birth }}
+        <div class="form-text">Дата рождения</div>
+    </div>
+
+    <div>
+        {{ person_form.club }}
+        <div class="form-text">Клуб</div>
+    </div>
+
+    {% if can_show_group %}
+        <div>
+            {{ athlete_form.main_group }}
+            <div class="form-text">Группа</div>
+        </div>
+    {% endif %}
+
+    <div>
+        {{ athlete_form.rank }}
+        <div class="form-text">Разряд</div>
+    </div>
+
+    <div>
+        {{ athlete_form.level }}
+        <div class="form-text">Сезон начала тренировок</div>
+    </div>
+
+    {% if can_manage_certificates %}
+        <hr class="my-2">
+        <div>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-semibold">Справка спортсмена</div>
+                <span
+                    class="badge rounded-pill {% if active_payload and active_payload.valid_until %}text-bg-success{% else %}text-bg-warning{% endif %}"
+                    data-cert-badge
+                >
+                    {% if active_payload and active_payload.valid_until %}
+                        Действует до {{ active_payload.valid_until|date:"d.m.Y" }}
+                    {% else %}
+                        Данные отсутствуют
+                    {% endif %}
+                </span>
+            </div>
+            <div class="d-flex flex-column gap-2" data-certificate-section>
+                <button
+                    type="button"
+                    class="btn btn-outline-secondary btn-sm w-auto {% if not active_payload %}d-none{% endif %}"
+                    data-view-certificate
+                    data-preview-url="{% if active_payload %}{{ active_payload.preview_url }}{% endif %}"
+                    data-preview-kind="{% if active_payload %}{{ active_payload.preview_kind }}{% endif %}"
+                >
+                    Посмотреть
+                </button>
+
+                <div class="input-group input-group-sm">
+                    <input
+                        type="file"
+                        class="form-control"
+                        accept=".pdf,image/*"
+                        capture="environment"
+                        data-certificate-input
+                    >
+                    <button type="button" class="btn btn-outline-primary" data-upload-certificate>Загрузить</button>
+                </div>
+                <div class="small text-muted d-none" data-ai-timer>
+                    Обработка займет не более <span data-ai-timer-value>01:00</span>
+                    <span class="ms-2" data-ai-status-text></span>
+                </div>
+
+                <div class="{% if not needs_clarification %}d-none{% endif %}" data-clarify-wrap>
+                    <div class="small mb-1">Требуется уточнение по справке</div>
+                    <div class="input-group input-group-sm">
+                        <input type="date" class="form-control" data-clarify-valid-until>
+                        <button type="button" class="btn btn-outline-secondary" data-clarify-submit>Сохранить срок</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <button type="submit" class="btn btn-primary" id="save-btn">Сохранить</button>
+</form>

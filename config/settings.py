@@ -388,6 +388,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "assistant.tasks.send_upcoming_trainings_snapshot_task",
         "schedule": crontab(hour=3, minute=4),
     },
+    "reconcile-athlete-certificate-validity-daily": {
+        "task": "school.tasks.reconcile_athlete_certificate_validity",
+        "schedule": crontab(hour=3, minute=6),
+    },
     "docs-ai-orchestrator": {
         "task": "school.tasks.enqueue_documents_for_ai_analysis",
         "schedule": crontab(minute="*/30"),

@@ -711,6 +711,11 @@ class AthleteDocument(models.Model):
     doc_type = models.CharField(max_length=50, choices=DocumentType.choices, verbose_name="Тип документа")
     issued_at = models.DateField(blank=True, null=True, verbose_name="Дата выдачи")
     valid_until = models.DateField(blank=True, null=True, verbose_name="Действителен до")
+    is_actual = models.BooleanField(default=False, verbose_name="Актуальный документ")
+    needs_valid_until_clarification = models.BooleanField(
+        default=False,
+        verbose_name="Требуется уточнение срока действия",
+    )
     is_default = models.BooleanField(
         default=False,
         verbose_name="Использовать по умолчанию",
@@ -728,6 +733,16 @@ class AthleteDocument(models.Model):
         indexes = [
             models.Index(fields=["athlete", "doc_type"]),
             models.Index(fields=["document"]),
+            models.Index(fields=["doc_type", "is_actual"]),
+            models.Index(fields=["needs_valid_until_clarification"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["athlete", "document"], name="uniq_athlete_document_athlete_document"),
+            models.UniqueConstraint(
+                fields=["athlete", "doc_type"],
+                condition=models.Q(doc_type=DocumentType.MED_CERT, is_actual=True),
+                name="uniq_active_med_cert_per_athlete",
+            ),
         ]
 
 

@@ -14,9 +14,6 @@ class SchoolConfig(AppConfig):
     name = "school"
 
     def ready(self):
-        if not getattr(settings, "DOCS_SYNC_ON_STARTUP", True):
-            return
-
         command = sys.argv[1] if len(sys.argv) > 1 else ""
         skip_commands = {
             "makemigrations",
@@ -38,18 +35,25 @@ class SchoolConfig(AppConfig):
         if command == "runserver" and os.environ.get("RUN_MAIN") != "true":
             return
 
-        # Prevent duplicate startup scheduling across multi-process web servers
-        # (e.g. several gunicorn workers booting at once).
-        cooldown_sec = int(getattr(settings, "DOCS_SYNC_STARTUP_COOLDOWN_SEC", 180))
-        lock_key = "school:docs_sync_startup_scheduled"
-        if not cache.add(lock_key, "1", timeout=max(30, cooldown_sec)):
-            logger.info("Пропускаем sync_documents_from_storage_task: уже запланирован недавно.")
-            return
+        if getattr(settings, "DOCS_SYNC_ON_STARTUP", True):
+            cooldown_sec = int(getattr(settings, "DOCS_SYNC_STARTUP_COOLDOWN_SEC", 180))
+            lock_key = "school:docs_sync_startup_scheduled"
+            if cache.add(lock_key, "1", timeout=max(30, cooldown_sec)):
+                try:
+                    from .tasks import sync_documents_from_storage_task
 
-        try:
-            from .tasks import sync_documents_from_storage_task
+                    # Startup sync should not auto-enqueue analysis to avoid background resource spikes.
+                    sync_documents_from_storage_task.delay(enqueue_analysis=False)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Не удалось поставить sync_documents_from_storage_task при старте: %s", exc)
+            else:
+                logger.info("Пропускаем sync_documents_from_storage_task: уже запланирован недавно.")
 
-            # Startup sync should not auto-enqueue analysis to avoid background resource spikes.
-            sync_documents_from_storage_task.delay(enqueue_analysis=False)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Не удалось поставить sync_documents_from_storage_task при старте: %s", exc)
+        validity_lock_key = "school:certificate_reconcile_startup_scheduled"
+        if cache.add(validity_lock_key, "1", timeout=180):
+            try:
+                from .tasks import reconcile_athlete_certificate_validity
+
+                reconcile_athlete_certificate_validity.delay()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Не удалось поставить reconcile_athlete_certificate_validity при старте: %s", exc)

@@ -15,35 +15,54 @@
 
 <div class="card shadow-sm">
     <div class="card-body">
-        <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
-            <label class="text-muted small mb-0">Клуб:</label>
-            <select name="club" class="form-select w-auto" onchange="this.form.submit()">
-                <option value="">Все</option>
-                {% for club in clubs %}
-                    <option value="{{ club.pk }}" {% if selected_club == club.pk|stringformat:'s' %}selected{% endif %}>{{ club.name }}</option>
-                {% endfor %}
-            </select>
-            <input type="hidden" name="order" value="{{ order }}">
-        </form>
+        {% if can_use_extended_filters %}
+            <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                <label class="text-muted small mb-0">Клуб:</label>
+                <select name="club" class="form-select" style="width: 460px;" onchange="this.form.submit()">
+                    <option value="">Все</option>
+                    {% for club in clubs %}
+                        <option value="{{ club.pk }}" {% if selected_club == club.pk|stringformat:'s' %}selected{% endif %}>{{ club.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="hidden" name="order" value="{{ order }}">
+                <input
+                    type="search"
+                    class="form-control"
+                    style="width: 460px;"
+                    placeholder="Фильтр по фамилии"
+                    data-athlete-surname-filter
+                >
+            </form>
 
-        <div class="btn-group w-100 mb-3" role="group" aria-label="Сортировка спортсменов">
-            <a class="btn btn-outline-secondary {% if not order %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}{% if selected_club %}?club={{ selected_club }}{% endif %}">По фамилии</a>
-            <a class="btn btn-outline-secondary {% if order == 'dob' %}active{% endif %}" href="?order=dob{% if selected_club %}&club={{ selected_club }}{% endif %}">По д.р.</a>
-            <a class="btn btn-outline-secondary {% if order == 'group' %}active{% endif %}" href="?order=group{% if selected_club %}&club={{ selected_club }}{% endif %}">По группе</a>
-        </div>
+            <div class="btn-group w-100 mb-3" role="group" aria-label="Сортировка спортсменов">
+                <a class="btn btn-outline-secondary {% if not order %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}{% if selected_club %}?club={{ selected_club }}{% endif %}">По фамилии</a>
+                <a class="btn btn-outline-secondary {% if order == 'dob' %}active{% endif %}" href="?order=dob{% if selected_club %}&club={{ selected_club }}{% endif %}">По д.р.</a>
+                <a class="btn btn-outline-secondary {% if order == 'group' %}active{% endif %}" href="?order=group{% if selected_club %}&club={{ selected_club }}{% endif %}">По группе</a>
+                <a class="btn btn-outline-secondary {% if order == 'club' %}active{% endif %}" href="?order=club{% if selected_club %}&club={{ selected_club }}{% endif %}">По клубу</a>
+            </div>
+        {% endif %}
 
         {% if order == 'dob' and grouped %}
             {% for year, athletes in grouped %}
-                <div class="mt-3">
+                <div class="mt-3" data-athlete-section>
                     <div class="fw-semibold text-uppercase small text-muted">{{ year }}</div>
                     <div class="list-group">
                         {% for athlete in athletes %}
                             {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
-                                <a href="{% url 'school:athlete_edit_compact' athlete.pk %}" class="list-group-item list-group-item-action py-3">
+                                <a
+                                    href="{% url 'school:athlete_edit_compact' athlete.pk %}"
+                                    class="list-group-item list-group-item-action py-3"
+                                    data-athlete-item
+                                    data-athlete-id="{{ athlete.pk }}"
+                                    data-modal-url="{% url 'school:athlete_edit_compact' athlete.pk %}?modal=1"
+                                    data-surname="{{ person.surname|default_if_none:''|lower }}"
+                                >
                                     <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
                                     <div class="d-flex justify-content-between text-muted small mt-1">
                                         <span>{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% else %}—{% endif %}</span>
-                                        <span>{% if main_group %}{{ main_group.name }}{% else %}Без группы{% endif %}</span>
+                                        <span>
+                                            {% if person.club %}{{ person.club.name }}{% endif %}{% if person.club and main_group %} - {% endif %}{% if main_group %}{{ main_group.name }}{% endif %}
+                                        </span>
                                     </div>
                                 </a>
                             {% endwith %}
@@ -53,15 +72,53 @@
             {% endfor %}
         {% elif order == 'group' and grouped %}
             {% for group_name, athletes in grouped %}
-                <div class="mt-3">
+                <div class="mt-3" data-athlete-section>
                     <div class="fw-semibold text-uppercase small text-muted">{{ group_name }}</div>
                     <div class="list-group">
                         {% for athlete in athletes %}
-                            {% with person=athlete.person %}
-                                <a href="{% url 'school:athlete_edit_compact' athlete.pk %}" class="list-group-item list-group-item-action py-3">
+                            {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
+                                <a
+                                    href="{% url 'school:athlete_edit_compact' athlete.pk %}"
+                                    class="list-group-item list-group-item-action py-3"
+                                    data-athlete-item
+                                    data-athlete-id="{{ athlete.pk }}"
+                                    data-modal-url="{% url 'school:athlete_edit_compact' athlete.pk %}?modal=1"
+                                    data-surname="{{ person.surname|default_if_none:''|lower }}"
+                                >
                                     <div class="d-flex justify-content-between">
                                         <span class="fw-semibold">{{ person.surname }} {{ person.name }}</span>
                                         <span class="text-muted small">{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% else %}—{% endif %}</span>
+                                    </div>
+                                    <div class="text-muted small mt-1">
+                                        {% if person.club %}{{ person.club.name }}{% endif %}{% if person.club and main_group %} - {% endif %}{% if main_group %}{{ main_group.name }}{% endif %}
+                                    </div>
+                                </a>
+                            {% endwith %}
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% elif order == 'club' and grouped %}
+            {% for club_name, athletes in grouped %}
+                <div class="mt-3" data-athlete-section>
+                    <div class="fw-semibold text-uppercase small text-muted">{{ club_name }}</div>
+                    <div class="list-group">
+                        {% for athlete in athletes %}
+                            {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
+                                <a
+                                    href="{% url 'school:athlete_edit_compact' athlete.pk %}"
+                                    class="list-group-item list-group-item-action py-3"
+                                    data-athlete-item
+                                    data-athlete-id="{{ athlete.pk }}"
+                                    data-modal-url="{% url 'school:athlete_edit_compact' athlete.pk %}?modal=1"
+                                    data-surname="{{ person.surname|default_if_none:''|lower }}"
+                                >
+                                    <div class="d-flex justify-content-between">
+                                        <span class="fw-semibold">{{ person.surname }} {{ person.name }}</span>
+                                        <span class="text-muted small">{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% else %}—{% endif %}</span>
+                                    </div>
+                                    <div class="text-muted small mt-1">
+                                        {% if person.club %}{{ person.club.name }}{% endif %}{% if person.club and main_group %} - {% endif %}{% if main_group %}{{ main_group.name }}{% endif %}
                                     </div>
                                 </a>
                             {% endwith %}
@@ -70,14 +127,23 @@
                 </div>
             {% endfor %}
         {% else %}
-            <div class="list-group">
+            <div class="list-group" data-athlete-section>
                 {% for athlete in object_list %}
                     {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
-                        <a href="{% url 'school:athlete_edit_compact' athlete.pk %}" class="list-group-item list-group-item-action py-3">
+                        <a
+                            href="{% url 'school:athlete_edit_compact' athlete.pk %}"
+                            class="list-group-item list-group-item-action py-3"
+                            data-athlete-item
+                            data-athlete-id="{{ athlete.pk }}"
+                            data-modal-url="{% url 'school:athlete_edit_compact' athlete.pk %}?modal=1"
+                            data-surname="{{ person.surname|default_if_none:''|lower }}"
+                        >
                             <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
                             <div class="d-flex justify-content-between text-muted small mt-1">
                                 <span>{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% else %}—{% endif %}</span>
-                                <span>{% if main_group %}{{ main_group.name }}{% else %}Без группы{% endif %}</span>
+                                <span>
+                                    {% if person.club %}{{ person.club.name }}{% endif %}{% if person.club and main_group %} - {% endif %}{% if main_group %}{{ main_group.name }}{% endif %}
+                                </span>
                             </div>
                         </a>
                     {% endwith %}
@@ -90,4 +156,38 @@
         {% endif %}
     </div>
 </div>
+
+<div class="modal fade" id="athleteEditModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Редактирование спортсмена</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" data-athlete-modal-body>
+                <div class="text-muted">Загрузка...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="certificatePreviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Справка спортсмена</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <img alt="certificate-preview" class="img-fluid w-100 d-none" data-certificate-image>
+                <iframe title="preview" style="width: 100%; min-height: 75vh; border: 0;" class="d-none" data-certificate-frame></iframe>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content_2 %}
+    {{ block.super }}
+    <script src="{% static 'js/athlete_simple_list.js' %}"></script>
 {% endblock %}

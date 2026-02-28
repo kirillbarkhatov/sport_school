@@ -13,42 +13,7 @@
 
 <div class="card shadow-sm">
     <div class="card-body">
-        <form method="post" enctype="multipart/form-data" id="compact-edit-form" class="d-flex flex-column gap-3">
-            {% csrf_token %}
-
-            <div class="d-flex flex-column gap-2">
-                {{ person_form.surname }}
-                {{ person_form.name }}
-                {{ person_form.middlename }}
-            </div>
-
-            <div>
-                {{ person_form.date_of_birth }}
-                <div class="form-text">Дата рождения</div>
-            </div>
-
-            <div>
-                {{ person_form.club }}
-                <div class="form-text">Клуб</div>
-            </div>
-
-            <div>
-                {{ athlete_form.main_group }}
-                <div class="form-text">Группа</div>
-            </div>
-
-            <div>
-                {{ athlete_form.rank }}
-                <div class="form-text">Разряд</div>
-            </div>
-
-            <div>
-                {{ athlete_form.level }}
-                <div class="form-text">Сезон начала тренировок</div>
-            </div>
-
-            <button type="submit" class="btn btn-primary" id="save-btn" disabled>Сохранить</button>
-        </form>
+        {% include "athletes/edit_compact_modal_body.html" %}
     </div>
 </div>
 {% endblock %}
@@ -61,9 +26,7 @@
             const saveBtn = document.getElementById('save-btn');
             if (!form || !saveBtn) return;
 
-            const markDirty = () => { saveBtn.disabled = false; };
-            form.addEventListener('input', markDirty);
-            form.addEventListener('change', markDirty);
+            saveBtn.disabled = false;
         })();
     </script>
 {% endblock %}
