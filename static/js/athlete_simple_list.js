@@ -28,11 +28,21 @@
     }
   };
 
-  const normalizeClarifyUrl = (template, athleteDocumentId) => {
-    return template.replace("/0/clarify/", `/${athleteDocumentId}/clarify/`);
+  const normalizeClarifyUrl = (template, athleteDocumentId) =>
+    template.replace("/0/clarify/", `/${athleteDocumentId}/clarify/`);
+
+  const buildPreviewSrc = (url, kind) => {
+    if (!url) {
+      return "";
+    }
+    if (kind === "image") {
+      return url;
+    }
+    // For PDF viewers in iframe, fit content to page width on mobile.
+    return `${url}#view=FitH&zoom=page-width`;
   };
 
-  const installPreviewAutoClose = (previewModal) => {
+  const installPreviewAutoClose = (previewModal, previewModalEl) => {
     if (!previewModalEl) {
       return;
     }
@@ -50,11 +60,8 @@
   };
 
   const updateCertificateState = (form, payload) => {
-    if (!form || !payload) {
-      return;
-    }
-    const certWrap = form.querySelector("[data-certificate-section]");
-    if (!certWrap) {
+    const certWrap = form?.querySelector("[data-certificate-section]");
+    if (!certWrap || !payload) {
       return;
     }
     const badgeEl = certWrap.querySelector("[data-cert-badge]");
@@ -62,12 +69,16 @@
     const viewBtn = certWrap.querySelector("[data-view-certificate]");
     const active = payload.active_certificate;
 
+    if (badgeEl) {
+      const tone = payload.badge_tone || "warning";
+      badgeEl.textContent = payload.label || "Данные отсутствуют";
+      badgeEl.classList.remove("text-bg-success", "text-bg-warning", "text-bg-danger");
+      badgeEl.classList.add(
+        tone === "success" ? "text-bg-success" : tone === "danger" ? "text-bg-danger" : "text-bg-warning"
+      );
+    }
+
     if (!active) {
-      if (badgeEl) {
-        badgeEl.textContent = "Данные отсутствуют";
-        badgeEl.classList.remove("text-bg-success");
-        badgeEl.classList.add("text-bg-warning");
-      }
       if (viewBtn) {
         viewBtn.classList.add("d-none");
         viewBtn.dataset.previewUrl = "";
@@ -79,15 +90,6 @@
       return;
     }
 
-    const badgeText = active.valid_until
-      ? `Действует до ${active.valid_until.split("-").reverse().join(".")}`
-      : "Данные отсутствуют";
-    if (badgeEl) {
-      badgeEl.textContent = badgeText;
-      badgeEl.classList.remove("text-bg-success", "text-bg-warning");
-      badgeEl.classList.add(active.valid_until ? "text-bg-success" : "text-bg-warning");
-    }
-
     if (viewBtn) {
       viewBtn.classList.remove("d-none");
       viewBtn.dataset.previewUrl = active.preview_url || "";
@@ -95,100 +97,164 @@
     }
 
     if (clarifyWrap) {
-      if (payload.needs_clarification) {
-        clarifyWrap.classList.remove("d-none");
-      } else {
-        clarifyWrap.classList.add("d-none");
-      }
+      clarifyWrap.classList.toggle("d-none", !payload.needs_clarification);
     }
   };
 
-  const pollCertificateStatus = (form, athleteDocumentId, totalSeconds) => {
-    const statusUrl = form.dataset.certificateStatusUrl;
-    const timerWrap = form.querySelector("[data-ai-timer]");
-    const timerValue = form.querySelector("[data-ai-timer-value]");
-    const statusText = form.querySelector("[data-ai-status-text]");
-    if (!statusUrl || !timerWrap || !timerValue) {
-      return;
+  const fetchModalHtml = async (modalUrl) => {
+    const response = await fetch(modalUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+    const payload = await response.json();
+    if (!response.ok || !payload?.html) {
+      throw new Error("failed_to_load_modal_html");
     }
-
-    stopProcessingIndicators();
-    timerWrap.classList.remove("d-none");
-    let remaining = Math.max(1, Number(totalSeconds || 60));
-    timerValue.textContent = "01:00";
-
-    const renderTimer = () => {
-      const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
-      const ss = String(remaining % 60).padStart(2, "0");
-      timerValue.textContent = `${mm}:${ss}`;
-    };
-    renderTimer();
-
-    timerInterval = setInterval(() => {
-      remaining = Math.max(0, remaining - 1);
-      renderTimer();
-      if (remaining <= 0 && timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-      }
-    }, 1000);
-
-    const fetchStatus = async () => {
-      try {
-        const response = await fetch(`${statusUrl}?athlete_document_id=${athleteDocumentId}`);
-        const payload = await response.json();
-        if (!response.ok || !payload?.success) {
-          return;
-        }
-        if (statusText && payload.processing?.message) {
-          statusText.textContent = payload.processing.message;
-        }
-        updateCertificateState(form, payload);
-
-        const state = payload.processing?.state;
-        if (state && state !== "processing") {
-          stopProcessingIndicators();
-          timerWrap.classList.add("d-none");
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
-    fetchStatus();
-    pollingInterval = setInterval(fetchStatus, 1000);
+    return payload.html;
   };
 
-  const bindModalInteractions = (modalUrl, editModalBody, previewFrame, previewImage, previewModal) => {
-    if (!editModalBody) {
-      return;
-    }
-    const form = editModalBody.querySelector("#compact-edit-form");
+  const bindModalInteractions = ({ modalUrl, editModalBody, previewModalEl, previewFrame, previewImage, previewModal }) => {
+    const form = editModalBody?.querySelector("#compact-edit-form");
     if (!form) {
       return;
     }
 
+    let finalHandled = false;
+    form.dataset.dirty = "0";
+
+    const markDirty = () => {
+      form.dataset.dirty = "1";
+    };
+    form.querySelectorAll("input,select,textarea").forEach((el) => {
+      if (!el.hasAttribute("data-certificate-file-input") && !el.hasAttribute("data-certificate-camera-input")) {
+        el.addEventListener("input", markDirty);
+        el.addEventListener("change", markDirty);
+      }
+    });
+
+    const renderModalHtml = (html) => {
+      editModalBody.innerHTML = html;
+      bindModalInteractions({ modalUrl, editModalBody, previewModalEl, previewFrame, previewImage, previewModal });
+    };
+
+    const saveForm = async () => {
+      const formData = new FormData(form);
+      const response = await fetch(modalUrl, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrfToken,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: formData,
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.html) {
+        return false;
+      }
+      renderModalHtml(payload.html);
+      return true;
+    };
+
+    const reloadModal = async () => {
+      const html = await fetchModalHtml(modalUrl);
+      renderModalHtml(html);
+    };
+
+    const pollCertificateStatus = (athleteDocumentId, totalSeconds) => {
+      const statusUrl = form.dataset.certificateStatusUrl;
+      const timerWrap = form.querySelector("[data-ai-timer]");
+      const timerValue = form.querySelector("[data-ai-timer-value]");
+      const statusText = form.querySelector("[data-ai-status-text]");
+      if (!statusUrl || !timerWrap || !timerValue) {
+        return;
+      }
+
+      stopProcessingIndicators();
+      timerWrap.classList.remove("d-none");
+      let remaining = Math.max(1, Number(totalSeconds || 60));
+
+      const renderTimer = () => {
+        const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
+        const ss = String(remaining % 60).padStart(2, "0");
+        timerValue.textContent = `${mm}:${ss}`;
+      };
+      renderTimer();
+
+      timerInterval = setInterval(() => {
+        remaining = Math.max(0, remaining - 1);
+        renderTimer();
+        if (remaining <= 0) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+      }, 1000);
+
+      const fetchStatus = async () => {
+        try {
+          const response = await fetch(`${statusUrl}?athlete_document_id=${athleteDocumentId}`);
+          const payload = await response.json();
+          if (!response.ok || !payload?.success) {
+            return;
+          }
+          if (statusText && payload.processing?.message) {
+            statusText.textContent = payload.processing.message;
+          }
+          updateCertificateState(form, payload);
+
+          const state = payload.processing?.state;
+          if (state && state !== "processing" && !finalHandled) {
+            finalHandled = true;
+            stopProcessingIndicators();
+            timerWrap.classList.add("d-none");
+
+            if (form.dataset.dirty === "1") {
+              await saveForm();
+            }
+            await reloadModal();
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      };
+
+      fetchStatus();
+      pollingInterval = setInterval(fetchStatus, 1000);
+    };
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const formData = new FormData(form);
       try {
-        const response = await fetch(modalUrl, {
-          method: "POST",
-          headers: {
-            "X-CSRFToken": csrfToken,
-            "X-Requested-With": "XMLHttpRequest",
-          },
-          body: formData,
-        });
-        const payload = await response.json();
-        if (!response.ok || !payload?.html) {
-          return;
-        }
-        editModalBody.innerHTML = payload.html;
-        bindModalInteractions(modalUrl);
+        await saveForm();
       } catch (error) {
         console.error(error);
       }
+    });
+
+    const fileInput = form.querySelector("[data-certificate-file-input]");
+    const cameraInput = form.querySelector("[data-certificate-camera-input]");
+    const selectedNameInput = form.querySelector("[data-selected-file-name]");
+    const pickFileBtn = form.querySelector("[data-pick-file]");
+    const pickPhotoBtn = form.querySelector("[data-pick-photo]");
+
+    const updateSelectedName = () => {
+      const file = fileInput?.files?.[0];
+      const photo = cameraInput?.files?.[0];
+      const selected = photo || file;
+      if (selectedNameInput) {
+        selectedNameInput.value = selected ? selected.name : "";
+      }
+    };
+
+    pickFileBtn?.addEventListener("click", () => fileInput?.click());
+    pickPhotoBtn?.addEventListener("click", () => cameraInput?.click());
+    fileInput?.addEventListener("change", () => {
+      if (cameraInput) {
+        cameraInput.value = "";
+      }
+      updateSelectedName();
+    });
+    cameraInput?.addEventListener("change", () => {
+      if (fileInput) {
+        fileInput.value = "";
+      }
+      updateSelectedName();
     });
 
     editModalBody.onclick = async (event) => {
@@ -200,36 +266,37 @@
         event.preventDefault();
         const previewUrl = viewBtn.dataset.previewUrl || "";
         const previewKind = viewBtn.dataset.previewKind || "document";
-        if (previewUrl) {
-          if (previewFrame) {
-            previewFrame.classList.add("d-none");
-            previewFrame.src = "";
-          }
-          if (previewImage) {
-            previewImage.classList.add("d-none");
-            previewImage.src = "";
-          }
-          if (previewKind === "image" && previewImage) {
-            previewImage.src = previewUrl;
-            previewImage.classList.remove("d-none");
-          } else if (previewFrame) {
-            previewFrame.src = previewUrl;
-            previewFrame.classList.remove("d-none");
-          }
-          previewModal?.show();
-          installPreviewAutoClose(previewModal);
+        if (!previewUrl) {
+          return;
         }
+        if (previewFrame) {
+          previewFrame.classList.add("d-none");
+          previewFrame.src = "";
+        }
+        if (previewImage) {
+          previewImage.classList.add("d-none");
+          previewImage.src = "";
+        }
+        if (previewKind === "image" && previewImage) {
+          previewImage.src = previewUrl;
+          previewImage.classList.remove("d-none");
+        } else if (previewFrame) {
+          previewFrame.src = buildPreviewSrc(previewUrl, previewKind);
+          previewFrame.classList.remove("d-none");
+        }
+        previewModal?.show();
+        installPreviewAutoClose(previewModal, previewModalEl);
         return;
       }
 
       if (uploadBtn) {
-        const input = form.querySelector("[data-certificate-input]");
         const uploadUrl = form.dataset.certificateUploadUrl;
-        if (!input || !uploadUrl || !input.files || !input.files[0]) {
+        const selected = cameraInput?.files?.[0] || fileInput?.files?.[0];
+        if (!uploadUrl || !selected) {
           return;
         }
-        const formData = new FormData();
-        formData.append("certificate", input.files[0]);
+        const payloadFormData = new FormData();
+        payloadFormData.append("certificate", selected);
         try {
           const response = await fetch(uploadUrl, {
             method: "POST",
@@ -237,14 +304,22 @@
               "X-CSRFToken": csrfToken,
               "X-Requested-With": "XMLHttpRequest",
             },
-            body: formData,
+            body: payloadFormData,
           });
           const payload = await response.json();
           if (!response.ok || !payload?.success) {
             return;
           }
-          pollCertificateStatus(form, payload.athlete_document_id, payload.processing_seconds || 60);
-          input.value = "";
+          if (fileInput) {
+            fileInput.value = "";
+          }
+          if (cameraInput) {
+            cameraInput.value = "";
+          }
+          if (selectedNameInput) {
+            selectedNameInput.value = "";
+          }
+          pollCertificateStatus(payload.athlete_document_id, payload.processing_seconds || 60);
         } catch (error) {
           console.error(error);
         }
@@ -262,15 +337,15 @@
         if (!validUntil) {
           return;
         }
-        const statusResponse = await fetch(`${form.dataset.certificateStatusUrl}`);
+        const statusResponse = await fetch(form.dataset.certificateStatusUrl);
         const statusPayload = await statusResponse.json();
         const active = statusPayload?.active_certificate;
         if (!active?.id) {
           return;
         }
         const clarifyUrl = normalizeClarifyUrl(templateUrl, active.id);
-        const formData = new URLSearchParams();
-        formData.set("valid_until", validUntil);
+        const payloadFormData = new URLSearchParams();
+        payloadFormData.set("valid_until", validUntil);
         try {
           const response = await fetch(clarifyUrl, {
             method: "POST",
@@ -279,7 +354,7 @@
               "X-Requested-With": "XMLHttpRequest",
               "Content-Type": "application/x-www-form-urlencoded",
             },
-            body: formData.toString(),
+            body: payloadFormData.toString(),
           });
           const payload = await response.json();
           if (!response.ok || !payload?.success) {
@@ -309,18 +384,9 @@
     stopProcessingIndicators();
 
     try {
-      const response = await fetch(modalUrl, {
-        headers: {
-          "X-Requested-With": "XMLHttpRequest",
-        },
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload?.html) {
-        editModalBody.innerHTML = '<div class="text-danger">Не удалось загрузить форму</div>';
-        return;
-      }
-      editModalBody.innerHTML = payload.html;
-      bindModalInteractions(modalUrl, editModalBody, previewFrame, previewImage, previewModal);
+      const html = await fetchModalHtml(modalUrl);
+      editModalBody.innerHTML = html;
+      bindModalInteractions({ modalUrl, editModalBody, previewModalEl, previewFrame, previewImage, previewModal });
     } catch (error) {
       console.error(error);
       editModalBody.innerHTML = '<div class="text-danger">Ошибка при загрузке формы</div>';
