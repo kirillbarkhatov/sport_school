@@ -398,7 +398,7 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
         athlete = get_object_or_404(Athlete, pk=pk)
         if request.user.is_staff or request.user.is_superuser:
             return athlete
-        allowed = get_athlete_queryset_for_user(request.user)
+        allowed = get_available_athlete_queryset_for_user(request.user, ensure_family_links=True)
         if allowed.filter(id=athlete.id).exists():
             return athlete
         if request.user.is_approved:

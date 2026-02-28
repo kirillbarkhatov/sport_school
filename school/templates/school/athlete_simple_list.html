@@ -157,44 +157,7 @@
     </div>
 </div>
 
-<div class="modal fade" id="athleteEditModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Редактирование спортсмена</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body" data-athlete-modal-body>
-                <div class="text-muted">Загрузка...</div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="certificatePreviewModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-fullscreen-sm-down modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Справка спортсмена</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-0 d-flex align-items-center justify-content-center bg-light">
-                <img
-                    alt="certificate-preview"
-                    class="d-none"
-                    style="max-width: 100%; max-height: calc(100vh - 140px); width: auto; height: auto; object-fit: contain;"
-                    data-certificate-image
-                >
-                <iframe
-                    title="preview"
-                    style="width: 100%; height: calc(100vh - 140px); border: 0;"
-                    class="d-none"
-                    data-certificate-frame
-                ></iframe>
-            </div>
-        </div>
-    </div>
-</div>
+{% include "athletes/includes/edit_modals.html" %}
 {% endblock %}
 
 {% block content_2 %}
