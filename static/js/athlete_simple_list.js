@@ -360,7 +360,8 @@
           if (!response.ok || !payload?.success) {
             return;
           }
-          updateCertificateState(form, payload);
+          // Persist whole modal form and refresh modal HTML so all fields stay consistent.
+          await saveForm();
         } catch (error) {
           console.error(error);
         }
