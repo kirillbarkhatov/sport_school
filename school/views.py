@@ -678,7 +678,7 @@ class AthleteCertificateStatusView(ApprovedUserRequiredMixin, View):
                 if link:
                     analysis = getattr(link.document, "ai_analysis", None)
                     if not analysis or analysis.status == DocumentAIAnalysis.Status.PENDING:
-                        processing = {"state": "processing", "message": "AI анализирует документ"}
+                        processing = {"state": "processing", "message": "анализируем документ"}
                     elif analysis.is_analyzed_successfully:
                         link_ui = _resolve_certificate_ui_state(link)
                         if link_ui["is_unrecognized"]:

@@ -141,7 +141,7 @@ def monitor_athlete_document_analysis_status(*, athlete_document_id: int, timeou
 
         analysis = getattr(link.document, "ai_analysis", None)
         if not analysis or analysis.status == DocumentAIAnalysis.Status.PENDING:
-            final_payload = {"state": "processing", "message": "AI анализирует документ", "ai_status": "pending"}
+            final_payload = {"state": "processing", "message": "анализируем документ", "ai_status": "pending"}
             cache.set(key, final_payload, timeout=180)
             time.sleep(1)
             continue
