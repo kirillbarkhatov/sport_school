@@ -6,6 +6,8 @@ from datetime import date
 from difflib import SequenceMatcher
 from typing import Any
 
+from django.utils import timezone
+
 from .models import Athlete, AthleteDocument, Competition, CompetitionDocument, Document, DocumentAIAnalysis, DocumentType, Person
 
 
@@ -61,6 +63,76 @@ def _safe_date(raw: Any) -> date | None:
         except Exception:
             return None
     return None
+
+
+def _analysis_dates(analysis: DocumentAIAnalysis | None) -> tuple[date | None, date | None]:
+    if not analysis:
+        return None, None
+    extracted = analysis.extracted or {}
+    return _safe_date(extracted.get("issue_date")), _safe_date(extracted.get("valid_until"))
+
+
+def _sync_med_cert_actual_flags(athlete: Athlete) -> None:
+    today = timezone.localdate()
+    med_docs = list(
+        AthleteDocument.objects.filter(athlete=athlete, doc_type=DocumentType.MED_CERT).order_by("-created_at")
+    )
+    if not med_docs:
+        return
+
+    for doc in med_docs:
+        if doc.valid_until and doc.valid_until < today and doc.is_actual:
+            doc.is_actual = False
+            doc.save(update_fields=["is_actual"])
+
+    valid_docs = [
+        doc for doc in med_docs
+        if doc.valid_until and doc.valid_until >= today
+    ]
+    if valid_docs:
+        active_id = valid_docs[0].id
+    else:
+        pending_docs = [doc for doc in med_docs if doc.needs_valid_until_clarification]
+        active_id = pending_docs[0].id if pending_docs else None
+    for doc in med_docs:
+        should_be_actual = active_id is not None and doc.id == active_id
+        if doc.is_actual != should_be_actual:
+            doc.is_actual = should_be_actual
+            doc.save(update_fields=["is_actual"])
+
+
+def sync_athlete_document_from_analysis(document: Document) -> None:
+    analysis = getattr(document, "ai_analysis", None)
+    if not analysis or not analysis.is_analyzed_successfully:
+        return
+
+    issued_at, valid_until = _analysis_dates(analysis)
+    links = AthleteDocument.objects.select_related("athlete").filter(document=document)
+    if not links.exists():
+        return
+
+    updated_athlete_ids: set[int] = set()
+    for link in links:
+        update_fields: list[str] = []
+        if issued_at and link.issued_at != issued_at:
+            link.issued_at = issued_at
+            update_fields.append("issued_at")
+        if valid_until and link.valid_until != valid_until:
+            link.valid_until = valid_until
+            update_fields.append("valid_until")
+        needs_clarification = valid_until is None and link.doc_type == DocumentType.MED_CERT
+        if link.needs_valid_until_clarification != needs_clarification:
+            link.needs_valid_until_clarification = needs_clarification
+            update_fields.append("needs_valid_until_clarification")
+
+        if update_fields:
+            link.save(update_fields=update_fields)
+        updated_athlete_ids.add(link.athlete_id)
+
+    for athlete_id in updated_athlete_ids:
+        athlete = Athlete.objects.filter(pk=athlete_id).first()
+        if athlete:
+            _sync_med_cert_actual_flags(athlete)
 
 
 def _build_full_name(person_block: dict[str, Any]) -> str:
@@ -403,6 +475,7 @@ def auto_bind_document_by_analysis(document: Document) -> AutoBindResult:
                 "doc_type": doc_type,
             },
         )
+        sync_athlete_document_from_analysis(document)
         return AutoBindResult(bound=True, entity_type="athlete", entity_id=athlete.id, doc_type=doc_type)
 
     return AutoBindResult(bound=False)
@@ -549,11 +622,19 @@ def bind_document_to_competition(*, document: Document, competition: Competition
 
 
 def bind_document_to_athlete(*, document: Document, athlete: Athlete, doc_type: str) -> AthleteDocument:
-    return AthleteDocument.objects.create(
+    analysis = getattr(document, "ai_analysis", None)
+    issued_at, valid_until = _analysis_dates(analysis)
+    link = AthleteDocument.objects.create(
         athlete=athlete,
         document=document,
         doc_type=doc_type,
+        issued_at=issued_at,
+        valid_until=valid_until,
+        needs_valid_until_clarification=bool(doc_type == DocumentType.MED_CERT and valid_until is None),
     )
+    if doc_type == DocumentType.MED_CERT:
+        _sync_med_cert_actual_flags(athlete)
+    return link
 
 
 def create_competition_from_analysis(document: Document) -> Competition:

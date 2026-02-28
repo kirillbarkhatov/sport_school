@@ -7,16 +7,19 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.db.models.functions import Coalesce
 from django.http import FileResponse, Http404, JsonResponse, HttpResponse
 from django.shortcuts import render, get_object_or_404, redirect
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView, ListView
 
+from school.document_ai import make_signed_document_url
 from school.forms import (
     AthleteForm,
     AthleteCompactForm,
@@ -37,7 +40,9 @@ from school.document_binding import (
     create_athlete_from_analysis,
     create_competition_from_analysis,
     get_binding_context,
+    sync_athlete_document_from_analysis,
 )
+from school.document_ingest import DocumentIngestValidationError, ingest_single_document
 from school.models import (
     Athlete,
     Family,
@@ -55,7 +60,8 @@ from school.models import (
     DocumentType,
     AthleteDocument,
 )
-from school.tasks import enqueue_documents_for_ai_analysis
+from school.tasks import enqueue_documents_for_ai_analysis, monitor_athlete_document_analysis_status
+from users.constants import ADMIN_GROUP_NAME, COACH_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
     get_athlete_queryset_for_user,
@@ -69,6 +75,75 @@ from users.utils import (
 
 
 # Create your views here.
+
+
+KANAEV_CLUB_NAME = "Канаев Ски Клаб"
+
+
+def _is_extended_athlete_filters_user(user) -> bool:
+    if user.is_staff or user.is_superuser:
+        return True
+    role_names = {ADMIN_GROUP_NAME, COACH_GROUP_NAME, MANAGER_GROUP_NAME}
+    return user.groups.filter(name__in=role_names).exists()
+
+
+def _can_manage_athlete_certificates(user) -> bool:
+    return bool(user and user.is_authenticated)
+
+
+def _monitor_cache_key(athlete_document_id: int) -> str:
+    return f"athlete-cert-monitor:{athlete_document_id}"
+
+
+def _get_athlete_med_documents(athlete: Athlete):
+    return (
+        AthleteDocument.objects
+        .select_related("document", "document__ai_analysis")
+        .filter(athlete=athlete, doc_type=DocumentType.MED_CERT)
+        .order_by("-is_actual", "-created_at")
+    )
+
+
+def _build_athlete_certificate_context(athlete: Athlete) -> dict[str, object]:
+    med_docs = list(_get_athlete_med_documents(athlete))
+    active_doc = next((item for item in med_docs if item.is_actual), None)
+    inactive_docs = [item for item in med_docs if not item.is_actual]
+
+    active_payload = None
+    if active_doc:
+        original_name = (active_doc.document.original_name or "").lower()
+        mime_type = (active_doc.document.mime_type or "").lower()
+        is_image = mime_type.startswith("image/") or original_name.endswith(
+            (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif")
+        )
+        active_payload = {
+            "id": active_doc.id,
+            "valid_until": active_doc.valid_until,
+            "valid_until_iso": active_doc.valid_until.isoformat() if active_doc.valid_until else "",
+            "needs_clarification": active_doc.needs_valid_until_clarification,
+            "preview_url": make_signed_document_url(active_doc.document),
+            "file_name": active_doc.document.original_name or "Документ",
+            "preview_kind": "image" if is_image else "document",
+        }
+
+    inactive_payload = [
+        {
+            "id": item.id,
+            "valid_until": item.valid_until,
+            "preview_url": make_signed_document_url(item.document),
+            "file_name": item.document.original_name or "Документ",
+        }
+        for item in inactive_docs
+    ]
+
+    return {
+        "active_document": active_doc,
+        "inactive_documents": inactive_docs,
+        "active_payload": active_payload,
+        "inactive_payload": inactive_payload,
+        "has_active": bool(active_doc and active_doc.valid_until),
+        "needs_clarification": bool(active_doc and active_doc.needs_valid_until_clarification),
+    }
 
 
 class IndexView(ApprovedUserRequiredMixin, TemplateView):
@@ -126,7 +201,7 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
     def get_queryset(self):
         queryset = (
             get_athlete_queryset_for_user(self.request.user)
-            .select_related("person")
+            .select_related("person", "person__club")
             .prefetch_related(
                 Prefetch("groups_athletes", queryset=Group.objects.order_by("name"))
             )
@@ -141,6 +216,8 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
         if order == "group":
             # Сортируем по названию группы; distinct чтобы избежать дубликатов из-за M2M
             return queryset.order_by("groups_athletes__name", "person__surname", "person__name").distinct()
+        if order == "club":
+            return queryset.order_by("person__club__name", "person__surname", "person__name")
         return queryset.order_by("person__surname", "person__name")
 
     def get_context_data(self, **kwargs):
@@ -148,6 +225,7 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
         context["order"] = self.request.GET.get("order") or ""
         context["clubs"] = Club.objects.order_by("name")
         context["selected_club"] = self.request.GET.get("club") or ""
+        context["can_use_extended_filters"] = _is_extended_athlete_filters_user(self.request.user)
         order = context["order"]
         grouped = []
 
@@ -170,6 +248,12 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
                 label = main_group.name if main_group else "Без группы"
                 buckets.setdefault(label, []).append(athlete)
             grouped = sorted(buckets.items(), key=lambda x: (x[0] == "Без группы", x[0]))
+        elif order == "club":
+            buckets = {}
+            for athlete in context["object_list"]:
+                club_name = athlete.person.club.name if athlete.person and athlete.person.club else "Без клуба"
+                buckets.setdefault(club_name, []).append(athlete)
+            grouped = sorted(buckets.items(), key=lambda x: (x[0] == "Без клуба", x[0]))
 
         context["grouped"] = grouped
         return context
@@ -262,6 +346,7 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
     """Мобильный компактный экран редактирования спортсмена."""
 
     template_name = "athletes/edit_compact.html"
+    modal_template_name = "athletes/edit_compact_modal_body.html"
 
     def get_athlete(self, request, pk):
         athlete = get_object_or_404(Athlete, pk=pk)
@@ -274,6 +359,24 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
             return None
         return None
 
+    @staticmethod
+    def _is_modal(request) -> bool:
+        return request.GET.get("modal") == "1" or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def _build_context(self, request, athlete, person_form, athlete_form, *, saved: bool):
+        certificate_ctx = _build_athlete_certificate_context(athlete)
+        club_name = (athlete.person.club.name if athlete.person and athlete.person.club else "") or ""
+        can_show_group = club_name.strip().lower() == KANAEV_CLUB_NAME.lower()
+        return {
+            "athlete": athlete,
+            "person_form": person_form,
+            "athlete_form": athlete_form,
+            "saved": saved,
+            "can_show_group": can_show_group,
+            "can_manage_certificates": _can_manage_athlete_certificates(request.user),
+            **certificate_ctx,
+        }
+
     def get(self, request, pk):
         athlete = self.get_athlete(request, pk)
         if athlete is None:
@@ -282,16 +385,11 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
         group_qs = get_group_queryset_for_user(request.user)
         person_form = PersonCompactForm(instance=person)
         athlete_form = AthleteCompactForm(instance=athlete, group_qs=group_qs)
-        return render(
-            request,
-            self.template_name,
-            {
-                "athlete": athlete,
-                "person_form": person_form,
-                "athlete_form": athlete_form,
-                "saved": False,
-            },
-        )
+        context = self._build_context(request, athlete, person_form, athlete_form, saved=False)
+        if self._is_modal(request):
+            html = render_to_string(self.modal_template_name, context=context, request=request)
+            return JsonResponse({"success": True, "html": html})
+        return render(request, self.template_name, context)
 
     def post(self, request, pk):
         athlete = self.get_athlete(request, pk)
@@ -309,16 +407,18 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
         else:
             saved = False
 
-        return render(
-            request,
-            self.template_name,
-            {
-                "athlete": athlete,
-                "person_form": person_form,
-                "athlete_form": athlete_form,
-                "saved": saved,
-            },
-        )
+        context = self._build_context(request, athlete, person_form, athlete_form, saved=saved)
+        if self._is_modal(request):
+            html = render_to_string(self.modal_template_name, context=context, request=request)
+            return JsonResponse(
+                {
+                    "success": saved,
+                    "html": html,
+                    "message": "Сохранено" if saved else "Проверьте заполнение полей",
+                },
+                status=200 if saved else 400,
+            )
+        return render(request, self.template_name, context)
 
 
 class AthleteInlineUpdateView(ApprovedUserRequiredMixin, View):
@@ -429,6 +529,160 @@ class AthleteInlineUpdateView(ApprovedUserRequiredMixin, View):
             }
         )
         return JsonResponse({"success": True, "athlete": response_payload})
+
+
+class AthleteCertificateUploadView(ApprovedUserRequiredMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        athlete = get_athlete_queryset_for_user(request.user).select_related("person").filter(pk=pk).first()
+        if not athlete:
+            return JsonResponse({"error": "not_found"}, status=404)
+        if not _can_manage_athlete_certificates(request.user):
+            return JsonResponse({"error": "forbidden"}, status=403)
+
+        uploaded = request.FILES.get("certificate")
+        if not uploaded:
+            return JsonResponse({"error": "empty_file"}, status=400)
+
+        try:
+            ingest_result = ingest_single_document(
+                file_obj=uploaded,
+                original_name=getattr(uploaded, "name", "") or "",
+                mime_type=getattr(uploaded, "content_type", "") or "",
+                size=int(getattr(uploaded, "size", 0) or 0),
+                uploaded_by=request.user,
+                source="web_athlete_certificate",
+                source_meta={"athlete_id": athlete.id, "uploaded_via": "athlete_modal"},
+                enqueue_analysis=True,
+                deduplicate=True,
+                enqueue_existing=True,
+                allowed_extensions={"pdf", "jpg", "jpeg", "png", "webp", "heic", "heif"},
+                max_size_mb=20,
+            )
+        except DocumentIngestValidationError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
+        document = Document.objects.filter(pk=ingest_result.document_id).first()
+        if not document:
+            return JsonResponse({"error": "document_not_found"}, status=400)
+
+        with transaction.atomic():
+            link, created = AthleteDocument.objects.get_or_create(
+                athlete=athlete,
+                document=document,
+                defaults={
+                    "doc_type": DocumentType.MED_CERT,
+                    "is_actual": False,
+                },
+            )
+            if not created and link.doc_type != DocumentType.MED_CERT:
+                link.doc_type = DocumentType.MED_CERT
+                link.save(update_fields=["doc_type"])
+
+            AthleteDocument.objects.filter(
+                athlete=athlete,
+                doc_type=DocumentType.MED_CERT,
+            ).exclude(pk=link.pk).update(is_actual=False)
+            link.is_actual = True
+            link.save(update_fields=["is_actual"])
+
+        monitor_athlete_document_analysis_status.delay(athlete_document_id=link.id, timeout_seconds=60)
+
+        certificate_ctx = _build_athlete_certificate_context(athlete)
+        return JsonResponse(
+            {
+                "success": True,
+                "message": "Файл загружен и отправлен на обработку",
+                "athlete_document_id": link.id,
+                "processing_seconds": 60,
+                "certificate": certificate_ctx["active_payload"],
+            }
+        )
+
+
+class AthleteCertificateStatusView(ApprovedUserRequiredMixin, View):
+    http_method_names = ["get"]
+
+    def get(self, request, pk):
+        athlete = get_athlete_queryset_for_user(request.user).select_related("person").filter(pk=pk).first()
+        if not athlete:
+            return JsonResponse({"error": "not_found"}, status=404)
+
+        doc_id_raw = request.GET.get("athlete_document_id")
+        processing = None
+        if doc_id_raw:
+            try:
+                doc_id_int = int(doc_id_raw)
+            except (TypeError, ValueError):
+                doc_id_int = None
+            if doc_id_int:
+                processing = cache.get(_monitor_cache_key(doc_id_int))
+
+        certificate_ctx = _build_athlete_certificate_context(athlete)
+        active_payload = certificate_ctx["active_payload"]
+        if active_payload:
+            label = f"Действует до {active_payload['valid_until'].strftime('%d.%m.%Y')}" if active_payload["valid_until"] else "Требуется уточнение по справке"
+        else:
+            label = "Отсутствуют данные о действующей справке"
+
+        return JsonResponse(
+            {
+                "success": True,
+                "label": label,
+                "has_active": bool(active_payload and active_payload.get("valid_until")),
+                "needs_clarification": bool(active_payload and active_payload.get("needs_clarification")),
+                "active_certificate": active_payload,
+                "inactive_certificates": certificate_ctx["inactive_payload"],
+                "processing": processing,
+            }
+        )
+
+
+class AthleteCertificateClarifyView(ApprovedUserRequiredMixin, View):
+    http_method_names = ["post"]
+
+    def post(self, request, pk, athlete_document_id):
+        athlete = get_athlete_queryset_for_user(request.user).filter(pk=pk).first()
+        if not athlete:
+            return JsonResponse({"error": "not_found"}, status=404)
+        if not _can_manage_athlete_certificates(request.user):
+            return JsonResponse({"error": "forbidden"}, status=403)
+
+        link = AthleteDocument.objects.select_related("athlete").filter(
+            pk=athlete_document_id,
+            athlete=athlete,
+            doc_type=DocumentType.MED_CERT,
+        ).first()
+        if not link:
+            return JsonResponse({"error": "document_not_found"}, status=404)
+
+        valid_until_raw = (request.POST.get("valid_until") or "").strip()
+        try:
+            valid_until = date.fromisoformat(valid_until_raw)
+        except ValueError:
+            return JsonResponse({"error": "invalid_valid_until"}, status=400)
+
+        link.valid_until = valid_until
+        link.needs_valid_until_clarification = False
+        link.is_actual = valid_until >= timezone.localdate()
+        link.save(update_fields=["valid_until", "needs_valid_until_clarification", "is_actual"])
+
+        if link.is_actual:
+            AthleteDocument.objects.filter(
+                athlete=athlete,
+                doc_type=DocumentType.MED_CERT,
+            ).exclude(pk=link.pk).update(is_actual=False)
+
+        certificate_ctx = _build_athlete_certificate_context(athlete)
+        return JsonResponse(
+            {
+                "success": True,
+                "message": "Срок действия обновлён",
+                "active_certificate": certificate_ctx["active_payload"],
+                "inactive_certificates": certificate_ctx["inactive_payload"],
+            }
+        )
 
 
 class CompetitionListView(ApprovedUserRequiredMixin, ListView):
@@ -925,6 +1179,16 @@ class DocumentBindAthleteView(ApprovedUserRequiredMixin, View):
             if not created:
                 link.doc_type = doc_type
                 link.save(update_fields=["doc_type"])
+            sync_athlete_document_from_analysis(document)
+            if doc_type == DocumentType.MED_CERT:
+                AthleteDocument.objects.filter(
+                    athlete=athlete,
+                    doc_type=DocumentType.MED_CERT,
+                ).exclude(pk=link.pk).update(is_actual=False)
+                link.refresh_from_db()
+                if not link.is_actual:
+                    link.is_actual = True
+                    link.save(update_fields=["is_actual"])
             DocumentAIAnalysis.objects.filter(document=document).update(
                 auto_bound=False,
                 bound_entity_type="athlete",

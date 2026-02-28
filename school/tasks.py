@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 import mimetypes
 import random
 import time
@@ -28,10 +29,15 @@ from .document_ai import (
     make_signed_document_url,
 )
 from .document_binding import auto_bind_document_by_analysis
-from .models import AthleteContract, Document, DocumentAIAnalysis, DocumentAIJob, DocumentAIJobItem
+from .document_binding import sync_athlete_document_from_analysis
+from .models import AthleteContract, AthleteDocument, Document, DocumentAIAnalysis, DocumentAIJob, DocumentAIJobItem, DocumentType
 from .services import ensure_monthly_service_for_contract
 
 logger = get_task_logger(__name__)
+
+
+def _monitor_cache_key(athlete_document_id: int) -> str:
+    return f"athlete-cert-monitor:{athlete_document_id}"
 
 
 @shared_task
@@ -40,6 +46,142 @@ def ensure_monthly_contract_services():
     contracts = AthleteContract.objects.select_related("profile__family", "profile__athlete__person")
     for contract in contracts:
         ensure_monthly_service_for_contract(contract, today)
+
+
+@shared_task
+def reconcile_athlete_certificate_validity() -> dict[str, int]:
+    today = timezone.localdate()
+    updated = 0
+    need_clarification = 0
+    marked_inactive = 0
+
+    med_docs = (
+        AthleteDocument.objects.select_related("document__ai_analysis")
+        .filter(doc_type=DocumentType.MED_CERT)
+        .order_by("athlete_id", "-created_at")
+    )
+
+    by_athlete: dict[int, list[AthleteDocument]] = defaultdict(list)
+    for link in med_docs:
+        analysis = getattr(link.document, "ai_analysis", None)
+        extracted = (analysis.extracted or {}) if analysis else {}
+        ai_valid_until = extracted.get("valid_until")
+        changed_fields: list[str] = []
+        if not link.valid_until and ai_valid_until:
+            try:
+                parsed_date = date.fromisoformat(str(ai_valid_until))
+                link.valid_until = parsed_date
+                changed_fields.append("valid_until")
+            except Exception:
+                pass
+
+        clarification = link.valid_until is None
+        if link.needs_valid_until_clarification != clarification:
+            link.needs_valid_until_clarification = clarification
+            changed_fields.append("needs_valid_until_clarification")
+            need_clarification += int(clarification)
+            updated += 1
+
+        if link.valid_until and link.valid_until < today and link.is_actual:
+            link.is_actual = False
+            changed_fields.append("is_actual")
+            marked_inactive += 1
+            updated += 1
+
+        if link.valid_until and clarification:
+            link.needs_valid_until_clarification = False
+            changed_fields.append("needs_valid_until_clarification")
+            updated += 1
+
+        if changed_fields:
+            link.save(update_fields=list(set(changed_fields)))
+        by_athlete[link.athlete_id].append(link)
+
+    for athlete_id, docs in by_athlete.items():
+        valid_docs = [doc for doc in docs if doc.valid_until and doc.valid_until >= today]
+        if valid_docs:
+            active_id = valid_docs[0].id
+        else:
+            pending_docs = [doc for doc in docs if doc.needs_valid_until_clarification]
+            active_id = pending_docs[0].id if pending_docs else None
+        for doc in docs:
+            should_be_active = active_id is not None and doc.id == active_id
+            if doc.is_actual != should_be_active:
+                doc.is_actual = should_be_active
+                doc.save(update_fields=["is_actual"])
+                updated += 1
+
+    return {
+        "updated": updated,
+        "need_clarification": need_clarification,
+        "marked_inactive": marked_inactive,
+    }
+
+
+@shared_task
+def monitor_athlete_document_analysis_status(*, athlete_document_id: int, timeout_seconds: int = 60) -> dict[str, Any]:
+    key = _monitor_cache_key(int(athlete_document_id))
+    deadline = time.time() + max(10, int(timeout_seconds))
+    final_payload: dict[str, Any] = {
+        "state": "processing",
+        "message": "Документ отправлен в обработку",
+    }
+
+    while time.time() < deadline:
+        link = (
+            AthleteDocument.objects.select_related("document__ai_analysis")
+            .filter(pk=athlete_document_id)
+            .first()
+        )
+        if not link:
+            final_payload = {"state": "failed", "message": "Документ не найден"}
+            cache.set(key, final_payload, timeout=180)
+            return final_payload
+
+        analysis = getattr(link.document, "ai_analysis", None)
+        if not analysis or analysis.status == DocumentAIAnalysis.Status.PENDING:
+            final_payload = {"state": "processing", "message": "AI анализирует документ", "ai_status": "pending"}
+            cache.set(key, final_payload, timeout=180)
+            time.sleep(1)
+            continue
+
+        if analysis.is_analyzed_successfully:
+            sync_athlete_document_from_analysis(link.document)
+            link.refresh_from_db()
+            if link.valid_until:
+                final_payload = {
+                    "state": "done",
+                    "message": "Справка распознана",
+                    "valid_until": link.valid_until.isoformat(),
+                }
+            else:
+                final_payload = {
+                    "state": "need_clarification",
+                    "message": "Требуется уточнение по справке",
+                }
+            cache.set(key, final_payload, timeout=180)
+            return final_payload
+
+        if analysis.status in {
+            DocumentAIAnalysis.Status.FAILED_DOWNLOAD,
+            DocumentAIAnalysis.Status.FAILED_OPENAI,
+            DocumentAIAnalysis.Status.FAILED_VALIDATION,
+            DocumentAIAnalysis.Status.ERROR,
+        }:
+            final_payload = {
+                "state": "failed",
+                "message": analysis.error_message or "Ошибка обработки документа",
+                "ai_status": analysis.status,
+            }
+            cache.set(key, final_payload, timeout=180)
+            return final_payload
+
+        final_payload = {"state": "processing", "message": "AI обрабатывает документ", "ai_status": analysis.status}
+        cache.set(key, final_payload, timeout=180)
+        time.sleep(1)
+
+    cache.set(key, final_payload, timeout=180)
+    return final_payload
 
 
 def _queue_name() -> str:
@@ -702,6 +844,7 @@ def analyze_documents_batch_task(
         )
         if result_item:
             bind_result = auto_bind_document_by_analysis(document)
+            sync_athlete_document_from_analysis(document)
             if bind_result.bound and hasattr(document, "ai_analysis"):
                 DocumentAIAnalysis.objects.filter(document=document).update(
                     auto_bound=True,
