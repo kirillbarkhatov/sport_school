@@ -1,0 +1,87 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Локации соревнований{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">Локации соревнований</h2>
+    <form method="post" action="{% url 'school:competition_venue_recheck_unbound' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-primary btn-sm">Перепроверить непривязанные документы</button>
+    </form>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header">Новая локация</div>
+    <div class="card-body">
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Короткое название</label>
+                {{ create_form.short_name }}
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Родительская локация</label>
+                {{ create_form.parent }}
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Точный адрес</label>
+                {{ create_form.full_address }}
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Комментарий</label>
+                {{ create_form.comment }}
+            </div>
+            <div class="col-12">
+                <div class="form-check">
+                    {{ create_form.is_active }}
+                    <label class="form-check-label" for="{{ create_form.is_active.id_for_label }}">Активна</label>
+                </div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Сохранить локацию</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header">Список локаций</div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead>
+            <tr>
+                <th>Короткое название</th>
+                <th>Родитель</th>
+                <th>Адрес</th>
+                <th>Статус</th>
+                <th class="text-end">Действия</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for venue in venues %}
+                <tr>
+                    <td>{{ venue.short_name }}</td>
+                    <td>{{ venue.parent.short_name|default:"—" }}</td>
+                    <td>{{ venue.full_address|default:"—"|truncatechars:90 }}</td>
+                    <td>
+                        {% if venue.is_active %}
+                            <span class="badge text-bg-success">Активна</span>
+                        {% else %}
+                            <span class="badge text-bg-secondary">Архив</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <a href="{% url 'school:competition_venue_edit' venue.pk %}" class="btn btn-sm btn-outline-secondary">Редактировать</a>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="5" class="text-muted text-center py-4">Локаций пока нет.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
