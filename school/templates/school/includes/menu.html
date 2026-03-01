@@ -34,6 +34,10 @@
                     <i class="bi bi-trophy"></i>
                     Соревнования
                 </a>
+                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/competitions/venues' %}active{% endif %}" href="{% url 'school:competition_venue_list' %}">
+                    <i class="bi bi-geo-alt"></i>
+                    Локации соревнований
+                </a>
                 <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/documents/bulk-upload' %}active{% endif %}" href="{% url 'school:documents_bulk_upload' %}">
                     <i class="bi bi-upload"></i>
                     Массовая загрузка документов

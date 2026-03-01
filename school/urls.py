@@ -35,6 +35,13 @@ urlpatterns = [
         name="athlete_inline_update",
     ),
     path("competitions/", views.CompetitionListView.as_view(), name="competition_list"),
+    path("competitions/venues/", views.CompetitionVenueListCreateView.as_view(), name="competition_venue_list"),
+    path("competitions/venues/<int:pk>/edit/", views.CompetitionVenueUpdateView.as_view(), name="competition_venue_edit"),
+    path(
+        "competitions/venues/recheck-unbound/",
+        views.CompetitionVenueRecheckUnboundDocumentsView.as_view(),
+        name="competition_venue_recheck_unbound",
+    ),
     path("competitions/new/", views.CompetitionCreateUpdateView.as_view(), name="competition_create"),
     path("competitions/<int:pk>/edit/", views.CompetitionCreateUpdateView.as_view(), name="competition_edit"),
     path(

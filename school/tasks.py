@@ -193,6 +193,44 @@ def monitor_athlete_document_analysis_status(*, athlete_document_id: int, timeou
     return final_payload
 
 
+@shared_task
+def rebind_unbound_competition_documents_task(*, limit: int = 0) -> dict[str, int]:
+    queryset = (
+        Document.objects.select_related("ai_analysis")
+        .filter(
+            ai_analysis__is_analyzed_successfully=True,
+            ai_analysis__doc_type=DocumentAIAnalysis.DocType.COMPETITION_GENERAL,
+            competition_links__isnull=True,
+            athlete_links__isnull=True,
+        )
+        .order_by("-ai_analysis__analyzed_at", "id")
+        .distinct()
+    )
+    if limit and limit > 0:
+        queryset = queryset[:limit]
+
+    processed = 0
+    bound = 0
+    for document in queryset:
+        processed += 1
+        bind_result = auto_bind_document_by_analysis(document)
+        if not bind_result.bound:
+            continue
+        DocumentAIAnalysis.objects.filter(document=document).update(
+            auto_bound=True,
+            bound_entity_type=bind_result.entity_type,
+            bound_entity_id=bind_result.entity_id,
+            bound_at=timezone.now(),
+        )
+        bound += 1
+
+    logger.info("docs-ai rebind-unbound completed processed=%s bound=%s", processed, bound)
+    return {
+        "processed": processed,
+        "bound": bound,
+    }
+
+
 def _queue_name() -> str:
     return getattr(settings, "CELERY_QUEUE_DOCS_ANALYSIS", "docs_analysis")
 

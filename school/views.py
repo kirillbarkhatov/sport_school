@@ -28,6 +28,7 @@ from school.forms import (
     FamilyForm,
     FamilyMemberForm,
     CompetitionForm,
+    CompetitionVenueForm,
     CompetitionApplyAthleteForm,
     CompetitionDocumentUploadForm,
     BulkDocumentUploadForm,
@@ -51,6 +52,7 @@ from school.models import (
     Group,
     Club,
     Competition,
+    CompetitionVenue,
     CompetitionEntry,
     CompetitionApplication,
     CompetitionApplicationLink,
@@ -61,7 +63,11 @@ from school.models import (
     DocumentType,
     AthleteDocument,
 )
-from school.tasks import enqueue_documents_for_ai_analysis, monitor_athlete_document_analysis_status
+from school.tasks import (
+    enqueue_documents_for_ai_analysis,
+    monitor_athlete_document_analysis_status,
+    rebind_unbound_competition_documents_task,
+)
 from users.constants import ADMIN_GROUP_NAME, COACH_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
@@ -773,7 +779,7 @@ class CompetitionListView(ApprovedUserRequiredMixin, ListView):
     def get_queryset(self):
         return (
             Competition.objects.prefetch_related("entries__athlete__person", "documents__document")
-            .select_related("application_link")
+            .select_related("application_link", "location", "location__parent")
             .order_by(Coalesce("start_date", "date").desc(nulls_last=True), "-name")
         )
 
@@ -966,6 +972,59 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "document_form": document_form,
         }
         return render(request, self.template_name, context)
+
+
+class CompetitionVenueListCreateView(ApprovedUserRequiredMixin, ListView):
+    model = CompetitionVenue
+    template_name = "competitions/venue_list.html"
+    context_object_name = "venues"
+
+    def get_queryset(self):
+        return CompetitionVenue.objects.select_related("parent").order_by("parent__short_name", "short_name")
+
+    def post(self, request, *args, **kwargs):
+        form = CompetitionVenueForm(request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Локация сохранена.")
+            return redirect("school:competition_venue_list")
+
+        context = self.get_context_data()
+        context["create_form"] = form
+        return render(request, self.template_name, context)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.setdefault("create_form", CompetitionVenueForm())
+        return context
+
+
+class CompetitionVenueUpdateView(ApprovedUserRequiredMixin, View):
+    template_name = "competitions/venue_form.html"
+
+    def get_object(self, pk: int) -> CompetitionVenue:
+        return get_object_or_404(CompetitionVenue.objects.select_related("parent"), pk=pk)
+
+    def get(self, request, pk):
+        venue = self.get_object(pk)
+        form = CompetitionVenueForm(instance=venue)
+        return render(request, self.template_name, {"form": form, "venue": venue})
+
+    def post(self, request, pk):
+        venue = self.get_object(pk)
+        form = CompetitionVenueForm(request.POST, instance=venue)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Локация обновлена.")
+            return redirect("school:competition_venue_list")
+        return render(request, self.template_name, {"form": form, "venue": venue})
+
+
+class CompetitionVenueRecheckUnboundDocumentsView(ApprovedUserRequiredMixin, View):
+    def post(self, request):
+        rebind_unbound_competition_documents_task.delay()
+        messages.success(request, "Перепроверка непривязанных документов поставлена в очередь.")
+        return redirect("school:competition_venue_list")
 
 
 class CompetitionDocumentUploadView(ApprovedUserRequiredMixin, View):
@@ -1669,7 +1728,7 @@ def competition_export(request, pk):
 
     header = f'ЗАЯВКА НА УЧАСТИЕ СПОРТСМЕНОВ В СОРЕВНОВАНИЯХ "{competition.name}" ПО ГОРНОЛЫЖНОМУ СПОРТУ'
     if competition.location:
-        subloc = f'НА {competition.location.upper()}'
+        subloc = f'НА {str(competition.location).upper()}'
     else:
         subloc = ""
     date_part = ""

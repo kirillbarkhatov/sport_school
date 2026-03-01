@@ -22,7 +22,7 @@
                         {% endif %}
                     </span>
                     <span class="fw-bold text-secondary">•</span>
-                    <span class="text-muted">{{ competition.location }}</span>
+                    <span class="text-muted">{{ competition.location|default:"Локация не указана" }}</span>
                 </div>
                 <div class="card-body d-flex flex-column gap-2">
                     <div>
