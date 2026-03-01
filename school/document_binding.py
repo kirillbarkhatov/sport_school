@@ -343,10 +343,34 @@ def _competition_location_corpus(analysis: DocumentAIAnalysis) -> str:
     return " ".join(str(v) for v in [location, competition_name, analysis.title, summary, discipline] if v)
 
 
+def _looks_like_filename(value: str) -> bool:
+    text = value.strip().lower()
+    if not text:
+        return False
+    if re.search(r"\.(pdf|doc|docx|xls|xlsx|jpg|jpeg|png|webp)$", text):
+        return True
+    if "_" in text and " " not in text:
+        return True
+    return False
+
+
+def _analysis_competition_name(*, analysis: DocumentAIAnalysis, document: Document | None = None) -> str | None:
+    extracted = analysis.extracted or {}
+    candidate = (str(extracted.get("competition_name") or "")).strip()
+    if candidate:
+        return candidate[:100]
+    return None
+
+
 def _resolve_venue_from_analysis(analysis: DocumentAIAnalysis) -> CompetitionVenue | None:
+    matched = _resolve_venues_from_analysis(analysis)
+    return matched[0] if matched else None
+
+
+def _resolve_venues_from_analysis(analysis: DocumentAIAnalysis) -> list[CompetitionVenue]:
     corpus = normalize_text(_competition_location_corpus(analysis))
     if not corpus:
-        return None
+        return []
 
     venues = list(
         CompetitionVenue.objects.filter(is_active=True).only("id", "short_name", "parent_id")
@@ -369,41 +393,64 @@ def _resolve_venue_from_analysis(analysis: DocumentAIAnalysis) -> CompetitionVen
         matched.append((venue, depth, len(token)))
 
     if not matched:
-        return None
+        return []
 
     # Prefer deeper sublocations and longer names.
     matched.sort(key=lambda item: (item[1], item[2], item[0].id), reverse=True)
-    best = matched[0]
-    if len(matched) == 1:
-        return best[0]
-
-    second = matched[1]
-    if best[1] == second[1] and best[2] == second[2]:
-        return None
-    return best[0]
+    return [item[0] for item in matched]
 
 
 def _find_competition_by_venue_and_day(venue: CompetitionVenue, event_day: date) -> Competition | None:
+    def _root_id(item: CompetitionVenue | None) -> int | None:
+        current = item
+        while current and current.parent_id:
+            current = CompetitionVenue.objects.filter(id=current.parent_id).only("id", "parent_id").first()
+        return current.id if current else None
+
+    day_match_q = (
+        (Q(start_date__isnull=False) & Q(end_date__isnull=False) & Q(start_date__lte=event_day) & Q(end_date__gte=event_day))
+        | Q(start_date=event_day)
+        | Q(end_date=event_day)
+        | Q(date=event_day)
+    )
+
+    target_root_id = _root_id(venue)
     candidates = list(
-        Competition.objects.filter(location=venue).filter(
-            (
-                (Q(start_date__isnull=False) & Q(end_date__isnull=False) & Q(start_date__lte=event_day) & Q(end_date__gte=event_day))
-                | Q(start_date=event_day)
-                | Q(date=event_day)
-            )
-        ).order_by("id")
+        Competition.objects.filter(location=venue).filter(day_match_q).order_by("id")
     )
     if len(candidates) == 1:
         return candidates[0]
+    if len(candidates) > 1:
+        return candidates[0]
+
+    # Fallback: detect same place by venue family/root (parent/sublocation variants).
+    day_candidates = list(
+        Competition.objects.select_related("location", "location__parent")
+        .filter(day_match_q, location__isnull=False)
+        .order_by("id")
+    )
+    family_matches: list[Competition] = []
+    for comp in day_candidates:
+        comp_root_id = _root_id(comp.location)
+        if target_root_id and comp_root_id == target_root_id:
+            family_matches.append(comp)
+    if len(family_matches) == 1:
+        return family_matches[0]
+    if len(family_matches) > 1:
+        return family_matches[0]
     return None
 
 
 def find_competition_exact_match(analysis: DocumentAIAnalysis) -> Competition | None:
-    venue = _resolve_venue_from_analysis(analysis)
     event_day = _event_day_from_analysis(analysis)
-    if not venue or not event_day:
+    if not event_day:
         return None
-    return _find_competition_by_venue_and_day(venue, event_day)
+
+    for venue in _resolve_venues_from_analysis(analysis):
+        found = _find_competition_by_venue_and_day(venue, event_day)
+        if found:
+            return found
+    return None
 
 
 def _athlete_matches_by_name(full_name: str) -> list[Athlete]:
@@ -721,9 +768,12 @@ def create_competition_from_analysis(
     resolved_event_day = event_day or _safe_date(event_dates.get("from")) or _safe_date(event_dates.get("to"))
     date_from = _safe_date(event_dates.get("from")) or resolved_event_day
     date_to = _safe_date(event_dates.get("to")) or resolved_event_day
+    analyzed_name = _analysis_competition_name(analysis=analysis, document=document)
+    if not analyzed_name:
+        analyzed_name = "Соревнование (название не распознано)"
 
     competition = Competition.objects.create(
-        name=(extracted.get("competition_name") or analysis.title or document.original_name)[:100],
+        name=analyzed_name[:100],
         start_date=date_from,
         end_date=date_to,
         date=resolved_event_day,
