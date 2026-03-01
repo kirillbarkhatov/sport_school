@@ -383,7 +383,7 @@
                         <tr>
                             <td>{{ link.get_doc_type_display }}</td>
                             <td>
-                                <a href="{{ link.document.file.url }}" target="_blank">{{ link.title|default:link.document.original_name }}</a>
+                                <a href="{{ link.document.file.url }}" target="_blank">{{ link.document.original_name }}</a>
                             </td>
                             <td class="text-muted small">{{ link.document.description|default_if_none:"" }}</td>
                             <td>

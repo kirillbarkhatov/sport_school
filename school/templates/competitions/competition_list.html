@@ -73,7 +73,7 @@
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
                                 {% for doc in competition.documents.all %}
-                                    <li><a class="dropdown-item" href="{{ doc.document.file.url }}" target="_blank">{{ doc.title|default:doc.document.original_name }}</a></li>
+                                    <li><a class="dropdown-item" href="{{ doc.document.file.url }}" target="_blank">{{ doc.document.original_name }}</a></li>
                                 {% empty %}
                                     <li><span class="dropdown-item-text text-muted">Нет документов</span></li>
                                 {% endfor %}
