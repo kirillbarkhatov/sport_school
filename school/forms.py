@@ -569,9 +569,11 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["location"].queryset = CompetitionVenue.objects.select_related("parent").filter(
-            is_active=True
-        ).order_by("parent__short_name", "short_name")
+        location_qs = CompetitionVenue.objects.select_related("parent").filter(is_active=True)
+        current_location_id = getattr(self.instance, "location_id", None)
+        if current_location_id:
+            location_qs = location_qs | CompetitionVenue.objects.select_related("parent").filter(id=current_location_id)
+        self.fields["location"].queryset = location_qs.order_by("parent__short_name", "short_name").distinct()
         self.fields["location"].required = False
         self.fields["location"].empty_label = "Локация не выбрана"
         if not self.is_bound and not self.instance.pk and not self.initial.get("birth_year_from"):
@@ -581,8 +583,10 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
         data = super().clean()
         by_from = data.get("birth_year_from")
         by_to = data.get("birth_year_to")
-        if by_to and by_from and by_from > by_to:
-            self.add_error("birth_year_to", "Должен быть не меньше 'от'.")
+        # Domain rule: "Г.р. от" is the maximum year (minimum allowed age).
+        # Therefore, if range is specified, "от" should be >= "до".
+        if by_to and by_from and by_from < by_to:
+            self.add_error("birth_year_to", "Для диапазона значение 'до' должно быть не больше 'от'.")
         return data
 
 

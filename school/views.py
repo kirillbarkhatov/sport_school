@@ -945,6 +945,10 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
                 return redirect("school:competition_edit", pk=competition.pk)
 
         # invalid form or no save flag: re-render with all athletes
+        if competition and not selected_ids:
+            selected_ids = set(competition.entries.values_list("athlete_id", flat=True))
+        if form.errors:
+            messages.error(request, "Не удалось сохранить соревнование. Проверьте заполнение формы.")
         athletes = _athlete_filter_queryset(
             request.user,
             club_id=None,
