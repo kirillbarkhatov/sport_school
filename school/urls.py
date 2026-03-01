@@ -35,6 +35,27 @@ urlpatterns = [
         name="athlete_inline_update",
     ),
     path("competitions/", views.CompetitionListView.as_view(), name="competition_list"),
+    path("competitions/<int:pk>/groups/", views.CompetitionScoringGroupListCreateView.as_view(), name="competition_groups"),
+    path(
+        "competitions/<int:pk>/groups/autofill/",
+        views.CompetitionScoringGroupAutofillView.as_view(),
+        name="competition_groups_autofill",
+    ),
+    path(
+        "competitions/<int:pk>/groups/preset/<str:preset_code>/",
+        views.CompetitionScoringGroupPresetCreateView.as_view(),
+        name="competition_groups_preset_create",
+    ),
+    path(
+        "competitions/<int:pk>/groups/<int:group_id>/edit/",
+        views.CompetitionScoringGroupUpdateView.as_view(),
+        name="competition_groups_edit",
+    ),
+    path(
+        "competitions/<int:pk>/groups/<int:group_id>/delete/",
+        views.CompetitionScoringGroupDeleteView.as_view(),
+        name="competition_groups_delete",
+    ),
     path("competitions/venues/", views.CompetitionVenueListCreateView.as_view(), name="competition_venue_list"),
     path("competitions/venues/<int:pk>/edit/", views.CompetitionVenueUpdateView.as_view(), name="competition_venue_edit"),
     path(

@@ -29,11 +29,21 @@ from school.forms import (
     FamilyMemberForm,
     CompetitionForm,
     CompetitionVenueForm,
+    CompetitionScoringGroupForm,
+    CompetitionScoringGroupCreateForm,
     CompetitionApplyAthleteForm,
     CompetitionDocumentUploadForm,
     BulkDocumentUploadForm,
     DocumentAIAnalysisFilterForm,
 )
+from school.competition_groups import (
+    build_manual_group_name,
+    ensure_standard_u_groups_for_birth_year,
+    ensure_competition_scoring_groups_from_analysis,
+    ensure_competition_scoring_groups_from_competition_documents,
+    ensure_standard_u_category_groups,
+)
+from school.competition_standards import STANDARD_U_CATEGORIES, infer_season_start_year, normalize_discipline_value
 from school.document_ai import validate_signed_document_token
 from school.document_binding import (
     bind_document_to_athlete,
@@ -53,6 +63,7 @@ from school.models import (
     Club,
     Competition,
     CompetitionVenue,
+    CompetitionScoringGroup,
     CompetitionEntry,
     CompetitionApplication,
     CompetitionApplicationLink,
@@ -850,6 +861,77 @@ def _athlete_filter_queryset(user, club_id=None, year_from=None, year_to=None, o
     return qs
 
 
+def _scoring_group_sort_key(group: CompetitionScoringGroup) -> tuple[int, int, int, int, int]:
+    # Younger groups first: higher birth years first.
+    from_year = group.birth_year_from or 0
+    to_year = group.birth_year_to or 0
+    gender_order = 0 if group.gender_scope == CompetitionScoringGroup.GenderScope.FEMALE else 1
+    return (-from_year, -to_year, gender_order, group.sort_order, group.id)
+
+
+def _sorted_scoring_groups(competition: Competition | None) -> list[CompetitionScoringGroup]:
+    if not competition:
+        return []
+    groups = list(competition.scoring_groups.order_by("id"))
+    return sorted(groups, key=_scoring_group_sort_key)
+
+
+def _ensure_standard_groups_for_athletes(*, competition: Competition, athlete_ids: set[int] | list[int]) -> None:
+    if not athlete_ids:
+        return
+    athletes = Athlete.objects.select_related("person").filter(id__in=athlete_ids)
+    for athlete in athletes:
+        birth_year = athlete.person.date_of_birth.year if athlete.person.date_of_birth else None
+        ensure_standard_u_groups_for_birth_year(competition=competition, birth_year=birth_year)
+
+
+def _standard_u_category_payload(competition: Competition | None) -> list[dict[str, object]]:
+    payload: list[dict[str, object]] = []
+    category_genders: dict[str, set[str]] = {}
+    if competition:
+        rows = (
+            competition.scoring_groups.filter(is_active=True)
+            .exclude(standard_category="")
+            .values_list("standard_category", "gender_scope")
+        )
+        for code, gender in rows:
+            category_genders.setdefault(code, set()).add(gender)
+
+    season_start_year = None
+    if competition:
+        anchor_date = competition.start_date or competition.date or timezone.localdate()
+        season_start_year = infer_season_start_year(date_from=anchor_date, fallback_year=timezone.localdate().year)
+
+    for code in STANDARD_U_CATEGORIES.keys():
+        genders = category_genders.get(code, set())
+        is_complete_pair = (
+            CompetitionScoringGroup.GenderScope.FEMALE in genders
+            and CompetitionScoringGroup.GenderScope.MALE in genders
+        )
+        # Fallback for legacy groups without standard_category marker.
+        if (not is_complete_pair) and competition and season_start_year:
+            category = STANDARD_U_CATEGORIES[code]
+            expected_from = season_start_year - category.age_min
+            expected_to = (season_start_year - category.age_max) if category.age_max is not None else None
+            legacy_genders = set(
+                competition.scoring_groups.filter(
+                    is_active=True,
+                    birth_year_from=expected_from,
+                    birth_year_to=expected_to,
+                ).values_list("gender_scope", flat=True)
+            )
+            is_complete_pair = (
+                CompetitionScoringGroup.GenderScope.FEMALE in legacy_genders
+                and CompetitionScoringGroup.GenderScope.MALE in legacy_genders
+            )
+        payload.append({
+            "code": code,
+            "label": STANDARD_U_CATEGORIES[code].button_label,
+            "active": is_complete_pair,
+        })
+    return payload
+
+
 class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
     template_name = "competitions/competition_form.html"
 
@@ -900,6 +982,8 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             ) if competition and link else "",
             "competition_documents": competition.documents.select_related("document") if competition else [],
             "document_form": document_form,
+            "scoring_groups": _sorted_scoring_groups(competition),
+            "standard_u_categories": _standard_u_category_payload(competition),
         }
         return render(request, self.template_name, context)
 
@@ -920,6 +1004,7 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             CompetitionEntry.objects.bulk_create(
                 [CompetitionEntry(competition=competition, athlete_id=aid) for aid in to_add]
             )
+            _ensure_standard_groups_for_athletes(competition=competition, athlete_ids=set(to_add))
             return redirect("school:competition_edit", pk=competition.pk)
 
         if form.is_valid():
@@ -941,8 +1026,8 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
                 CompetitionEntry.objects.bulk_create(
                     [CompetitionEntry(competition=competition, athlete_id=aid) for aid in to_add]
                 )
-            if save_athletes or save_competition:
-                return redirect("school:competition_edit", pk=competition.pk)
+                _ensure_standard_groups_for_athletes(competition=competition, athlete_ids=set(to_add))
+            return redirect("school:competition_edit", pk=competition.pk)
 
         # invalid form or no save flag: re-render with all athletes
         if competition and not selected_ids:
@@ -974,8 +1059,118 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             ) if competition and link else "",
             "competition_documents": competition.documents.select_related("document") if competition else [],
             "document_form": document_form,
+            "scoring_groups": _sorted_scoring_groups(competition),
+            "standard_u_categories": _standard_u_category_payload(competition),
         }
         return render(request, self.template_name, context)
+
+
+class CompetitionScoringGroupListCreateView(ApprovedUserRequiredMixin, View):
+    template_name = "competitions/competition_groups.html"
+
+    def get_competition(self, pk: int) -> Competition:
+        return get_object_or_404(Competition, pk=pk)
+
+    def _build_context(self, *, competition: Competition, create_form=None):
+        groups = _sorted_scoring_groups(competition)
+        initial_discipline = normalize_discipline_value(competition.discipline) or (competition.discipline or "")
+        return {
+            "competition": competition,
+            "groups": groups,
+            "create_form": create_form or CompetitionScoringGroupCreateForm(initial={"discipline": initial_discipline}),
+        }
+
+    def get(self, request, pk):
+        competition = self.get_competition(pk)
+        return render(request, self.template_name, self._build_context(competition=competition))
+
+    def post(self, request, pk):
+        competition = self.get_competition(pk)
+        form = CompetitionScoringGroupCreateForm(request.POST)
+        if form.is_valid():
+            cleaned = form.cleaned_data
+            max_sort_order = (
+                competition.scoring_groups.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0
+            )
+            CompetitionScoringGroup.objects.create(
+                competition=competition,
+                name=build_manual_group_name(
+                    competition=competition,
+                    gender_scope=cleaned["gender_scope"],
+                    birth_year_from=cleaned.get("birth_year_from"),
+                    birth_year_to=cleaned.get("birth_year_to"),
+                ),
+                gender_scope=cleaned["gender_scope"],
+                birth_year_from=cleaned.get("birth_year_from"),
+                birth_year_to=cleaned.get("birth_year_to"),
+                discipline=cleaned.get("discipline") or "",
+                source=CompetitionScoringGroup.SourceType.MANUAL,
+                parse_status=CompetitionScoringGroup.ParseStatus.PARSED,
+                sort_order=max_sort_order + 1,
+                is_active=True,
+            )
+            messages.success(request, "Зачетная группа добавлена.")
+            return redirect("school:competition_groups", pk=competition.pk)
+        return render(request, self.template_name, self._build_context(competition=competition, create_form=form))
+
+
+class CompetitionScoringGroupUpdateView(ApprovedUserRequiredMixin, View):
+    template_name = "competitions/competition_group_form.html"
+
+    def get_object(self, pk: int, group_id: int) -> CompetitionScoringGroup:
+        return get_object_or_404(
+            CompetitionScoringGroup.objects.select_related("competition"),
+            pk=group_id,
+            competition_id=pk,
+        )
+
+    def get(self, request, pk, group_id):
+        group = self.get_object(pk, group_id)
+        form = CompetitionScoringGroupForm(instance=group)
+        return render(request, self.template_name, {"group": group, "competition": group.competition, "form": form})
+
+    def post(self, request, pk, group_id):
+        group = self.get_object(pk, group_id)
+        form = CompetitionScoringGroupForm(request.POST, instance=group)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Зачетная группа обновлена.")
+            return redirect("school:competition_groups", pk=group.competition_id)
+        return render(request, self.template_name, {"group": group, "competition": group.competition, "form": form})
+
+
+class CompetitionScoringGroupDeleteView(ApprovedUserRequiredMixin, View):
+    def post(self, request, pk, group_id):
+        group = get_object_or_404(CompetitionScoringGroup, pk=group_id, competition_id=pk)
+        competition_id = group.competition_id
+        group.delete()
+        messages.success(request, "Зачетная группа удалена.")
+        return redirect("school:competition_groups", pk=competition_id)
+
+
+class CompetitionScoringGroupAutofillView(ApprovedUserRequiredMixin, View):
+    def post(self, request, pk):
+        competition = get_object_or_404(Competition, pk=pk)
+        created = ensure_competition_scoring_groups_from_competition_documents(
+            competition=competition,
+            only_if_empty=False,
+        )
+        if created:
+            messages.success(request, f"Добавлено зачетных групп: {created}.")
+        else:
+            messages.info(request, "Новых зачетных групп по AI-документам не найдено.")
+        return redirect("school:competition_groups", pk=competition.pk)
+
+
+class CompetitionScoringGroupPresetCreateView(ApprovedUserRequiredMixin, View):
+    def post(self, request, pk, preset_code):
+        competition = get_object_or_404(Competition, pk=pk)
+        created = ensure_standard_u_category_groups(competition=competition, category_code=preset_code)
+        if created:
+            messages.success(request, f"Создано зачетных групп по {preset_code}: {created}.")
+        else:
+            messages.info(request, f"По {preset_code} новые группы не добавлены (уже существуют).")
+        return redirect("school:competition_edit", pk=competition.pk)
 
 
 class CompetitionVenueListCreateView(ApprovedUserRequiredMixin, ListView):
@@ -1299,6 +1494,13 @@ class DocumentBindCompetitionView(ApprovedUserRequiredMixin, View):
                 bound_entity_id=competition.id,
                 bound_at=timezone.now(),
             )
+            analysis = getattr(document, "ai_analysis", None)
+            ensure_competition_scoring_groups_from_analysis(
+                competition=competition,
+                analysis=analysis,
+                source_document=document,
+                only_if_empty=True,
+            )
 
         messages.success(request, "Документ привязан к соревнованию.")
         return redirect("school:documents_analysis_list")
@@ -1434,6 +1636,7 @@ class CompetitionEntryToggleView(ApprovedUserRequiredMixin, View):
                 athlete_id=athlete_id_int,
                 defaults={"application": None},
             )
+            _ensure_standard_groups_for_athletes(competition=competition, athlete_ids={athlete_id_int})
             return JsonResponse({"success": True, "status": "added"})
 
         # remove
@@ -1632,6 +1835,7 @@ class CompetitionApplyView(LoginRequiredMixin, View):
                     for athlete_id in to_add
                 ]
             )
+            _ensure_standard_groups_for_athletes(competition=competition, athlete_ids=set(to_add))
 
         messages.success(request, "Заявка сохранена.")
         context = self._build_context(
@@ -1684,6 +1888,7 @@ class CompetitionApplyToggleView(LoginRequiredMixin, View):
                 athlete_id=athlete_id_int,
                 defaults={"application": application},
             )
+            _ensure_standard_groups_for_athletes(competition=competition, athlete_ids={athlete_id_int})
             return JsonResponse({"success": True, "status": "added"})
 
         CompetitionEntry.objects.filter(
@@ -1834,6 +2039,29 @@ def fmt_ru_date(d):
 
 
 def _group_entries_by_birth_year(entries):
+    competition = entries[0].competition if entries else None
+    if competition and competition.scoring_groups.filter(is_active=True).exists():
+        result = []
+        scoring_groups = [g for g in _sorted_scoring_groups(competition) if g.is_active]
+        for group in scoring_groups:
+            filtered = []
+            for entry in entries:
+                person = entry.athlete.person
+                birth_year = person.date_of_birth.year if person.date_of_birth else None
+                if not birth_year:
+                    continue
+                if group.gender_scope and person.gender != group.gender_scope:
+                    continue
+                if group.birth_year_from and birth_year > group.birth_year_from:
+                    continue
+                if group.birth_year_to and birth_year < group.birth_year_to:
+                    continue
+                filtered.append(entry)
+            filtered.sort(key=lambda e: (e.athlete.person.surname or "", e.athlete.person.name or ""))
+            result.append((group.name, filtered))
+        if result:
+            return result
+
     groups = [
         ("Мальчики и девочки 2016-2017 г.р.", (2016, 2017)),
         ("Мальчики и девочки 2014-2015 г.р.", (2014, 2015)),

@@ -35,7 +35,7 @@
                     </div>
                     <div>
                         <div class="text-muted small">Дисциплина</div>
-                        <div>{{ competition.discipline|default:"—" }}</div>
+                        <div>{{ competition.get_discipline_label|default:"—" }}</div>
                     </div>
                     <div>
                         <div class="text-muted small">Годы рождения</div>

@@ -13,6 +13,7 @@ from .choices import (
     TrainingKind,
     TrainingLocation,
 )
+from .competition_standards import discipline_label
 from .training_rules import apply_training_rules
 
 
@@ -536,9 +537,101 @@ class Competition(models.Model):
     def __str__(self):
         return self.name
 
+    def get_discipline_label(self) -> str:
+        return discipline_label(self.discipline) or ""
+
     class Meta:
         verbose_name = "Соревнование"
         verbose_name_plural = "Соревнования"
+
+
+class CompetitionScoringGroup(models.Model):
+    class GenderScope(models.TextChoices):
+        MALE = "male", "Мужчины"
+        FEMALE = "female", "Женщины"
+
+    class SourceType(models.TextChoices):
+        MANUAL = "manual", "Вручную"
+        AI = "ai", "Из AI-документа"
+
+    class ParseStatus(models.TextChoices):
+        PARSED = "parsed", "Распознано"
+        PARTIAL = "partial", "Распознано частично"
+        UNPARSED = "unparsed", "Не распознано"
+
+    competition = models.ForeignKey(
+        Competition,
+        on_delete=models.CASCADE,
+        related_name="scoring_groups",
+        verbose_name="Соревнование",
+    )
+    name = models.CharField(max_length=255, verbose_name="Название зачетной группы")
+    gender_scope = models.CharField(
+        max_length=16,
+        choices=GenderScope.choices,
+        verbose_name="Пол",
+    )
+    birth_year_from = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name="Год рождения (от)",
+        help_text="Максимальный год рождения (минимальный возраст).",
+    )
+    birth_year_to = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name="Год рождения (до)",
+        help_text="Минимальный год рождения. Пусто = и старше.",
+    )
+    discipline = models.CharField(max_length=100, blank=True, verbose_name="Дисциплина")
+    standard_category = models.CharField(
+        max_length=8,
+        blank=True,
+        verbose_name="Стандартная категория",
+        help_text="Например: U8/U10/U12/U14/U16",
+    )
+    source = models.CharField(
+        max_length=16,
+        choices=SourceType.choices,
+        default=SourceType.MANUAL,
+        verbose_name="Источник",
+    )
+    source_document = models.ForeignKey(
+        "Document",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_scoring_groups",
+        verbose_name="Документ-источник",
+    )
+    source_raw_text = models.CharField(max_length=500, blank=True, verbose_name="Исходная строка AI")
+    parse_status = models.CharField(
+        max_length=16,
+        choices=ParseStatus.choices,
+        default=ParseStatus.PARSED,
+        verbose_name="Качество распознавания",
+    )
+    parse_comment = models.CharField(max_length=500, blank=True, verbose_name="Комментарий распознавания")
+    sort_order = models.PositiveIntegerField(default=0, verbose_name="Порядок")
+    is_active = models.BooleanField(default=True, verbose_name="Активна")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    def __str__(self):
+        return self.name
+
+    def get_discipline_label(self) -> str:
+        return discipline_label(self.discipline) or ""
+
+    class Meta:
+        verbose_name = "Зачетная группа соревнования"
+        verbose_name_plural = "Зачетные группы соревнований"
+        ordering = ["sort_order", "id"]
+        indexes = [
+            models.Index(fields=["competition", "is_active"]),
+            models.Index(fields=["gender_scope", "birth_year_from", "birth_year_to"]),
+            models.Index(fields=["competition", "standard_category", "is_active"]),
+        ]
 
 
 class CompetitionApplicationLink(models.Model):

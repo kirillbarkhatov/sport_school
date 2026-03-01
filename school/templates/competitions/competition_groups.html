@@ -1,0 +1,115 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Зачетные группы{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">Зачетные группы: {{ competition.name }}</h2>
+    <div class="d-flex gap-2">
+        <a href="{% url 'school:competition_edit' competition.pk %}" class="btn btn-outline-secondary btn-sm">К соревнованию</a>
+        <form method="post" action="{% url 'school:competition_groups_autofill' competition.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-primary btn-sm">Добавить из AI-документов</button>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header">Новая зачетная группа</div>
+    <div class="card-body">
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            {% if create_form.non_field_errors or create_form.errors %}
+                <div class="col-12">
+                    <div class="alert alert-danger mb-2">
+                        {% if create_form.non_field_errors %}
+                            {% for error in create_form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                        {% for field in create_form %}
+                            {% for error in field.errors %}
+                                <div><strong>{{ field.label }}:</strong> {{ error }}</div>
+                            {% endfor %}
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Пол</label>
+                {{ create_form.gender_scope }}
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small text-muted mb-1">Г.р. от</label>
+                {{ create_form.birth_year_from }}
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small text-muted mb-1">Г.р. до</label>
+                {{ create_form.birth_year_to }}
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Дисциплина</label>
+                {{ create_form.discipline }}
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Добавить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header">Существующие группы</div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead>
+            <tr>
+                <th>Название</th>
+                <th>Пол</th>
+                <th>Годы</th>
+                <th>Дисциплина</th>
+                <th>Источник</th>
+                <th class="text-end">Действия</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for group in groups %}
+                <tr>
+                    <td>{{ group.name }}</td>
+                    <td>{{ group.get_gender_scope_display }}</td>
+                    <td>
+                        {% if group.birth_year_from and group.birth_year_to %}
+                            {{ group.birth_year_to }}-{{ group.birth_year_from }}
+                        {% elif group.birth_year_from %}
+                            {{ group.birth_year_from }} и старше
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td>{{ group.get_discipline_label|default:"—" }}</td>
+                    <td>
+                        <div>{{ group.get_source_display }}</div>
+                        {% if group.source_raw_text %}
+                            <div class="text-muted small">{{ group.source_raw_text|truncatechars:80 }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <div class="d-flex justify-content-end gap-2">
+                            <a href="{% url 'school:competition_groups_edit' competition.pk group.pk %}" class="btn btn-sm btn-outline-secondary">Редактировать</a>
+                            <form method="post" action="{% url 'school:competition_groups_delete' competition.pk group.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="6" class="text-muted text-center py-4">Зачетных групп пока нет.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
