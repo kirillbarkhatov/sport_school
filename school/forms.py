@@ -6,6 +6,7 @@ from django.forms import BooleanField, BaseFormSet, formset_factory, inlineforms
 from django.utils import timezone
 
 from .choices import TrainingEquipment, TrainingKind, TrainingLocation
+from .competition_standards import DISCIPLINE_CHOICES, normalize_discipline_value
 from .training_rules import (
     apply_training_rules,
     get_allowed_equipment,
@@ -27,6 +28,7 @@ from .models import (
     Group,
     Competition,
     CompetitionVenue,
+    CompetitionScoringGroup,
     Club,
     Document,
     CompetitionDocument,
@@ -543,6 +545,7 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
         label="Приём заявок до",
     )
+    discipline = forms.ChoiceField(required=False, choices=(), label="Дисциплина")
 
     class Meta:
         model = Competition
@@ -561,7 +564,6 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
             "start_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "end_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "competition_type": forms.Select(attrs={"class": "form-select"}),
-            "discipline": forms.TextInput(attrs={"placeholder": "Например: Слалом-гигант"}),
             "description": forms.Textarea(attrs={"rows": 3, "placeholder": "Комментарий"}),
             "birth_year_from": forms.NumberInput(attrs={"placeholder": "2019", "min": 1900, "max": 2100}),
             "birth_year_to": forms.NumberInput(attrs={"placeholder": "и старше", "min": 1900, "max": 2100}),
@@ -569,9 +571,17 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["location"].queryset = CompetitionVenue.objects.select_related("parent").filter(
-            is_active=True
-        ).order_by("parent__short_name", "short_name")
+        discipline_choices = [("", "Не указана"), *DISCIPLINE_CHOICES]
+        current_discipline = (getattr(self.instance, "discipline", "") or "").strip()
+        if current_discipline and not any(value == current_discipline for value, _ in DISCIPLINE_CHOICES):
+            discipline_choices.append((current_discipline, f"Нестандартная ({current_discipline})"))
+        self.fields["discipline"].choices = discipline_choices
+        self.fields["discipline"].widget.attrs["class"] = "form-select"
+        location_qs = CompetitionVenue.objects.select_related("parent").filter(is_active=True)
+        current_location_id = getattr(self.instance, "location_id", None)
+        if current_location_id:
+            location_qs = location_qs | CompetitionVenue.objects.select_related("parent").filter(id=current_location_id)
+        self.fields["location"].queryset = location_qs.order_by("parent__short_name", "short_name").distinct()
         self.fields["location"].required = False
         self.fields["location"].empty_label = "Локация не выбрана"
         if not self.is_bound and not self.instance.pk and not self.initial.get("birth_year_from"):
@@ -581,8 +591,11 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
         data = super().clean()
         by_from = data.get("birth_year_from")
         by_to = data.get("birth_year_to")
-        if by_to and by_from and by_from > by_to:
-            self.add_error("birth_year_to", "Должен быть не меньше 'от'.")
+        # Domain rule: "Г.р. от" is the maximum year (minimum allowed age).
+        # Therefore, if range is specified, "от" should be >= "до".
+        if by_to and by_from and by_from < by_to:
+            self.add_error("birth_year_to", "Для диапазона значение 'до' должно быть не больше 'от'.")
+        data["discipline"] = normalize_discipline_value(data.get("discipline")) or (data.get("discipline") or "")
         return data
 
 
@@ -604,6 +617,83 @@ class CompetitionVenueForm(StyleFormMixin, forms.ModelForm):
         self.fields["parent"].queryset = parent_qs
         self.fields["parent"].required = False
         self.fields["parent"].empty_label = "Без родительской локации"
+
+
+class CompetitionScoringGroupForm(StyleFormMixin, forms.ModelForm):
+    discipline = forms.ChoiceField(required=False, choices=(), label="Дисциплина")
+
+    class Meta:
+        model = CompetitionScoringGroup
+        fields = [
+            "name",
+            "gender_scope",
+            "birth_year_from",
+            "birth_year_to",
+            "discipline",
+            "sort_order",
+            "is_active",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "Например: Юноши 2012-2013"}),
+            "gender_scope": forms.Select(attrs={"class": "form-select"}),
+            "birth_year_from": forms.NumberInput(attrs={"min": 1900, "max": 2100, "placeholder": "2019"}),
+            "birth_year_to": forms.NumberInput(attrs={"min": 1900, "max": 2100, "placeholder": "и старше"}),
+            "sort_order": forms.NumberInput(attrs={"min": 0}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        discipline_choices = [("", "Не указана"), *DISCIPLINE_CHOICES]
+        current_discipline = (getattr(self.instance, "discipline", "") or "").strip()
+        if current_discipline and not any(value == current_discipline for value, _ in DISCIPLINE_CHOICES):
+            discipline_choices.append((current_discipline, f"Нестандартная ({current_discipline})"))
+        self.fields["discipline"].choices = discipline_choices
+        self.fields["discipline"].widget.attrs["class"] = "form-select"
+
+    def clean(self):
+        data = super().clean()
+        by_from = data.get("birth_year_from")
+        by_to = data.get("birth_year_to")
+        if by_to and by_from and by_from < by_to:
+            self.add_error("birth_year_to", "Для диапазона значение 'до' должно быть не больше 'от'.")
+        data["discipline"] = normalize_discipline_value(data.get("discipline")) or (data.get("discipline") or "")
+        return data
+
+
+class CompetitionScoringGroupCreateForm(StyleFormMixin, forms.ModelForm):
+    discipline = forms.ChoiceField(required=False, choices=(), label="Дисциплина")
+
+    class Meta:
+        model = CompetitionScoringGroup
+        fields = [
+            "gender_scope",
+            "birth_year_from",
+            "birth_year_to",
+            "discipline",
+        ]
+        widgets = {
+            "gender_scope": forms.Select(attrs={"class": "form-select"}),
+            "birth_year_from": forms.NumberInput(attrs={"min": 1900, "max": 2100, "placeholder": "2019"}),
+            "birth_year_to": forms.NumberInput(attrs={"min": 1900, "max": 2100, "placeholder": "и старше"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        discipline_choices = [("", "Не указана"), *DISCIPLINE_CHOICES]
+        current_discipline = (self.initial.get("discipline") or "").strip()
+        if current_discipline and not any(value == current_discipline for value, _ in DISCIPLINE_CHOICES):
+            discipline_choices.append((current_discipline, f"Нестандартная ({current_discipline})"))
+        self.fields["discipline"].choices = discipline_choices
+        self.fields["discipline"].widget.attrs["class"] = "form-select"
+
+    def clean(self):
+        data = super().clean()
+        by_from = data.get("birth_year_from")
+        by_to = data.get("birth_year_to")
+        if by_to and by_from and by_from < by_to:
+            self.add_error("birth_year_to", "Для диапазона значение 'до' должно быть не больше 'от'.")
+        data["discipline"] = normalize_discipline_value(data.get("discipline")) or (data.get("discipline") or "")
+        return data
 
 
 class ClubForm(StyleFormMixin, forms.ModelForm):

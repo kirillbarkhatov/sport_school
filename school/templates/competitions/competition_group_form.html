@@ -1,0 +1,65 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Редактирование зачетной группы{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">Редактирование зачетной группы</h2>
+    <a href="{% url 'school:competition_groups' competition.pk %}" class="btn btn-outline-secondary btn-sm">К списку групп</a>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            {% if form.non_field_errors or form.errors %}
+                <div class="col-12">
+                    <div class="alert alert-danger mb-2">
+                        {% if form.non_field_errors %}
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                        {% for field in form %}
+                            {% for error in field.errors %}
+                                <div><strong>{{ field.label }}:</strong> {{ error }}</div>
+                            {% endfor %}
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Название</label>
+                {{ form.name }}
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small text-muted mb-1">Пол</label>
+                {{ form.gender_scope }}
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small text-muted mb-1">Порядок</label>
+                {{ form.sort_order }}
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small text-muted mb-1">Г.р. от</label>
+                {{ form.birth_year_from }}
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small text-muted mb-1">Г.р. до</label>
+                {{ form.birth_year_to }}
+            </div>
+            <div class="col-12 col-md-4">
+                <label class="form-label small text-muted mb-1">Дисциплина</label>
+                {{ form.discipline }}
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small text-muted mb-1">Активна</label>
+                <div class="form-check mt-2">{{ form.is_active }}</div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -13,6 +13,22 @@
     <div class="card-body">
         <form method="post" class="row g-3">
             {% csrf_token %}
+            {% if form.non_field_errors or form.errors %}
+                <div class="col-12">
+                    <div class="alert alert-danger mb-2">
+                        {% if form.non_field_errors %}
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        {% endif %}
+                        {% for field in form %}
+                            {% for error in field.errors %}
+                                <div><strong>{{ field.label }}:</strong> {{ error }}</div>
+                            {% endfor %}
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
 
             {# Desktop / tablet (md+) #}
             <div id="competition-form-desktop" class="d-none d-md-flex flex-wrap">
@@ -240,6 +256,82 @@
 
 <div class="card shadow-sm mt-3">
     <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Зачетные группы</span>
+        {% if competition %}
+            <div class="d-flex align-items-center gap-2">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Стандартные U категории">
+                    {% for preset in standard_u_categories %}
+                        <input
+                            type="checkbox"
+                            class="btn-check js-u-preset-toggle"
+                            id="u-preset-{{ competition.pk }}-{{ preset.code }}"
+                            autocomplete="off"
+                            data-form-id="u-preset-form-{{ competition.pk }}-{{ preset.code }}"
+                            {% if preset.active %}checked disabled{% endif %}
+                        >
+                        <label class="btn btn-outline-primary {% if preset.active %}active{% endif %}" for="u-preset-{{ competition.pk }}-{{ preset.code }}">
+                            {{ preset.label }}
+                        </label>
+                    {% endfor %}
+                </div>
+                {% for preset in standard_u_categories %}
+                    <form
+                        id="u-preset-form-{{ competition.pk }}-{{ preset.code }}"
+                        method="post"
+                        action="{% url 'school:competition_groups_preset_create' competition.pk preset.code %}"
+                        class="d-none"
+                    >
+                        {% csrf_token %}
+                    </form>
+                {% endfor %}
+                <a href="{% url 'school:competition_groups' competition.pk %}" class="btn btn-outline-primary btn-sm">Управлять группами</a>
+            </div>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if competition %}
+            {% if scoring_groups %}
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead>
+                        <tr>
+                            <th>Название</th>
+                            <th>Пол</th>
+                            <th>Годы</th>
+                            <th>Дисциплина</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for group in scoring_groups %}
+                            <tr>
+                                <td>{{ group.name }}</td>
+                                <td>{{ group.get_gender_scope_display }}</td>
+                                <td>
+                                    {% if group.birth_year_from and group.birth_year_to %}
+                                        {{ group.birth_year_to }}-{{ group.birth_year_from }}
+                                    {% elif group.birth_year_from %}
+                                        {{ group.birth_year_from }} и старше
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>{{ group.get_discipline_label|default:"—" }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-muted">Зачетные группы пока не заданы.</div>
+            {% endif %}
+        {% else %}
+            <div class="text-muted">Сначала сохраните соревнование, затем нарежьте зачетные группы.</div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card shadow-sm mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
         <span>Документы соревнования</span>
         <a href="{% url 'school:documents_bulk_upload' %}" class="btn btn-outline-secondary btn-sm">Массовая загрузка</a>
     </div>
@@ -335,11 +427,18 @@
         });
     }
 
+    function syncResponsiveCompetitionFormState() {
+        const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+        setDisabledForBlock(desktopBlock, !isDesktop);
+        setDisabledForBlock(mobileBlock, isDesktop);
+    }
+
+    syncResponsiveCompetitionFormState();
+    window.addEventListener('resize', syncResponsiveCompetitionFormState);
+
     if (competitionForm) {
         competitionForm.addEventListener('submit', () => {
-            const isDesktop = window.matchMedia('(min-width: 768px)').matches;
-            setDisabledForBlock(desktopBlock, !isDesktop);
-            setDisabledForBlock(mobileBlock, isDesktop);
+            syncResponsiveCompetitionFormState();
         });
     }
 
@@ -468,6 +567,20 @@
     }
     copyBtn?.addEventListener('click', copyApplyLink);
     copyInput?.addEventListener('click', copyApplyLink);
+
+    document.querySelectorAll('.js-u-preset-toggle').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+            if (!checkbox.checked) {
+                checkbox.checked = true;
+                return;
+            }
+            const formId = checkbox.dataset.formId;
+            const form = formId ? document.getElementById(formId) : null;
+            if (form) {
+                form.submit();
+            }
+        });
+    });
 })();
 </script>
 {% endblock %}

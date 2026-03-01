@@ -9,6 +9,7 @@ from typing import Any
 from django.db.models import Q
 from django.utils import timezone
 
+from .competition_groups import ensure_competition_scoring_groups_from_analysis
 from .models import (
     Athlete,
     AthleteDocument,
@@ -521,6 +522,12 @@ def auto_bind_document_by_analysis(document: Document) -> AutoBindResult:
                 "is_public": False,
             },
         )
+        ensure_competition_scoring_groups_from_analysis(
+            competition=competition,
+            analysis=analysis,
+            source_document=document,
+            only_if_empty=True,
+        )
         return AutoBindResult(bound=True, entity_type="competition", entity_id=competition.id, doc_type=doc_type)
 
     if analysis.doc_type == DocumentAIAnalysis.DocType.ATHLETE_SPECIFIC:
@@ -723,6 +730,12 @@ def create_competition_from_analysis(
         location=resolved_venue,
         discipline=(extracted.get("discipline") or "")[:100] or None,
         description=(extracted.get("summary") or analysis.title or "")[:1000] or None,
+    )
+    ensure_competition_scoring_groups_from_analysis(
+        competition=competition,
+        analysis=analysis,
+        source_document=document,
+        only_if_empty=False,
     )
     return competition
 
