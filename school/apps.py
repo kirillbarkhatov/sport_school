@@ -57,3 +57,12 @@ class SchoolConfig(AppConfig):
                 reconcile_athlete_certificate_validity.delay()
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Не удалось поставить reconcile_athlete_certificate_validity при старте: %s", exc)
+
+        rebind_lock_key = "school:competition_docs_rebind_startup_scheduled"
+        if cache.add(rebind_lock_key, "1", timeout=180):
+            try:
+                from .tasks import rebind_unbound_competition_documents_task
+
+                rebind_unbound_competition_documents_task.delay()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Не удалось поставить rebind_unbound_competition_documents_task при старте: %s", exc)

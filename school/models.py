@@ -450,6 +450,45 @@ class CampEnrollment(models.Model):
         verbose_name_plural = "Участия в сборах"
 
 
+class CompetitionVenue(models.Model):
+    """Модель «Локация соревнований» (поддерживает подлокации)."""
+
+    short_name = models.CharField(max_length=100, verbose_name="Короткое название")
+    full_address = models.TextField(blank=True, verbose_name="Точный адрес")
+    comment = models.TextField(blank=True, verbose_name="Комментарий")
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="children",
+        verbose_name="Родительская локация",
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Активна")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    def __str__(self):
+        if self.parent_id:
+            return f"{self.parent.short_name} / {self.short_name}"
+        return self.short_name
+
+    class Meta:
+        verbose_name = "Локация соревнований"
+        verbose_name_plural = "Локации соревнований"
+        ordering = ["parent__short_name", "short_name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["parent", "short_name"],
+                name="uniq_competition_venue_parent_short_name",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["short_name"]),
+            models.Index(fields=["parent", "is_active"]),
+        ]
+
+
 class Competition(models.Model):
     """Модель «Соревнование»"""
 
@@ -462,7 +501,14 @@ class Competition(models.Model):
     date = models.DateField(verbose_name="Дата проведения", blank=True, null=True)
     start_date = models.DateField(verbose_name="Дата начала", blank=True, null=True)
     end_date = models.DateField(verbose_name="Дата окончания", blank=True, null=True)
-    location = models.CharField(max_length=100, verbose_name="Место проведения")
+    location = models.ForeignKey(
+        CompetitionVenue,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="competitions",
+        verbose_name="Место проведения",
+    )
     competition_type = models.CharField(
         max_length=20,
         choices=TYPE_CHOICES,

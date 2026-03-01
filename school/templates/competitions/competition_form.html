@@ -15,7 +15,7 @@
             {% csrf_token %}
 
             {# Desktop / tablet (md+) #}
-            <div class="d-none d-md-flex flex-wrap">
+            <div id="competition-form-desktop" class="d-none d-md-flex flex-wrap">
                 <!-- Col 1 -->
                 <div class="col-md-6 col-lg-4 pe-md-3">
                     <div class="input-group mb-2">
@@ -66,7 +66,7 @@
             </div>
 
             {# Mobile (sm and below) #}
-            <div class="d-md-none row g-3">
+            <div id="competition-form-mobile" class="d-md-none row g-3">
                 <div class="col-12">
                     {{ form.name }}
                     <div class="form-text">Название соревнования</div>
@@ -324,6 +324,25 @@
 <script src="{% static 'js/athlete_simple_list.js' %}"></script>
 <script>
 (() => {
+    const competitionForm = document.querySelector('.card.shadow-sm.mb-3 form');
+    const desktopBlock = document.getElementById('competition-form-desktop');
+    const mobileBlock = document.getElementById('competition-form-mobile');
+
+    function setDisabledForBlock(block, disabled) {
+        if (!block) return;
+        block.querySelectorAll('input, select, textarea').forEach((el) => {
+            el.disabled = disabled;
+        });
+    }
+
+    if (competitionForm) {
+        competitionForm.addEventListener('submit', () => {
+            const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+            setDisabledForBlock(desktopBlock, !isDesktop);
+            setDisabledForBlock(mobileBlock, isDesktop);
+        });
+    }
+
     const search = document.getElementById('filter-search');
     const yearFrom = document.getElementById('filter-year-from');
     const yearTo = document.getElementById('filter-year-to');

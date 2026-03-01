@@ -26,6 +26,7 @@ from .models import (
     ClassEnrollment,
     Group,
     Competition,
+    CompetitionVenue,
     Club,
     Document,
     CompetitionDocument,
@@ -568,6 +569,11 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["location"].queryset = CompetitionVenue.objects.select_related("parent").filter(
+            is_active=True
+        ).order_by("parent__short_name", "short_name")
+        self.fields["location"].required = False
+        self.fields["location"].empty_label = "Локация не выбрана"
         if not self.is_bound and not self.instance.pk and not self.initial.get("birth_year_from"):
             self.initial["birth_year_from"] = timezone.now().year - 7
 
@@ -578,6 +584,26 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
         if by_to and by_from and by_from > by_to:
             self.add_error("birth_year_to", "Должен быть не меньше 'от'.")
         return data
+
+
+class CompetitionVenueForm(StyleFormMixin, forms.ModelForm):
+    class Meta:
+        model = CompetitionVenue
+        fields = ["short_name", "full_address", "comment", "parent", "is_active"]
+        widgets = {
+            "full_address": forms.Textarea(attrs={"rows": 2, "placeholder": "Например: Ленинградская область..."}),
+            "comment": forms.Textarea(attrs={"rows": 2, "placeholder": "Доп. ориентиры, условия и т.д."}),
+            "parent": forms.Select(attrs={"class": "form-select"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        parent_qs = CompetitionVenue.objects.select_related("parent").order_by("parent__short_name", "short_name")
+        if self.instance and self.instance.pk:
+            parent_qs = parent_qs.exclude(pk=self.instance.pk)
+        self.fields["parent"].queryset = parent_qs
+        self.fields["parent"].required = False
+        self.fields["parent"].empty_label = "Без родительской локации"
 
 
 class ClubForm(StyleFormMixin, forms.ModelForm):

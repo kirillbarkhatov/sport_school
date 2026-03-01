@@ -6,9 +6,20 @@ from datetime import date
 from difflib import SequenceMatcher
 from typing import Any
 
+from django.db.models import Q
 from django.utils import timezone
 
-from .models import Athlete, AthleteDocument, Competition, CompetitionDocument, Document, DocumentAIAnalysis, DocumentType, Person
+from .models import (
+    Athlete,
+    AthleteDocument,
+    Competition,
+    CompetitionDocument,
+    CompetitionVenue,
+    Document,
+    DocumentAIAnalysis,
+    DocumentType,
+    Person,
+)
 
 
 _COMPETITION_DOC_TYPES = {
@@ -316,35 +327,82 @@ def infer_athlete_doc_type(analysis: DocumentAIAnalysis) -> str:
     return DocumentType.OTHER
 
 
-def find_competition_exact_match(analysis: DocumentAIAnalysis) -> Competition | None:
+def _event_day_from_analysis(analysis: DocumentAIAnalysis) -> date | None:
     extracted = analysis.extracted or {}
-    name = extracted.get("competition_name")
     event_dates = extracted.get("event_dates") or {}
-    date_from = _safe_date(event_dates.get("from"))
-    date_to = _safe_date(event_dates.get("to"))
+    return _safe_date(event_dates.get("from")) or _safe_date(event_dates.get("to"))
 
-    if not name:
+
+def _competition_location_corpus(analysis: DocumentAIAnalysis) -> str:
+    extracted = analysis.extracted or {}
+    location = extracted.get("location")
+    competition_name = extracted.get("competition_name")
+    summary = extracted.get("summary")
+    discipline = extracted.get("discipline")
+    return " ".join(str(v) for v in [location, competition_name, analysis.title, summary, discipline] if v)
+
+
+def _resolve_venue_from_analysis(analysis: DocumentAIAnalysis) -> CompetitionVenue | None:
+    corpus = normalize_text(_competition_location_corpus(analysis))
+    if not corpus:
         return None
 
-    target_name = normalize_text(str(name))
-    candidates = Competition.objects.all().only("id", "name", "date", "start_date", "end_date")
+    venues = list(
+        CompetitionVenue.objects.filter(is_active=True).only("id", "short_name", "parent_id")
+    )
+    venue_by_id = {venue.id: venue for venue in venues}
+    matched: list[tuple[CompetitionVenue, int, int]] = []
 
-    matches = []
-    for comp in candidates:
-        if normalize_text(comp.name) != target_name:
+    for venue in venues:
+        token = normalize_text(venue.short_name)
+        if not token or token not in corpus:
             continue
 
-        comp_from = comp.start_date or comp.date
-        comp_to = comp.end_date or comp.date
+        depth = 0
+        parent_id = venue.parent_id
+        while parent_id:
+            depth += 1
+            parent = venue_by_id.get(parent_id)
+            parent_id = parent.parent_id if parent else None
 
-        same_from = (date_from is None) or (comp_from == date_from)
-        same_to = (date_to is None) or (comp_to == date_to)
-        if same_from and same_to:
-            matches.append(comp)
+        matched.append((venue, depth, len(token)))
 
-    if len(matches) == 1:
-        return matches[0]
+    if not matched:
+        return None
+
+    # Prefer deeper sublocations and longer names.
+    matched.sort(key=lambda item: (item[1], item[2], item[0].id), reverse=True)
+    best = matched[0]
+    if len(matched) == 1:
+        return best[0]
+
+    second = matched[1]
+    if best[1] == second[1] and best[2] == second[2]:
+        return None
+    return best[0]
+
+
+def _find_competition_by_venue_and_day(venue: CompetitionVenue, event_day: date) -> Competition | None:
+    candidates = list(
+        Competition.objects.filter(location=venue).filter(
+            (
+                (Q(start_date__isnull=False) & Q(end_date__isnull=False) & Q(start_date__lte=event_day) & Q(end_date__gte=event_day))
+                | Q(start_date=event_day)
+                | Q(date=event_day)
+            )
+        ).order_by("id")
+    )
+    if len(candidates) == 1:
+        return candidates[0]
     return None
+
+
+def find_competition_exact_match(analysis: DocumentAIAnalysis) -> Competition | None:
+    venue = _resolve_venue_from_analysis(analysis)
+    event_day = _event_day_from_analysis(analysis)
+    if not venue or not event_day:
+        return None
+    return _find_competition_by_venue_and_day(venue, event_day)
 
 
 def _athlete_matches_by_name(full_name: str) -> list[Athlete]:
@@ -441,6 +499,12 @@ def auto_bind_document_by_analysis(document: Document) -> AutoBindResult:
 
     if analysis.doc_type == DocumentAIAnalysis.DocType.COMPETITION_GENERAL:
         competition = find_competition_exact_match(analysis)
+        if not competition:
+            venue = _resolve_venue_from_analysis(analysis)
+            event_day = _event_day_from_analysis(analysis)
+            if not venue or not event_day:
+                return AutoBindResult(bound=False)
+            competition = create_competition_from_analysis(document, venue=venue, event_day=event_day)
         if not competition:
             return AutoBindResult(bound=False)
 
@@ -637,17 +701,26 @@ def bind_document_to_athlete(*, document: Document, athlete: Athlete, doc_type: 
     return link
 
 
-def create_competition_from_analysis(document: Document) -> Competition:
+def create_competition_from_analysis(
+    document: Document,
+    *,
+    venue: CompetitionVenue | None = None,
+    event_day: date | None = None,
+) -> Competition:
     analysis = document.ai_analysis
     extracted = analysis.extracted or {}
     event_dates = extracted.get("event_dates") or {}
+    resolved_venue = venue or _resolve_venue_from_analysis(analysis)
+    resolved_event_day = event_day or _safe_date(event_dates.get("from")) or _safe_date(event_dates.get("to"))
+    date_from = _safe_date(event_dates.get("from")) or resolved_event_day
+    date_to = _safe_date(event_dates.get("to")) or resolved_event_day
 
     competition = Competition.objects.create(
         name=(extracted.get("competition_name") or analysis.title or document.original_name)[:100],
-        start_date=_safe_date(event_dates.get("from")),
-        end_date=_safe_date(event_dates.get("to")),
-        date=_safe_date(event_dates.get("from")) or _safe_date(event_dates.get("to")),
-        location=(extracted.get("location") or "Не указано")[:100],
+        start_date=date_from,
+        end_date=date_to,
+        date=resolved_event_day,
+        location=resolved_venue,
         discipline=(extracted.get("discipline") or "")[:100] or None,
         description=(extracted.get("summary") or analysis.title or "")[:1000] or None,
     )
