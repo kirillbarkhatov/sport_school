@@ -1,0 +1,43 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Редактирование локации{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <h2 class="mb-0">Редактирование локации</h2>
+    <a href="{% url 'school:competition_venue_list' %}" class="btn btn-outline-secondary btn-sm">К списку локаций</a>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Короткое название</label>
+                {{ form.short_name }}
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Родительская локация</label>
+                {{ form.parent }}
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Точный адрес</label>
+                {{ form.full_address }}
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small text-muted mb-1">Комментарий</label>
+                {{ form.comment }}
+            </div>
+            <div class="col-12">
+                <div class="form-check">
+                    {{ form.is_active }}
+                    <label class="form-check-label" for="{{ form.is_active.id_for_label }}">Активна</label>
+                </div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
