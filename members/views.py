@@ -30,6 +30,9 @@ from school.services import (
     ensure_monthly_service_for_contract,
     get_month_range,
 )
+from members.models import PersonDedupJob, PersonDuplicateCluster, PersonMergeRedirect
+from members.services import apply_cluster_merge, build_cluster_payload, build_job_payload
+from members.tasks import run_person_dedup_job_task
 
 
 def _group_users_by_person(person_ids):
@@ -56,8 +59,10 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
     template_name = "members/person_list.html"
 
     def get_queryset(self):
+        redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
         qs = (
             get_person_queryset_for_user(self.request.user)
+            .exclude(id__in=redirected_sources)
             .prefetch_related("familymember_set__family", "linked_users")
         )
         club_id = self.request.GET.get("club")
@@ -75,6 +80,13 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
             context["families"] = list(Family.objects.order_by("family_name"))
             context["relation_choices"] = FamilyMember.FAMILY_RELATION
             context["person_form"] = PersonForm()
+            latest_job = PersonDedupJob.objects.order_by("-created_at").first()
+            context["dedup_last_job"] = latest_job
+            context["dedup_open_clusters"] = PersonDuplicateCluster.objects.filter(
+                job=latest_job,
+                status=PersonDuplicateCluster.STATUS_OPEN,
+            ).count() if latest_job else 0
+            context["dedup_url"] = reverse("members:person_dedup_center")
         return context
 
 
@@ -1021,3 +1033,174 @@ class FamilyAddMemberView(ApprovedUserRequiredMixin, View):
                 }
             )
         return redirect(redirect_url)
+
+
+class PersonDedupCenterView(ApprovedUserRequiredMixin, ListView):
+    template_name = "members/person_dedup_center.html"
+    model = PersonDedupJob
+    context_object_name = "jobs"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return self.handle_no_permission()
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_queryset(self):
+        return list(PersonDedupJob.objects.select_related("created_by").order_by("-created_at")[:10])
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        latest_job = self.object_list[0] if self.object_list else None
+        context["latest_job"] = latest_job
+        context["latest_job_payload"] = build_job_payload(latest_job) if latest_job else None
+        context["pending_clusters"] = (
+            latest_job.clusters.filter(status=PersonDuplicateCluster.STATUS_OPEN).count()
+            if latest_job
+            else 0
+        )
+        return context
+
+
+class PersonDedupStartView(ApprovedUserRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+
+        mode = request.POST.get("mode") or PersonDedupJob.MODE_ANALYZE
+        if mode not in {choice[0] for choice in PersonDedupJob.MODE_CHOICES}:
+            return JsonResponse({"success": False, "error": "bad_mode"}, status=400)
+
+        dry_run = (request.POST.get("dry_run") or "1").lower() in {"1", "true", "on", "yes"}
+        try:
+            min_score = int(request.POST.get("min_score") or 55)
+            auto_merge_score = int(request.POST.get("auto_merge_score") or 92)
+        except ValueError:
+            return JsonResponse({"success": False, "error": "bad_thresholds"}, status=400)
+
+        job = PersonDedupJob.objects.create(
+            mode=mode,
+            dry_run=dry_run,
+            min_score=max(1, min(100, min_score)),
+            auto_merge_score=max(1, min(100, auto_merge_score)),
+            created_by=request.user,
+            status=PersonDedupJob.STATUS_QUEUED,
+        )
+
+        try:
+            run_person_dedup_job_task.delay(job.id)
+        except Exception:
+            run_person_dedup_job_task(job.id)
+
+        return JsonResponse({"success": True, "job": build_job_payload(PersonDedupJob.objects.get(pk=job.id))})
+
+
+class PersonDedupJobStatusView(ApprovedUserRequiredMixin, View):
+    def get(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+        job = get_object_or_404(PersonDedupJob, pk=kwargs["job_id"])
+        return JsonResponse({"success": True, "job": build_job_payload(job)})
+
+
+class PersonDedupClustersView(ApprovedUserRequiredMixin, View):
+    def get(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+
+        job = get_object_or_404(PersonDedupJob, pk=kwargs["job_id"])
+        status_filter = (request.GET.get("status") or "").strip()
+        qs = job.clusters.order_by("-max_pair_score", "id").prefetch_related("items__person__club")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        payload = []
+        for cluster in qs[:200]:
+            cluster_data = build_cluster_payload(cluster)
+            payload.append(
+                {
+                    "id": cluster_data["id"],
+                    "status": cluster_data["status"],
+                    "confidence": cluster_data["confidence"],
+                    "max_pair_score": cluster_data["max_pair_score"],
+                    "reason_summary": cluster_data["reason_summary"],
+                    "requires_manual_review": cluster_data["requires_manual_review"],
+                    "items": cluster_data["items"],
+                }
+            )
+        return JsonResponse({"success": True, "clusters": payload})
+
+
+class PersonDedupClusterDetailView(ApprovedUserRequiredMixin, View):
+    def get(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+        cluster = get_object_or_404(
+            PersonDuplicateCluster.objects.prefetch_related("items__person__club"),
+            pk=kwargs["cluster_id"],
+        )
+        return JsonResponse({"success": True, "cluster": build_cluster_payload(cluster)})
+
+
+class PersonDedupClusterSkipView(ApprovedUserRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+        cluster = get_object_or_404(PersonDuplicateCluster, pk=kwargs["cluster_id"])
+        cluster.status = PersonDuplicateCluster.STATUS_SKIPPED
+        cluster.requires_manual_review = False
+        cluster.save(update_fields=["status", "requires_manual_review", "updated_at"])
+        return JsonResponse({"success": True, "cluster": {"id": cluster.id, "status": cluster.status}})
+
+
+class PersonDedupClusterMergeView(ApprovedUserRequiredMixin, View):
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_staff and not request.user.is_superuser:
+            return JsonResponse({"success": False, "error": "forbidden"}, status=403)
+
+        cluster = get_object_or_404(
+            PersonDuplicateCluster.objects.prefetch_related("items__person"),
+            pk=kwargs["cluster_id"],
+        )
+        master_person_id_raw = request.POST.get("master_person_id")
+        if not master_person_id_raw or not master_person_id_raw.isdigit():
+            return JsonResponse({"success": False, "error": "bad_master_person"}, status=400)
+        master_person_id = int(master_person_id_raw)
+
+        field_resolution = {}
+        for field_name in (
+            "surname",
+            "name",
+            "middlename",
+            "date_of_birth",
+            "phone",
+            "email",
+            "telegram",
+            "club",
+            "gender",
+            "comment",
+        ):
+            field_key = f"field_{field_name}_person_id"
+            selected_id = request.POST.get(field_key)
+            if selected_id and str(selected_id).isdigit():
+                field_resolution[field_name] = int(selected_id)
+
+        note = (request.POST.get("note") or "").strip()
+        try:
+            log = apply_cluster_merge(
+                cluster,
+                master_person_id,
+                actor=request.user,
+                field_resolution=field_resolution,
+                note=note,
+            )
+        except ValueError as exc:
+            return JsonResponse({"success": False, "error": str(exc)}, status=400)
+
+        return JsonResponse(
+            {
+                "success": True,
+                "merge_log_id": log.id,
+                "master_person_id": log.master_person_id,
+                "merged_person_ids": log.merged_person_ids,
+            }
+        )

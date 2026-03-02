@@ -5,11 +5,13 @@ from django.db.models import QuerySet
 
 from school.models import FamilyMember, Person, Athlete, Group, Class, Coach
 from users.models import UserAthleteLink
+from members.models import PersonMergeRedirect
 
 
 def get_person_queryset_for_user(user) -> QuerySet:
+    redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
     if user.is_staff or user.is_superuser:
-        return Person.objects.all()
+        return Person.objects.exclude(id__in=redirected_sources)
 
     family_ids = user.get_accessible_family_ids()
     person_ids = list(
@@ -24,7 +26,7 @@ def get_person_queryset_for_user(user) -> QuerySet:
         return Person.objects.none()
 
     unique_ids = list(set(person_ids))
-    return Person.objects.filter(id__in=unique_ids)
+    return Person.objects.filter(id__in=unique_ids).exclude(id__in=redirected_sources)
 
 
 def get_athlete_queryset_for_user(user) -> QuerySet:
