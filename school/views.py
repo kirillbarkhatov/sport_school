@@ -1519,24 +1519,46 @@ class DocumentBindAthleteView(ApprovedUserRequiredMixin, View):
             return redirect("school:documents_analysis_list")
 
         with transaction.atomic():
+            previous_active_med_id = None
+            if doc_type == DocumentType.MED_CERT:
+                previous_active_med_id = (
+                    AthleteDocument.objects
+                    .filter(
+                        athlete=athlete,
+                        doc_type=DocumentType.MED_CERT,
+                        is_actual=True,
+                    )
+                    .values_list("id", flat=True)
+                    .first()
+                )
+
             link, created = AthleteDocument.objects.get_or_create(
                 athlete=athlete,
                 document=document,
-                defaults={"doc_type": doc_type},
+                defaults={
+                    "doc_type": doc_type,
+                    "is_actual": bool(doc_type == DocumentType.MED_CERT and previous_active_med_id is None),
+                },
             )
             if not created:
+                update_fields = []
+                # When an active med cert already exists, keep this document as additional.
+                if (
+                    doc_type == DocumentType.MED_CERT
+                    and previous_active_med_id
+                    and previous_active_med_id != link.id
+                    and link.is_actual
+                ):
+                    link.is_actual = False
+                    update_fields.append("is_actual")
                 link.doc_type = doc_type
-                link.save(update_fields=["doc_type"])
+                update_fields.append("doc_type")
+                link.save(update_fields=update_fields)
             sync_athlete_document_from_analysis(document)
             if doc_type == DocumentType.MED_CERT:
-                AthleteDocument.objects.filter(
-                    athlete=athlete,
-                    doc_type=DocumentType.MED_CERT,
-                ).exclude(pk=link.pk).update(is_actual=False)
-                link.refresh_from_db()
-                if not link.is_actual:
-                    link.is_actual = True
-                    link.save(update_fields=["is_actual"])
+                if previous_active_med_id and previous_active_med_id != link.id:
+                    AthleteDocument.objects.filter(pk=link.pk).update(is_actual=False)
+                    AthleteDocument.objects.filter(pk=previous_active_med_id).update(is_actual=True)
             DocumentAIAnalysis.objects.filter(document=document).update(
                 auto_bound=False,
                 bound_entity_type="athlete",

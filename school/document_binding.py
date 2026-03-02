@@ -106,11 +106,15 @@ def _sync_med_cert_actual_flags(athlete: Athlete) -> None:
     else:
         pending_docs = [doc for doc in med_docs if doc.needs_valid_until_clarification]
         active_id = pending_docs[0].id if pending_docs else None
-    for doc in med_docs:
-        should_be_actual = active_id is not None and doc.id == active_id
-        if doc.is_actual != should_be_actual:
-            doc.is_actual = should_be_actual
-            doc.save(update_fields=["is_actual"])
+
+    qs = AthleteDocument.objects.filter(athlete=athlete, doc_type=DocumentType.MED_CERT)
+    if active_id is None:
+        qs.filter(is_actual=True).update(is_actual=False)
+        return
+
+    # Avoid temporary state with two active med certs under unique partial constraint.
+    qs.exclude(pk=active_id).filter(is_actual=True).update(is_actual=False)
+    qs.filter(pk=active_id, is_actual=False).update(is_actual=True)
 
 
 def sync_athlete_document_from_analysis(document: Document) -> None:
