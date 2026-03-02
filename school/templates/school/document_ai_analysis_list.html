@@ -10,6 +10,21 @@
 
 <div class="card shadow-sm mb-3">
     <div class="card-body">
+        <div class="mb-3">
+            <form method="get" class="d-inline">
+                <input type="hidden" name="status" value="{{ request.GET.status|default:'' }}">
+                <input type="hidden" name="doc_type" value="{{ request.GET.doc_type|default:'' }}">
+                <input type="hidden" name="date_from" value="{{ request.GET.date_from|default:'' }}">
+                <input type="hidden" name="date_to" value="{{ request.GET.date_to|default:'' }}">
+                <input type="hidden" name="entity" value="other">
+                <button
+                    type="submit"
+                    class="btn btn-sm {% if request.GET.entity == 'other' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                >
+                    Непривязанные документы
+                </button>
+            </form>
+        </div>
         <form method="get" class="row g-2 align-items-end">
             <div class="col-12 col-md-2">
                 <label class="form-label small text-muted mb-1">Статус</label>
@@ -261,7 +276,8 @@
 
                     <div id="block-manual" class="d-none">
                         <h6>Документ без AI-анализа</h6>
-                        <form id="form-manual-bind" class="row g-2">
+                        <form id="form-manual-bind" method="post" class="row g-2">
+                            {% csrf_token %}
                             <div class="col-md-4">
                                 <label class="form-label">Тип сущности</label>
                                 <select id="manual-entity-type" class="form-select">
@@ -309,6 +325,7 @@
         const formBindAthlete = document.getElementById("form-bind-athlete");
         const formCreateCompetition = document.getElementById("form-create-competition");
         const formCreateAthlete = document.getElementById("form-create-athlete");
+        const formManualBind = document.getElementById("form-manual-bind");
 
         const competitionSelect = document.getElementById("bind-competition-select");
         const athleteSelect = document.getElementById("bind-athlete-select");
@@ -321,6 +338,22 @@
         const manualDocType = document.getElementById("manual-doc-type");
         const manualEntitySelect = document.getElementById("manual-entity-select");
         const manualBindSubmit = document.getElementById("manual-bind-submit");
+
+        function setHiddenInput(form, name, value) {
+            let input = form.querySelector(`input[name="${name}"]`);
+            if (!input) {
+                input = document.createElement("input");
+                input.type = "hidden";
+                input.name = name;
+                form.appendChild(input);
+            }
+            input.value = value;
+        }
+
+        function removeHiddenInput(form, name) {
+            const input = form.querySelector(`input[name="${name}"]`);
+            if (input) input.remove();
+        }
 
         function urlFromTemplate(template, id) {
             return template.replace("/0/", `/${id}/`);
@@ -496,15 +529,19 @@
             refreshManual();
             manualEntityType.onchange = refreshManual;
             manualBindSubmit.onclick = () => {
+                if (!manualEntitySelect.value) return;
+
                 if (manualEntityType.value === "competition") {
-                    competitionSelect.value = manualEntitySelect.value;
-                    competitionDocTypeSelect.value = manualDocType.value;
-                    formBindCompetition.submit();
+                    formManualBind.action = formBindCompetition.action;
+                    setHiddenInput(formManualBind, "competition_id", manualEntitySelect.value);
+                    removeHiddenInput(formManualBind, "athlete_id");
                 } else {
-                    athleteSelect.value = manualEntitySelect.value;
-                    athleteDocTypeSelect.value = manualDocType.value;
-                    formBindAthlete.submit();
+                    formManualBind.action = formBindAthlete.action;
+                    setHiddenInput(formManualBind, "athlete_id", manualEntitySelect.value);
+                    removeHiddenInput(formManualBind, "competition_id");
                 }
+                setHiddenInput(formManualBind, "doc_type", manualDocType.value);
+                formManualBind.submit();
             };
         }
 
