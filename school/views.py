@@ -977,8 +977,9 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "order": order,
             "selected_ids": selected_ids,
             "application_link": link,
-            "apply_url": request.build_absolute_uri(
-                reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
+            "apply_url": (
+                f"{settings.SITE_BASE_URL.rstrip('/')}"
+                f"{reverse('school:competition_apply', kwargs={'pk': competition.pk, 'token': link.token})}"
             ) if competition and link else "",
             "competition_documents": competition.documents.select_related("document") if competition else [],
             "document_form": document_form,
@@ -1054,8 +1055,9 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "order": "surname",
             "selected_ids": selected_ids,
             "application_link": link,
-            "apply_url": request.build_absolute_uri(
-                reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
+            "apply_url": (
+                f"{settings.SITE_BASE_URL.rstrip('/')}"
+                f"{reverse('school:competition_apply', kwargs={'pk': competition.pk, 'token': link.token})}"
             ) if competition and link else "",
             "competition_documents": competition.documents.select_related("document") if competition else [],
             "document_form": document_form,
@@ -1742,8 +1744,9 @@ class CompetitionApplyView(LoginRequiredMixin, View):
         return {
             "competition": competition,
             "application_link": link,
-            "apply_url": request.build_absolute_uri(
-                reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
+            "apply_url": (
+                f"{settings.SITE_BASE_URL.rstrip('/')}"
+                f"{reverse('school:competition_apply', kwargs={'pk': competition.pk, 'token': link.token})}"
             ),
             "deadline": deadline,
             "is_expired": is_expired,
