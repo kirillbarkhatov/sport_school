@@ -1,6 +1,6 @@
 import json
 import secrets
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
 
 from django.conf import settings
@@ -96,6 +96,16 @@ from users.utils import (
 
 
 KANAEV_CLUB_NAME = "Канаев Ски Клаб"
+
+
+def _is_regular_person_user(user) -> bool:
+    return bool(
+        user
+        and user.is_authenticated
+        and not user.is_staff
+        and not user.is_superuser
+        and user.person_id
+    )
 
 
 def _is_extended_athlete_filters_user(user) -> bool:
@@ -213,6 +223,11 @@ class IndexView(ApprovedUserRequiredMixin, TemplateView):
     """Стартовая страница"""
     template_name = "school/index.html"
 
+    def get(self, request, *args, **kwargs):
+        if _is_regular_person_user(request.user):
+            return redirect("school:user_main_info")
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
@@ -228,6 +243,55 @@ class IndexView(ApprovedUserRequiredMixin, TemplateView):
             athlete_count=athlete_qs.count(),
             group_count=group_qs.count(),
             upcoming_classes=classes_qs.select_related("group").order_by("date")[:5],
+        )
+        return context
+
+
+class UserMainInfoView(ApprovedUserRequiredMixin, TemplateView):
+    template_name = "school/user_main_info.html"
+
+    def get(self, request, *args, **kwargs):
+        if not _is_regular_person_user(request.user):
+            return redirect("school:index")
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        today = timezone.localdate()
+        month_limit = today + timedelta(days=31)
+
+        athletes = (
+            get_available_athlete_queryset_for_user(user, ensure_family_links=True)
+            .select_related("person", "person__club")
+            .prefetch_related(
+                Prefetch("groups_athletes", queryset=Group.objects.order_by("name"))
+            )
+            .order_by("person__surname", "person__name")
+        )
+
+        upcoming_competitions = (
+            Competition.objects
+            .annotate(event_date=Coalesce("start_date", "date"))
+            .filter(
+                event_date__isnull=False,
+                event_date__gte=today,
+                event_date__lte=month_limit,
+            )
+            .select_related("location", "application_link")
+            .prefetch_related(
+                Prefetch(
+                    "documents",
+                    queryset=CompetitionDocument.objects.select_related("document").order_by("-created_at"),
+                )
+            )
+            .order_by("event_date", "id")[:4]
+        )
+
+        context.update(
+            athletes=athletes,
+            upcoming_competitions=upcoming_competitions,
+            now_dt=timezone.now(),
         )
         return context
 

@@ -10,6 +10,7 @@ app_name = SchoolConfig.name
 
 urlpatterns = [
     path("", views.IndexView.as_view(), name="index"),
+    path("main-info/", views.UserMainInfoView.as_view(), name="user_main_info"),
     path("athlete/", views.AthleteListView.as_view(), name="athlete_list"),
     path("athlete/simple/", views.AthleteSimpleListView.as_view(), name="athlete_simple_list"),
     path('athlete/<int:athlete_id>/edit/', views.edit_athlete, name='edit_athlete'),

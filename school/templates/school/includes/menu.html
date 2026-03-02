@@ -18,7 +18,13 @@
     <div class="offcanvas-md offcanvas-end bg-body-tertiary" tabindex="-1" id="sidebarMenu"
          aria-labelledby="sidebarMenuLabel">
         <div class="offcanvas-header">
-            <h5 class="offcanvas-title" id="sidebarMenuLabel">Управление спортивной школой</h5>
+            <h5 class="offcanvas-title" id="sidebarMenuLabel">
+                {% if user.is_authenticated and not user.is_staff and not user.is_superuser and user.person_id %}
+                    Моё меню
+                {% else %}
+                    Управление спортивной школой
+                {% endif %}
+            </h5>
             <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebarMenu"
                     aria-label="Close"></button>
         </div>
@@ -26,64 +32,72 @@
 {% load nav_utils %}
 {% with path=request.path %}
             <nav class="nav flex-column mb-auto px-2">
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}">
-                    <i class="bi bi-list-columns-reverse"></i>
-                    Спортсмены
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/competitions' %}active{% endif %}" href="{% url 'school:competition_list' %}">
-                    <i class="bi bi-trophy"></i>
-                    Соревнования
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/competitions/venues' %}active{% endif %}" href="{% url 'school:competition_venue_list' %}">
-                    <i class="bi bi-geo-alt"></i>
-                    Локации соревнований
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/documents/bulk-upload' %}active{% endif %}" href="{% url 'school:documents_bulk_upload' %}">
-                    <i class="bi bi-upload"></i>
-                    Массовая загрузка документов
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/documents/analysis' %}active{% endif %}" href="{% url 'school:documents_analysis_list' %}">
-                    <i class="bi bi-table"></i>
-                    AI-анализ документов
-                </a>
+                {% if user.is_authenticated and not user.is_staff and not user.is_superuser and user.person_id %}
+                    <a class="nav-link d-flex align-items-center gap-2 {% if request.resolver_match and request.resolver_match.url_name == 'user_main_info' %}active{% endif %}"
+                       href="{% url 'school:user_main_info' %}">
+                        <i class="bi bi-house-door"></i>
+                        Основная информация
+                    </a>
+                {% else %}
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_simple_list' %}">
+                        <i class="bi bi-list-columns-reverse"></i>
+                        Спортсмены
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/competitions' %}active{% endif %}" href="{% url 'school:competition_list' %}">
+                        <i class="bi bi-trophy"></i>
+                        Соревнования
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/competitions/venues' %}active{% endif %}" href="{% url 'school:competition_venue_list' %}">
+                        <i class="bi bi-geo-alt"></i>
+                        Локации соревнований
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/documents/bulk-upload' %}active{% endif %}" href="{% url 'school:documents_bulk_upload' %}">
+                        <i class="bi bi-upload"></i>
+                        Массовая загрузка документов
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/documents/analysis' %}active{% endif %}" href="{% url 'school:documents_analysis_list' %}">
+                        <i class="bi bi-table"></i>
+                        AI-анализ документов
+                    </a>
 
-                {% if user.is_staff or user.is_superuser %}
-                <span class="nav-section-title mt-3">Разделы находящиеся в разработке</span>
+                    {% if user.is_staff or user.is_superuser %}
+                    <span class="nav-section-title mt-3">Разделы находящиеся в разработке</span>
 
-                <span class="nav-section-title">Обзор</span>
-                <a class="nav-link d-flex align-items-center gap-2 {% if request.resolver_match and request.resolver_match.url_name == 'index' %}active{% endif %}"
-                   href="{% url 'school:index' %}">
-                    <i class="bi bi-speedometer2"></i>
-                    Главная панель
-                </a>
+                    <span class="nav-section-title">Обзор</span>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if request.resolver_match and request.resolver_match.url_name == 'index' %}active{% endif %}"
+                       href="{% url 'school:index' %}">
+                        <i class="bi bi-speedometer2"></i>
+                        Главная панель
+                    </a>
 
-                <span class="nav-section-title mt-3">Клуб</span>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/members/families' %}active{% endif %}" href="{% url 'members:family_list' %}">
-                    <i class="bi bi-people"></i>
-                    Семьи
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path == '/members/' %}active{% endif %}" href="{% url 'members:members_list' %}">
-                    <i class="bi bi-person-vcard"></i>
-                    Участники
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete' and not path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_list' %}">
-                    <i class="bi bi-person-running"></i>
-                    Спортсмены (расширенный список)
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/groups' %}active{% endif %}" href="{% url 'groups:group_list' %}">
-                    <i class="bi bi-diagram-3"></i>
-                    Тренировочные группы
-                </a>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/classes' %}active{% endif %}" href="{% url 'classes:class_list' %}">
-                    <i class="bi bi-calendar-event"></i>
-                    Занятия
-                </a>
+                    <span class="nav-section-title mt-3">Клуб</span>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/members/families' %}active{% endif %}" href="{% url 'members:family_list' %}">
+                        <i class="bi bi-people"></i>
+                        Семьи
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path == '/members/' %}active{% endif %}" href="{% url 'members:members_list' %}">
+                        <i class="bi bi-person-vcard"></i>
+                        Участники
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete' and not path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_list' %}">
+                        <i class="bi bi-person-running"></i>
+                        Спортсмены (расширенный список)
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/groups' %}active{% endif %}" href="{% url 'groups:group_list' %}">
+                        <i class="bi bi-diagram-3"></i>
+                        Тренировочные группы
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/classes' %}active{% endif %}" href="{% url 'classes:class_list' %}">
+                        <i class="bi bi-calendar-event"></i>
+                        Занятия
+                    </a>
 
-                <span class="nav-section-title mt-3">Коммуникации</span>
-                <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/notifications' %}active{% endif %}" href="{% url 'notifications:notification_list' %}">
-                    <i class="bi bi-chat-dots"></i>
-                    Уведомления
-                </a>
+                    <span class="nav-section-title mt-3">Коммуникации</span>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/notifications' %}active{% endif %}" href="{% url 'notifications:notification_list' %}">
+                        <i class="bi bi-chat-dots"></i>
+                        Уведомления
+                    </a>
+                    {% endif %}
                 {% endif %}
             </nav>
             {% endwith %}
