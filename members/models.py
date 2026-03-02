@@ -170,7 +170,7 @@ class PersonMergeRedirect(models.Model):
         verbose_name_plural = "Редиректы объединённых персон"
         constraints = [
             models.CheckConstraint(
-                check=~models.Q(source_person=models.F("target_person")),
+                condition=~models.Q(source_person=models.F("target_person")),
                 name="members_merge_redirect_source_ne_target",
             )
         ]

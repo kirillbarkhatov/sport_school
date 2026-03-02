@@ -194,9 +194,22 @@ def _build_blocks(persons: list[Person]) -> dict[str, list[Person]]:
     for person in persons:
         surname = _normalize_name(person.surname)
         name = _normalize_name(person.name)
+        if not surname or not name:
+            continue
         year = str(person.date_of_birth.year) if person.date_of_birth else "0000"
-        key = f"{surname[:4]}:{name[:2]}:{year}:{person.gender or ''}"
-        blocks[key].append(person)
+        gender = person.gender or ""
+
+        # Main key: stricter, keeps pair count reasonable on larger datasets.
+        primary_key = f"strict:{surname[:4]}:{name[:2]}:{year}:{gender}"
+        blocks[primary_key].append(person)
+
+        # Soft key: allows matches when birth year is empty/incorrect.
+        soft_year_key = f"soft_year:{surname[:4]}:{name[:2]}:{gender}"
+        blocks[soft_year_key].append(person)
+
+        # Softest key: catches gender mistakes in source data.
+        soft_gender_key = f"soft_gender:{surname[:4]}:{name[:2]}"
+        blocks[soft_gender_key].append(person)
     return blocks
 
 
@@ -412,12 +425,17 @@ def run_dedup_job(job: PersonDedupJob) -> PersonDedupJob:
         job.processed_persons = len(persons)
         blocks = _build_blocks(persons)
         pair_scores: list[PairScore] = []
+        seen_pairs: set[tuple[int, int]] = set()
 
         for block_people in blocks.values():
             if len(block_people) < 2:
                 continue
             for idx, left in enumerate(block_people):
                 for right in block_people[idx + 1:]:
+                    pair_key = (min(left.id, right.id), max(left.id, right.id))
+                    if pair_key in seen_pairs:
+                        continue
+                    seen_pairs.add(pair_key)
                     pair = _score_pair(left, right)
                     if pair.score >= job.min_score:
                         pair_scores.append(pair)
@@ -493,6 +511,7 @@ def run_dedup_job(job: PersonDedupJob) -> PersonDedupJob:
         job.save(
             update_fields=[
                 "processed_persons",
+                "total_persons",
                 "duplicate_clusters_found",
                 "auto_merged_clusters",
                 "conflicts_count",

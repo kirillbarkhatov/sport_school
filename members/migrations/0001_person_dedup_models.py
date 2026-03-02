@@ -119,6 +119,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="personmergeredirect",
-            constraint=models.CheckConstraint(check=~models.Q(source_person=models.F("target_person")), name="members_merge_redirect_source_ne_target"),
+            constraint=models.CheckConstraint(condition=~models.Q(source_person=models.F("target_person")), name="members_merge_redirect_source_ne_target"),
         ),
     ]
