@@ -1,0 +1,139 @@
+{% extends 'school/base.html' %}
+{% load static %}
+
+{% block title %}Основная информация{% endblock %}
+
+{% block content %}
+<div class="pt-3 pb-2 mb-3 border-bottom">
+    <h2 class="mb-1">Основная информация</h2>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+        <span>Спортсмены</span>
+        <span class="text-muted small">Всего: {{ athletes|length }}</span>
+    </div>
+    <div class="card-body">
+        <div class="list-group" data-athlete-section>
+            {% for athlete in athletes %}
+                {% with person=athlete.person main_group=athlete.groups_athletes.all|first %}
+                    <a
+                        href="{% url 'school:athlete_edit_compact' athlete.pk %}"
+                        class="list-group-item list-group-item-action py-3"
+                        data-athlete-item
+                        data-athlete-id="{{ athlete.pk }}"
+                        data-modal-url="{% url 'school:athlete_edit_compact' athlete.pk %}?modal=1"
+                        data-surname="{{ person.surname|default_if_none:''|lower }}"
+                    >
+                        <div class="fw-semibold">{{ person.surname }} {{ person.name }}</div>
+                        <div class="d-flex justify-content-between text-muted small mt-1">
+                            <span>{% if person.date_of_birth %}{{ person.date_of_birth|date:"d.m.Y" }}{% else %}—{% endif %}</span>
+                            <span>
+                                {% if person.club %}{{ person.club.name }}{% endif %}{% if person.club and main_group %} - {% endif %}{% if main_group %}{{ main_group.name }}{% endif %}
+                            </span>
+                        </div>
+                    </a>
+                {% endwith %}
+            {% empty %}
+                <div class="text-center text-muted py-4">
+                    Спортсменов пока нет.
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-body-tertiary">
+        Ближайшие соревнования
+    </div>
+    <div class="card-body p-0">
+        {% for competition in upcoming_competitions %}
+            {% with start=competition.start_date|default_if_none:competition.date end=competition.end_date %}
+                <div class="border-bottom">
+                    <button
+                        class="btn btn-link w-100 text-start text-decoration-none px-3 py-2 d-flex justify-content-between align-items-center"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#comp-row-{{ competition.pk }}"
+                        aria-expanded="false"
+                        aria-controls="comp-row-{{ competition.pk }}"
+                    >
+                        <span class="fw-semibold">
+                            {% if start %}
+                                {{ start|date:"d.m.Y" }}{% if end and end != start %} — {{ end|date:"d.m.Y" }}{% endif %}
+                            {% else %}
+                                Дата уточняется
+                            {% endif %}
+                        </span>
+                        <span class="text-muted small">{{ competition.location|default:"Локация не указана" }}</span>
+                    </button>
+                    <div id="comp-row-{{ competition.pk }}" class="collapse">
+                        <div class="px-3 pb-3">
+                            <div class="fw-semibold mb-2">{{ competition.name }}</div>
+                            <div class="small text-muted mb-1">Тип: {{ competition.get_competition_type_display }}</div>
+                            <div class="small text-muted mb-1">Дисциплина: {{ competition.get_discipline_label|default:"—" }}</div>
+                            <div class="small text-muted mb-2">
+                                Годы рождения:
+                                {% if competition.birth_year_from and competition.birth_year_to %}
+                                    {{ competition.birth_year_from }}–{{ competition.birth_year_to }} г.р.
+                                {% elif competition.birth_year_from %}
+                                    {{ competition.birth_year_from }} г.р. и старше
+                                {% elif competition.birth_year_to %}
+                                    до {{ competition.birth_year_to }} г.р.
+                                {% else %}
+                                    Не указано
+                                {% endif %}
+                            </div>
+                            {% if competition.description %}
+                                <div class="small mb-2">{{ competition.description }}</div>
+                            {% endif %}
+
+                            <div class="d-flex flex-wrap gap-2">
+                                <div class="btn-group btn-group-sm">
+                                    <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                        Документы ({{ competition.documents.count }})
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        {% for doc in competition.documents.all %}
+                                            <li><a class="dropdown-item" href="{{ doc.document.file.url }}" target="_blank">{{ doc.document.original_name }}</a></li>
+                                        {% empty %}
+                                            <li><span class="dropdown-item-text text-muted">Нет документов</span></li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+
+                                {% if competition.application_link and competition.application_link.is_active %}
+                                    {% if not competition.application_link.expires_at or competition.application_link.expires_at >= now_dt %}
+                                        <a
+                                            href="{% url 'school:competition_apply' pk=competition.pk token=competition.application_link.token %}"
+                                            class="btn btn-sm btn-primary"
+                                        >
+                                            Принять участие
+                                        </a>
+                                    {% else %}
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Прием заявок закрыт</button>
+                                    {% endif %}
+                                {% else %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled>Заявка недоступна</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endwith %}
+        {% empty %}
+            <div class="p-3 text-muted">
+                Нет соревнований в ближайший месяц.
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+{% include "athletes/includes/edit_modals.html" %}
+{% endblock %}
+
+{% block content_2 %}
+    {{ block.super }}
+    <script src="{% static 'js/athlete_simple_list.js' %}"></script>
+{% endblock %}

@@ -1,5 +1,11 @@
 <header class="navbar sticky-top bg-dark flex-md-nowrap p-0 shadow" data-bs-theme="dark">
-    <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 text-white" href="{% url 'school:index' %}">Центр управления школой</a>
+    <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 text-white" href="{% url 'school:index' %}">
+        {% if user.is_authenticated and not user.is_staff and not user.is_superuser and user.person_id %}
+            Горнолыжная школа
+        {% else %}
+            Центр управления школой
+        {% endif %}
+    </a>
 
     <!--    Адаптив для мобильных устройств-->
     <ul class="navbar-nav flex-row d-md-none">
