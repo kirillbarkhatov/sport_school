@@ -9,6 +9,13 @@ from . import views
 app_name = MembersConfig.name
 
 urlpatterns = [
+    path("dedup/", views.PersonDedupCenterView.as_view(), name="person_dedup_center"),
+    path("dedup/start/", views.PersonDedupStartView.as_view(), name="person_dedup_start"),
+    path("dedup/jobs/<int:job_id>/status/", views.PersonDedupJobStatusView.as_view(), name="person_dedup_job_status"),
+    path("dedup/jobs/<int:job_id>/clusters/", views.PersonDedupClustersView.as_view(), name="person_dedup_clusters"),
+    path("dedup/clusters/<int:cluster_id>/", views.PersonDedupClusterDetailView.as_view(), name="person_dedup_cluster_detail"),
+    path("dedup/clusters/<int:cluster_id>/skip/", views.PersonDedupClusterSkipView.as_view(), name="person_dedup_cluster_skip"),
+    path("dedup/clusters/<int:cluster_id>/merge/", views.PersonDedupClusterMergeView.as_view(), name="person_dedup_cluster_merge"),
     path("families/", views.FamilyListView.as_view(), name="family_list"),
     path("families/<int:pk>/", views.FamilyDetailView.as_view(), name="family_detail"),
     path("families/<int:pk>/edit/", views.FamilyUpdateView.as_view(), name="family_update"),

@@ -11,6 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 from telegram import User as TelegramUser
 
+from members.models import PersonMergeRedirect
 from school.models import Person
 from users.constants import (
     ADMIN_GROUP_NAME,
@@ -167,14 +168,24 @@ def _collect_person_candidates(
     telegram_keys: Iterable[str],
 ) -> dict[int, set[str]]:
     matches: dict[int, set[str]] = defaultdict(set)
+    redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
 
     if surname:
-        surname_matches = Person.objects.filter(surname__iexact=surname).values_list("id", flat=True)
+        surname_matches = (
+            Person.objects.exclude(id__in=redirected_sources)
+            .filter(surname__iexact=surname)
+            .values_list("id", flat=True)
+        )
         for person_id in surname_matches:
             matches[person_id].add("surname")
 
     if phone:
-        candidate_phones = Person.objects.exclude(phone__isnull=True).exclude(phone="").values_list("id", "phone")
+        candidate_phones = (
+            Person.objects.exclude(id__in=redirected_sources)
+            .exclude(phone__isnull=True)
+            .exclude(phone="")
+            .values_list("id", "phone")
+        )
         for person_id, person_phone in candidate_phones:
             if normalize_phone(person_phone) == phone:
                 matches[person_id].add("phone")
@@ -182,7 +193,9 @@ def _collect_person_candidates(
     keys = list(dict.fromkeys(k for k in telegram_keys if k))
     if keys:
         candidate_telegram = (
-            Person.objects.exclude(telegram__isnull=True).exclude(telegram="")
+            Person.objects.exclude(id__in=redirected_sources)
+            .exclude(telegram__isnull=True)
+            .exclude(telegram="")
             .values_list("id", "telegram")
         )
         for person_id, person_telegram in candidate_telegram:

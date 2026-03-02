@@ -1,0 +1,151 @@
+{% extends 'school/base.html' %}
+{% load static %}
+
+{% block title %}Центр дедупликации{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <div>
+        <h2 class="mb-0">Центр дедупликации персон</h2>
+        <p class="text-muted mb-0">Запуск поиска дублей, мониторинг и ручное разрешение конфликтов.</p>
+    </div>
+    <div class="btn-toolbar gap-2">
+        <a href="{% url 'members:members_list' %}" class="btn btn-outline-secondary">К списку персон</a>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-12 col-xl-4">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white">
+                <strong>Запуск задачи</strong>
+            </div>
+            <div class="card-body">
+                <form id="dedup-start-form" data-url-start="{% url 'members:person_dedup_start' %}">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label">Режим</label>
+                        <select class="form-select" name="mode">
+                            <option value="analyze">Только анализ</option>
+                            <option value="auto_safe">Анализ + автообъединение безопасных</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Порог поиска (1-100)</label>
+                        <input class="form-control" type="number" min="1" max="100" name="min_score" value="55">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Порог автообъединения (1-100)</label>
+                        <input class="form-control" type="number" min="1" max="100" name="auto_merge_score" value="92">
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="dedup-dry-run" name="dry_run" checked>
+                        <label class="form-check-label" for="dedup-dry-run">Dry-run (без изменений данных)</label>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary" data-role="start-btn">Запустить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 mt-3">
+            <div class="card-header bg-white">
+                <strong>Последний запуск</strong>
+            </div>
+            <div class="card-body">
+                <div id="job-summary" class="small text-muted">
+                    {% if latest_job_payload %}
+                        ID {{ latest_job_payload.id }}, статус: {{ latest_job_payload.status }}
+                    {% else %}
+                        Нет данных.
+                    {% endif %}
+                </div>
+                <div class="mt-2 d-flex flex-column gap-1" id="job-kpis">
+                    {% if latest_job %}
+                        <span>Кластеры: {{ latest_job.duplicate_clusters_found }}</span>
+                        <span>Автообъединено: {{ latest_job.auto_merged_clusters }}</span>
+                        <span>Конфликты: {{ latest_job.conflicts_count }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-8">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <strong>Кластеры дублей</strong>
+                <div class="d-flex gap-2 align-items-center">
+                    <label class="small text-muted mb-0">Статус</label>
+                    <select class="form-select form-select-sm" id="cluster-status-filter" style="width: 12rem;">
+                        <option value="">Все</option>
+                        <option value="open">Только открытые</option>
+                        <option value="merged">Объединённые вручную</option>
+                        <option value="auto_merged">Автообъединённые</option>
+                        <option value="skipped">Пропущенные</option>
+                    </select>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th class="ps-3">#</th>
+                                <th>Статус</th>
+                                <th>Score</th>
+                                <th>Участники</th>
+                                <th>Причины</th>
+                                <th class="text-end pe-3">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clusters-body">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">Запустите задачу или выберите запуск из истории.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="clusterModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Разрешение кластера</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                <div id="cluster-modal-content" class="small text-muted">
+                    Загрузка...
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    window.personDedupConfig = {
+        latestJobId: {{ latest_job.id|default:"null" }},
+        urlStart: "{% url 'members:person_dedup_start' %}",
+        urlJobStatusTemplate: "{% url 'members:person_dedup_job_status' 0 %}",
+        urlClustersTemplate: "{% url 'members:person_dedup_clusters' 0 %}",
+        urlClusterDetailTemplate: "{% url 'members:person_dedup_cluster_detail' 0 %}",
+        urlClusterMergeTemplate: "{% url 'members:person_dedup_cluster_merge' 0 %}",
+        urlClusterSkipTemplate: "{% url 'members:person_dedup_cluster_skip' 0 %}"
+    };
+</script>
+{% endblock %}
+
+{% block content_2 %}
+    {{ block.super }}
+    <script src="{% static 'js/person_dedup.js' %}"></script>
+{% endblock %}
+
