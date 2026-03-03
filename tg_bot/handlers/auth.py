@@ -155,6 +155,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_coach = await user_is_coach(tg_user.id)
     is_manager = await user_is_manager(tg_user.id)
     is_privileged = is_admin or is_coach or is_manager
+    link_status = link.status if link else None
+    is_confirmed = bool(user.person_id and link_status == UserPersonLinkStatus.APPROVED)
+    can_auto_bind = bool(
+        is_confirmed
+        or (
+            link
+            and link.suggested_person_id
+            and "telegram_id_exact" in (link.matched_reasons or [])
+        )
+    )
+
+    should_try_group_onboarding = start_kind != START_KIND_COMPETITION
+    if should_try_group_onboarding and await maybe_start_group_onboarding(
+        update,
+        context,
+        user=user,
+        is_privileged=is_privileged,
+        can_auto_bind=can_auto_bind,
+    ):
+        return
 
     if start_kind == START_KIND_COMPETITION:
         apply_url = await sync_to_async(_build_competition_apply_url, thread_sensitive=True)(comp_id)
@@ -192,24 +212,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     greeting_name = user.tg_first_name or user.first_name or "друг"
     lines = [f"👋 Привет, {greeting_name}!"]
     reply_markup = None
-    link_status = link.status if link else None
-    is_confirmed = bool(user.person_id and link_status == UserPersonLinkStatus.APPROVED)
-    can_auto_bind = bool(
-        is_confirmed
-        or (
-            link
-            and link.suggested_person_id
-            and "telegram_id_exact" in (link.matched_reasons or [])
-        )
-    )
-    if await maybe_start_group_onboarding(
-        update,
-        context,
-        user=user,
-        is_privileged=is_privileged,
-        can_auto_bind=can_auto_bind,
-    ):
-        return
     show_quick_commands = is_admin or is_coach or is_manager or is_confirmed
     login_instructions = _format_login_instructions(token)
 
