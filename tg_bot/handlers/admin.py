@@ -81,7 +81,7 @@ def _pending_keyboard(users: Iterable[User]) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(
                 text=user.display_name(),
-                callback_data=f"admin:approve:{user.pk}",
+                callback_data=f"admin_link:open:{user.pk}",
             )
         ]
         for user in users
@@ -97,6 +97,35 @@ async def _get_admin_user(tg_id: Optional[int]) -> Optional[User]:
         User.objects.filter(tg_id=tg_id).first,
         thread_sensitive=True,
     )()
+
+
+def _build_link_actions_keyboard(user_id: int, *, has_suggested: bool) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if has_suggested:
+        rows.append([InlineKeyboardButton("✅ Подтвердить связь", callback_data=f"admin_link:confirm:{user_id}")])
+    rows.append([InlineKeyboardButton("🔁 Выбрать другого члена", callback_data=f"admin_link:select:{user_id}")])
+    rows.append([InlineKeyboardButton("➕ Добавить нового члена", callback_data=f"admin_link:create:{user_id}")])
+    rows.append([InlineKeyboardButton("🚫 Отклонить заявку", callback_data=f"admin_link:reject:{user_id}")])
+    rows.append([InlineKeyboardButton("⬅️ К списку", callback_data="admin:refresh")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _build_user_link_card(user: User, link: UserPersonLink | None) -> str:
+    lines = [f"Пользователь: {user.display_name()}"]
+    lines.append(f"ID: {user.id}, tg_id: {user.tg_id or '—'}")
+    lines.append(f"Username: @{user.tg_username}" if user.tg_username else "Username: —")
+    lines.append(f"Телефон: {user.phone or '—'}")
+    if link:
+        lines.append(f"Статус: {link.get_status_display()}")
+        if link.suggested_person_id and link.suggested_person:
+            lines.append(f"Предложенная персона: {link.suggested_person} (id={link.suggested_person_id})")
+        else:
+            lines.append("Предложенная персона: не найдена автоматически")
+        if link.matched_reasons:
+            lines.append(f"Причины совпадения: {', '.join(link.matched_reasons)}")
+        if link.user_comment:
+            lines.append(f"Комментарий пользователя: {link.user_comment}")
+    return "\n".join(lines)
 
 
 def _confirm_suggested_link_sync(user_id: int, admin_user_id: Optional[int]) -> tuple[User, UserPersonLink]:
@@ -381,6 +410,21 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         admin_user = await _get_admin_user(update.effective_user.id)
         admin_user_id = admin_user.pk if admin_user else None
 
+        if action == "open":
+            user = await sync_to_async(
+                User.objects.select_related("link", "link__suggested_person").get,
+                thread_sensitive=True,
+            )(pk=user_id)
+            link = getattr(user, "link", None)
+            await query.message.reply_text(
+                _build_user_link_card(user, link),
+                reply_markup=_build_link_actions_keyboard(
+                    user.id,
+                    has_suggested=bool(link and link.suggested_person_id),
+                ),
+            )
+            return
+
         if action == "confirm":
             try:
                 user, link = await _confirm_suggested_link(user_id, admin_user_id)
@@ -472,8 +516,14 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         try:
             user, link = await _confirm_suggested_link(user_id, admin_user_id)
-        except ValueError as exc:
-            await query.answer(str(exc), show_alert=True)
+        except ValueError:
+            context.user_data["pending_person_search"] = {
+                "user_id": user_id,
+                "initiator_id": update.effective_user.id if update.effective_user else None,
+            }
+            await query.message.reply_text(
+                "Автосвязь не найдена. Введите фамилию члена клуба для ручного выбора."
+            )
             return
 
         await notify_admins_context(

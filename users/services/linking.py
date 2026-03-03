@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import re
 from collections import defaultdict
 from typing import Iterable, Optional, Sequence, Tuple
 
@@ -19,57 +18,21 @@ from users.constants import (
     MANAGER_GROUP_NAME,
 )
 from users.models import User, UserPersonLink, UserPersonLinkStatus
-
-PHONE_CLEAN_PATTERN = re.compile(r"\D+")
-TELEGRAM_URL_PATTERN = re.compile(r"https?://t\.me/(?P<value>[\w@+\d_]+)", re.IGNORECASE)
-
-
-def normalize_phone(phone: Optional[str]) -> str:
-    if not phone:
-        return ""
-    digits = PHONE_CLEAN_PATTERN.sub("", str(phone))
-    if not digits:
-        return ""
-    if digits.startswith("8") and len(digits) == 11:
-        digits = "7" + digits[1:]
-    if len(digits) == 10:
-        digits = "7" + digits
-    if digits.startswith("+"):
-        digits = digits[1:]
-    if len(digits) > 11:
-        digits = digits[-11:]
-    return digits
+from users.telegram_identity import (
+    normalize_phone,
+    normalize_username,
+    parse_telegram_reference,
+    telegram_url_from_username,
+)
 
 
 def _normalize_username(username: Optional[str]) -> str:
-    if not username:
-        return ""
-    return str(username).strip().lstrip("@").lower()
+    return normalize_username(username)
 
 
 def _split_telegram_reference(value: Optional[str]) -> Tuple[str, str]:
-    if not value:
-        return "", ""
-
-    raw = value.strip()
-    match = TELEGRAM_URL_PATTERN.match(raw)
-    if match:
-        raw = match.group("value")
-
-    if raw.startswith("@"):
-        raw = raw[1:]
-
-    if raw.startswith("+"):
-        phone = normalize_phone(raw)
-        return "", phone
-
-    if raw.startswith("http"):
-        return "", ""
-
-    if raw.isdigit():
-        return "", normalize_phone(raw)
-
-    return raw.lower(), ""
+    username, phone, _ = parse_telegram_reference(value)
+    return username, phone
 
 
 @dataclasses.dataclass(slots=True)
@@ -105,19 +68,28 @@ def _ensure_person_telegram_link(user: User, profile: UserTelegramProfile) -> No
         return
 
     username = profile.username or _normalize_username(user.tg_username)
-    if not username:
-        return
+    desired_url = telegram_url_from_username(username)
+    desired_tg_id = profile.tg_id or user.tg_id
 
-    desired_url = f"https://t.me/{username}"
+    update_fields: list[str] = []
+    if desired_tg_id and person.telegram_id != desired_tg_id:
+        person.telegram_id = desired_tg_id
+        update_fields.append("telegram_id")
 
-    current_value = (person.telegram or "").strip()
-    if current_value:
-        current_username, _ = _split_telegram_reference(current_value)
-        if current_username == username:
-            return
+    if desired_url:
+        current_value = (person.telegram or "").strip()
+        if current_value:
+            current_username, _, _ = parse_telegram_reference(current_value)
+            desired_username, _, _ = parse_telegram_reference(desired_url)
+            if current_username != desired_username:
+                person.telegram = desired_url
+                update_fields.append("telegram")
+        else:
+            person.telegram = desired_url
+            update_fields.append("telegram")
 
-    person.telegram = desired_url
-    person.save(update_fields=["telegram"])
+    if update_fields:
+        person.save(update_fields=update_fields)
 
 
 @transaction.atomic
@@ -209,6 +181,15 @@ def _collect_person_candidates(
 
 
 def find_best_person_match(user: User) -> Tuple[Optional[Person], list[str]]:
+    redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
+    if user.tg_id:
+        tg_id_matches = Person.objects.exclude(id__in=redirected_sources).filter(telegram_id=user.tg_id)
+        count = tg_id_matches.count()
+        if count == 1:
+            return tg_id_matches.first(), ["telegram_id_exact"]
+        if count > 1:
+            return None, ["telegram_id_conflict"]
+
     surname = (user.last_name or user.tg_last_name or "").strip()
     phone = normalize_phone(user.phone)
     telegram_keys = []
