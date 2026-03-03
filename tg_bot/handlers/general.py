@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 
 from tg_bot.handlers.admin import handle_person_search_message
 from tg_bot.handlers.manager import handle_manager_text
+from tg_bot.handlers.onboarding import handle_onboarding_message
 from tg_bot.handlers.user import (
     handle_comment_message,
     handle_family_edit_message,
@@ -30,6 +31,8 @@ async def person(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if await handle_family_edit_message(update, context):
+        return
+    if await handle_onboarding_message(update, context):
         return
     if await handle_comment_message(update, context):
         return

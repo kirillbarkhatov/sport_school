@@ -40,6 +40,7 @@ from tg_bot.handlers.admin import (  # noqa: E402
 from tg_bot.handlers.documents import telegram_document_entry  # noqa: E402
 from tg_bot.handlers.coach import coach_panel, handle_coach_callback  # noqa: E402
 from tg_bot.handlers.auth import confirm, register, start  # noqa: E402
+from tg_bot.handlers.onboarding import handle_onboarding_callback  # noqa: E402
 from tg_bot.handlers.general import (  # noqa: E402
     caps,
     classes,
@@ -131,6 +132,12 @@ def build_application():
         CallbackQueryHandler(
             trace_callback("handle_user_callback", handle_user_callback),
             pattern=r"^(user|schedule|attendance|family):",
+        )
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            trace_callback("handle_onboarding_callback", handle_onboarding_callback),
+            pattern=r"^onboard:",
         )
     )
     application.add_handler(
