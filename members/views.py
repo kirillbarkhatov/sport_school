@@ -41,6 +41,53 @@ from users.telegram_identity import normalize_phone, normalize_username, parse_t
 
 
 NON_ALNUM_RE = re.compile(r"[^a-zа-яё0-9]+", re.IGNORECASE)
+NAME_PART_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
+LATIN_RE = re.compile(r"[a-z]", re.IGNORECASE)
+
+LATIN_TO_CYR_MULTI = (
+    ("shch", "щ"),
+    ("sch", "щ"),
+    ("zh", "ж"),
+    ("kh", "х"),
+    ("ts", "ц"),
+    ("ch", "ч"),
+    ("sh", "ш"),
+    ("yu", "ю"),
+    ("ya", "я"),
+    ("yo", "ё"),
+    ("ye", "е"),
+    ("yi", "и"),
+    ("iy", "ий"),
+)
+
+LATIN_TO_CYR_SINGLE = {
+    "a": "а",
+    "b": "б",
+    "c": "к",
+    "d": "д",
+    "e": "е",
+    "f": "ф",
+    "g": "г",
+    "h": "х",
+    "i": "и",
+    "j": "й",
+    "k": "к",
+    "l": "л",
+    "m": "м",
+    "n": "н",
+    "o": "о",
+    "p": "п",
+    "q": "к",
+    "r": "р",
+    "s": "с",
+    "t": "т",
+    "u": "у",
+    "v": "в",
+    "w": "в",
+    "x": "кс",
+    "y": "и",
+    "z": "з",
+}
 
 
 def _normalize_name_token(value: str | None) -> str:
@@ -48,6 +95,48 @@ def _normalize_name_token(value: str | None) -> str:
         return ""
     normalized = str(value).strip().lower().replace("ё", "е")
     return NON_ALNUM_RE.sub("", normalized)
+
+
+def _latin_to_cyrillic(value: str | None) -> str:
+    if not value:
+        return ""
+    src = str(value).strip().lower()
+    if not src:
+        return ""
+
+    output: list[str] = []
+    i = 0
+    while i < len(src):
+        matched = False
+        for latin, cyr in LATIN_TO_CYR_MULTI:
+            if src.startswith(latin, i):
+                output.append(cyr)
+                i += len(latin)
+                matched = True
+                break
+        if matched:
+            continue
+
+        ch = src[i]
+        output.append(LATIN_TO_CYR_SINGLE.get(ch, ch))
+        i += 1
+
+    return "".join(output)
+
+
+def _extract_name_tokens(*values: str | None) -> list[str]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not value:
+            continue
+        for raw in NAME_PART_RE.findall(str(value).lower()):
+            token = _normalize_name_token(raw)
+            if not token or token in seen:
+                continue
+            seen.add(token)
+            tokens.append(token)
+    return tokens
 
 
 def _can_manage_people_records(user) -> bool:
@@ -326,21 +415,64 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
             score += 60
             reasons.append("phone_exact")
 
-        summary_last = _normalize_name_token(summary.get("last_name"))
-        summary_first = _normalize_name_token(summary.get("first_name"))
+        summary_last_raw = summary.get("last_name")
+        summary_first_raw = summary.get("first_name")
+        has_latin_name = bool(
+            LATIN_RE.search(str(summary_last_raw or ""))
+            or LATIN_RE.search(str(summary_first_raw or ""))
+        )
+        summary_last = _normalize_name_token(summary_last_raw)
+        summary_first = _normalize_name_token(summary_first_raw)
         person_last = _normalize_name_token(person.surname)
         person_first = _normalize_name_token(person.name)
+        name_tokens = _extract_name_tokens(summary_last_raw, summary_first_raw)
 
-        if summary_last and summary_first and summary_last == person_last and summary_first == person_first:
+        exact_pairs: set[tuple[str, str]] = set()
+        if summary_last and summary_first:
+            exact_pairs.add((summary_last, summary_first))
+            # Telegram often swaps first_name and last_name.
+            exact_pairs.add((summary_first, summary_last))
+        if len(name_tokens) >= 2:
+            exact_pairs.add((name_tokens[0], name_tokens[1]))
+            exact_pairs.add((name_tokens[1], name_tokens[0]))
+
+        translit_pairs = {
+            (
+                _normalize_name_token(_latin_to_cyrillic(last)),
+                _normalize_name_token(_latin_to_cyrillic(first)),
+            )
+            for last, first in exact_pairs
+        }
+        exact_tokens = {token for token in [summary_last, summary_first, *name_tokens] if token}
+        translit_tokens = {
+            _normalize_name_token(_latin_to_cyrillic(token))
+            for token in exact_tokens
+        }
+        translit_tokens.discard("")
+
+        if (person_last, person_first) in exact_pairs:
             score += 50
             reasons.append("full_name_exact")
         else:
-            if summary_last and person_last and summary_last == person_last:
+            if person_last and person_last in exact_tokens:
                 score += 30
                 reasons.append("surname_exact")
-            if summary_first and person_first and summary_first == person_first:
+            if person_first and person_first in exact_tokens:
                 score += 20
                 reasons.append("name_exact")
+
+        # Additional match by transliterated latin -> cyrillic names from Telegram profile.
+        if has_latin_name:
+            if person_last and person_first and (person_last, person_first) in translit_pairs:
+                score += 35
+                reasons.append("full_name_translit")
+            else:
+                if person_last and person_last in translit_tokens:
+                    score += 20
+                    reasons.append("surname_translit")
+                if person_first and person_first in translit_tokens:
+                    score += 15
+                    reasons.append("name_translit")
 
         return score, reasons
 
