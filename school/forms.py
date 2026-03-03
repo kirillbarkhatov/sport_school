@@ -172,6 +172,18 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
             )
             if user_with_username and user_with_username.tg_username:
                 normalized_telegram = telegram_url_from_username(user_with_username.tg_username)
+            if not normalized_telegram:
+                from bot.models import TelegramParticipant
+
+                participant_with_username = (
+                    TelegramParticipant.objects
+                    .filter(user_id=normalized_tg_id)
+                    .exclude(username="")
+                    .order_by("-last_seen")
+                    .first()
+                )
+                if participant_with_username and participant_with_username.username:
+                    normalized_telegram = telegram_url_from_username(participant_with_username.username)
 
         if username_key and not normalized_tg_id:
             user_with_tg_id = (
@@ -182,10 +194,46 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
             )
             if user_with_tg_id and user_with_tg_id.tg_id:
                 normalized_tg_id = user_with_tg_id.tg_id
+            if not normalized_tg_id:
+                from bot.models import TelegramParticipant
+
+                participant_with_id = (
+                    TelegramParticipant.objects
+                    .filter(username__iexact=username_key)
+                    .order_by("-last_seen")
+                    .first()
+                )
+                if participant_with_id and participant_with_id.user_id:
+                    normalized_tg_id = participant_with_id.user_id
 
         cleaned_data["telegram"] = normalized_telegram or ""
         cleaned_data["telegram_id"] = normalized_tg_id
         return cleaned_data
+
+    def save(self, commit=True):
+        person = super().save(commit=commit)
+        if commit:
+            self._sync_telegram_participants(person)
+        return person
+
+    @staticmethod
+    def _sync_telegram_participants(person: Person) -> None:
+        from django.db.models import Q
+        from bot.models import TelegramParticipant
+
+        person_username, _, _ = parse_telegram_reference(person.telegram)
+        filters = Q()
+        if person.telegram_id:
+            filters |= Q(user_id=person.telegram_id)
+        if person_username:
+            filters |= Q(username__iexact=person_username)
+        if not filters:
+            return
+
+        TelegramParticipant.objects.filter(filters).update(
+            linked_person=person,
+            linked_at=timezone.now(),
+        )
 
 
 class PersonCompactForm(StyleFormMixin, forms.ModelForm):
