@@ -15,6 +15,7 @@ from .choices import (
 )
 from .competition_standards import discipline_label
 from .training_rules import apply_training_rules
+from users.telegram_identity import parse_telegram_reference, telegram_url_from_username
 
 
 class DiscountType(models.TextChoices):
@@ -74,6 +75,12 @@ class Person(models.Model):
     telegram = models.CharField(
         max_length=100, blank=True, null=True, verbose_name="Telegram"
     )
+    telegram_id = models.BigIntegerField(
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Telegram ID",
+    )
     photo = models.ImageField(
         upload_to="person/photos", blank=True, null=True, verbose_name="Фото"
     )
@@ -107,6 +114,19 @@ class Person(models.Model):
     @property
     def is_athlete(self) -> bool:
         return hasattr(self, "athlete")
+
+    @property
+    def telegram_username(self) -> str:
+        username, _, _ = parse_telegram_reference(self.telegram)
+        return username
+
+    @property
+    def telegram_url(self) -> str:
+        if self.telegram_username:
+            return telegram_url_from_username(self.telegram_username)
+        if self.telegram_id:
+            return f"tg://user?id={self.telegram_id}"
+        return ""
 
     class Meta:
         verbose_name = "Человек"

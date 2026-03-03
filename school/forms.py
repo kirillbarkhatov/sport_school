@@ -36,6 +36,12 @@ from .models import (
 )
 from .services import compute_contract_defaults
 from .models import DocumentType
+from users.models import User
+from users.telegram_identity import (
+    normalize_person_telegram_fields,
+    parse_telegram_reference,
+    telegram_url_from_username,
+)
 
 
 class StyleFormMixin:
@@ -138,6 +144,48 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
                 self.initial.setdefault(
                     "date_of_birth", self.instance.date_of_birth.strftime("%Y-%m-%d")
                 )
+        if "telegram_id" in self.fields:
+            self.fields["telegram_id"].required = False
+            self.fields["telegram_id"].widget.attrs["placeholder"] = "Например: 123456789"
+        if "telegram" in self.fields:
+            self.fields["telegram"].required = False
+            self.fields["telegram"].widget.attrs["placeholder"] = "@username или https://t.me/username"
+
+    def clean(self):
+        cleaned_data = super().clean()
+        telegram_raw = cleaned_data.get("telegram")
+        telegram_id = cleaned_data.get("telegram_id")
+        normalized_telegram, normalized_tg_id = normalize_person_telegram_fields(
+            telegram=telegram_raw,
+            telegram_id=telegram_id,
+        )
+
+        username_key, _, _ = parse_telegram_reference(normalized_telegram or telegram_raw)
+
+        if normalized_tg_id and not normalized_telegram:
+            user_with_username = (
+                User.objects
+                .filter(tg_id=normalized_tg_id)
+                .exclude(tg_username__isnull=True)
+                .exclude(tg_username="")
+                .first()
+            )
+            if user_with_username and user_with_username.tg_username:
+                normalized_telegram = telegram_url_from_username(user_with_username.tg_username)
+
+        if username_key and not normalized_tg_id:
+            user_with_tg_id = (
+                User.objects
+                .filter(tg_username__iexact=username_key)
+                .exclude(tg_id__isnull=True)
+                .first()
+            )
+            if user_with_tg_id and user_with_tg_id.tg_id:
+                normalized_tg_id = user_with_tg_id.tg_id
+
+        cleaned_data["telegram"] = normalized_telegram or ""
+        cleaned_data["telegram_id"] = normalized_tg_id
+        return cleaned_data
 
 
 class PersonCompactForm(StyleFormMixin, forms.ModelForm):

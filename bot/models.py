@@ -60,6 +60,7 @@ class TelegramParticipant(models.Model):
     username = models.CharField(
         max_length=255, blank=True, verbose_name="Username пользователя"
     )
+    phone = models.CharField(max_length=32, blank=True, verbose_name="Телефон")
     language_code = models.CharField(max_length=12, blank=True, verbose_name="Язык")
     status = models.CharField(
         max_length=32,
@@ -70,6 +71,23 @@ class TelegramParticipant(models.Model):
     custom_title = models.CharField(
         max_length=255, blank=True, verbose_name="Пользовательский титул"
     )
+    linked_person = models.ForeignKey(
+        "school.Person",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="telegram_participant_links",
+        verbose_name="Связанная персона",
+    )
+    linked_by = models.ForeignKey(
+        "users.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="linked_telegram_participants",
+        verbose_name="Кем связана",
+    )
+    linked_at = models.DateTimeField(blank=True, null=True, verbose_name="Когда связана")
     first_seen = models.DateTimeField(auto_now_add=True, verbose_name="Впервые замечен")
     last_seen = models.DateTimeField(auto_now=True, verbose_name="Последнее взаимодействие")
     extra_data = models.JSONField(default=dict, blank=True, verbose_name="Доп. данные")
@@ -79,6 +97,10 @@ class TelegramParticipant(models.Model):
         verbose_name_plural = "Собеседники телеграм-бота"
         unique_together = ("chat", "user_id")
         indexes = [
+            models.Index(
+                fields=("user_id",),
+                name="bot_tp_user_id_idx",
+            ),
             models.Index(
                 fields=("chat", "username"),
                 name="bot_tp_chat_username_idx",

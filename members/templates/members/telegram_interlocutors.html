@@ -1,0 +1,125 @@
+{% extends 'school/base.html' %}
+
+{% block title %}Собеседники Telegram{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom flex-wrap gap-2">
+    <div>
+        <h2 class="mb-0">Собеседники Telegram</h2>
+        <p class="text-muted mb-0">Выявление собеседников, не занесённых в базу персон.</p>
+    </div>
+    <div class="btn-group">
+        <a href="{% url 'members:telegram_interlocutors' %}" class="btn btn-outline-secondary {% if not show_linked %}active{% endif %}">
+            Только непривязанные
+        </a>
+        <a href="{% url 'members:telegram_interlocutors' %}?show=all" class="btn btn-outline-secondary {% if show_linked %}active{% endif %}">
+            Все
+        </a>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <div class="text-muted small">Всего собеседников</div>
+                <div class="fs-4 fw-semibold">{{ total_count }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <div class="text-muted small">Непривязанные</div>
+                <div class="fs-4 fw-semibold">{{ unlinked_count }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-sm align-middle">
+        <thead class="table-light">
+            <tr>
+                <th>Собеседник</th>
+                <th>Ключевая информация</th>
+                <th>Лучшие кандидаты из Person</th>
+                <th>Ручная привязка</th>
+                <th>Создать персону</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>
+                    <div class="fw-semibold">ID {{ row.user_id }}</div>
+                    <div class="small text-muted">
+                        {% if row.username %}@{{ row.username }}{% else %}username не указан{% endif %}
+                    </div>
+                    {% if row.linked_person %}
+                        <div class="small mt-1"><span class="badge text-bg-success">Связан: {{ row.linked_person }}</span></div>
+                    {% endif %}
+                </td>
+                <td class="small">
+                    <div>ФИО: {{ row.last_name|default:"—" }} {{ row.first_name|default:"" }}</div>
+                    <div>Телефон: {{ row.phone|default:"—" }}</div>
+                    <div>Чатов: {{ row.chat_count }}, записей: {{ row.rows_count }}</div>
+                    <div>Последняя активность: {{ row.last_seen|date:"d.m.Y H:i" }}</div>
+                    <div class="text-muted">Чаты: {{ row.chat_titles|join:", " }}</div>
+                </td>
+                <td>
+                    {% if row.candidates %}
+                        <div class="d-grid gap-2">
+                        {% for candidate in row.candidates %}
+                            <form method="post" class="border rounded p-2">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="bind_existing">
+                                <input type="hidden" name="user_id" value="{{ row.user_id }}">
+                                <input type="hidden" name="person_id" value="{{ candidate.person.id }}">
+                                <div class="small fw-semibold">{{ candidate.person }}</div>
+                                <div class="small text-muted">score: {{ candidate.score }} · {{ candidate.reasons|join:", " }}</div>
+                                <button type="submit" class="btn btn-sm btn-outline-primary mt-1">Привязать</button>
+                            </form>
+                        {% endfor %}
+                        </div>
+                    {% else %}
+                        <span class="text-muted small">Кандидаты не найдены</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post" class="d-flex flex-column gap-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="bind_existing">
+                        <input type="hidden" name="user_id" value="{{ row.user_id }}">
+                        <select name="person_id" class="form-select form-select-sm" required>
+                            <option value="">Выберите непривязанную персону</option>
+                            {% for person in unlinked_people %}
+                                <option value="{{ person.id }}">{{ person.surname }} {{ person.name }} ({{ person.id }})</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-primary">Привязать выбранную</button>
+                    </form>
+                </td>
+                <td>
+                    <form method="post" class="d-flex flex-column gap-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create_person">
+                        <input type="hidden" name="user_id" value="{{ row.user_id }}">
+                        <select name="gender" class="form-select form-select-sm">
+                            {% for value, label in gender_choices %}
+                                <option value="{{ value }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-outline-success">Создать и привязать</button>
+                    </form>
+                </td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="5" class="text-center text-muted py-4">Нет данных для отображения.</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

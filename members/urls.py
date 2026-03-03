@@ -9,6 +9,7 @@ from . import views
 app_name = MembersConfig.name
 
 urlpatterns = [
+    path("telegram/interlocutors/", views.TelegramInterlocutorListView.as_view(), name="telegram_interlocutors"),
     path("dedup/", views.PersonDedupCenterView.as_view(), name="person_dedup_center"),
     path("dedup/start/", views.PersonDedupStartView.as_view(), name="person_dedup_start"),
     path("dedup/jobs/<int:job_id>/status/", views.PersonDedupJobStatusView.as_view(), name="person_dedup_job_status"),

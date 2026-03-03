@@ -46,7 +46,19 @@
                         {% endif %}
                     </dd>
                     <dt class="col-sm-4">Telegram</dt>
-                    <dd class="col-sm-8">{{ object.telegram|default:'—' }}</dd>
+                    <dd class="col-sm-8">
+                        {% if object.telegram_url %}
+                            <a href="{{ object.telegram_url }}" target="_blank" rel="noopener">
+                                {% if object.telegram_username %}@{{ object.telegram_username }}{% else %}Открыть профиль{% endif %}
+                            </a>
+                        {% elif object.telegram %}
+                            {{ object.telegram }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </dd>
+                    <dt class="col-sm-4">Telegram ID</dt>
+                    <dd class="col-sm-8">{{ object.telegram_id|default:'—' }}</dd>
                 </dl>
             </div>
         </div>

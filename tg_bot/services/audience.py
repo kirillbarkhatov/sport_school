@@ -127,6 +127,7 @@ async def _upsert_participant(
     custom_title: Optional[str] = None,
     message: Optional[Message] = None,
     extra: Optional[dict] = None,
+    phone: Optional[str] = None,
 ) -> None:
     now = timezone.now()
     defaults = {
@@ -137,6 +138,8 @@ async def _upsert_participant(
         "language_code": _coalesce(getattr(user, "language_code", "")),
         "last_seen": now,
     }
+    if phone:
+        defaults["phone"] = _coalesce(phone)
     if status:
         defaults["status"] = status
     if custom_title is not None:
@@ -166,11 +169,15 @@ async def _register_user_interaction(message: Message) -> None:
         status = TelegramParticipant.MemberStatus.MEMBER
         if chat.type not in {ChatType.PRIVATE, ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
             status = TelegramParticipant.MemberStatus.UNKNOWN
+        contact_phone = None
+        if message.contact and message.contact.user_id == message.from_user.id:
+            contact_phone = message.contact.phone_number
         await _upsert_participant(
             chat_obj,
             message.from_user,
             status=status,
             message=message,
+            phone=contact_phone,
         )
         await sync_existing_user_async(message.from_user)
 

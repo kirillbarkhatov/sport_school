@@ -12,6 +12,9 @@
     </div>
     <div class="btn-toolbar mb-2 mb-md-0 gap-2">
         {% if user.is_staff %}
+            <a href="{% url 'members:telegram_interlocutors' %}" class="btn btn-outline-secondary">
+                Собеседники Telegram
+            </a>
             {% if dedup_url %}
                 <a href="{{ dedup_url }}" class="btn btn-outline-dark">
                     Дедупликация
@@ -178,7 +181,7 @@
                     {% endwith %}
                 </td>
                 <td>
-                    {% if person.phone or person.email or person.telegram %}
+                    {% if person.phone or person.email or person.telegram_url or person.telegram_id %}
                         <div class="d-flex justify-content-center justify-content-md-start gap-2">
                             {% if person.phone %}
                                 <a class="text-body" href="tel:{{ person.phone|urlencode }}"
@@ -194,15 +197,16 @@
                                     <i class="bi bi-envelope-fill"></i>
                                 </a>
                             {% endif %}
-                            {% if person.telegram %}
-                                {% with handle=person.telegram|cut:"@" %}
-                                    <a class="text-body" href="https://t.me/{{ handle }}"
+                            {% if person.telegram_url %}
+                                    <a class="text-body" href="{{ person.telegram_url }}"
                                        target="_blank" rel="noopener"
-                                       data-bs-toggle="tooltip" data-bs-placement="top" title="@{{ handle }}"
-                                       aria-label="Telegram @{{ handle }}">
+                                       data-bs-toggle="tooltip" data-bs-placement="top"
+                                       title="{% if person.telegram_username %}@{{ person.telegram_username }}{% else %}ID {{ person.telegram_id }}{% endif %}"
+                                       aria-label="Telegram">
                                         <i class="bi bi-telegram"></i>
                                     </a>
-                                {% endwith %}
+                            {% elif person.telegram_id %}
+                                    <span class="text-muted small" title="Telegram ID">ID {{ person.telegram_id }}</span>
                             {% endif %}
                         </div>
                     {% else %}

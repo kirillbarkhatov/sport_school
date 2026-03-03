@@ -79,6 +79,10 @@
                         <i class="bi bi-person-vcard"></i>
                         Участники
                     </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/members/telegram/interlocutors' %}active{% endif %}" href="{% url 'members:telegram_interlocutors' %}">
+                        <i class="bi bi-chat-left-dots"></i>
+                        Собеседники Telegram
+                    </a>
                     <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/athlete' and not path|starts_with:'/athlete/simple' %}active{% endif %}" href="{% url 'school:athlete_list' %}">
                         <i class="bi bi-person-running"></i>
                         Спортсмены (расширенный список)

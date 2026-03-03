@@ -98,7 +98,7 @@ def _canonical_person(person: Person) -> Person:
 
 def _person_completeness(person: Person) -> int:
     score = 0
-    for field in ("surname", "name", "middlename", "date_of_birth", "phone", "email", "telegram", "club"):
+    for field in ("surname", "name", "middlename", "date_of_birth", "phone", "email", "telegram", "telegram_id", "club"):
         value = getattr(person, field, None)
         if value:
             score += 1
@@ -164,6 +164,10 @@ def _score_pair(left: Person, right: Person) -> PairScore:
     if tg_left and tg_left == tg_right:
         score += 30
         reasons.append("telegram_exact")
+
+    if left.telegram_id and right.telegram_id and left.telegram_id == right.telegram_id:
+        score += 80
+        reasons.append("telegram_id_exact")
 
     if left.gender and right.gender and left.gender != right.gender:
         score -= 20

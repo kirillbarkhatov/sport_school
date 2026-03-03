@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+import re
 
 from django.contrib import messages
 from django.db import transaction
@@ -10,7 +11,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
-from django.views.generic import CreateView, DetailView, ListView, UpdateView, DeleteView
+from django.views.generic import CreateView, DetailView, ListView, UpdateView, DeleteView, TemplateView
 
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import get_person_queryset_for_user
@@ -26,6 +27,7 @@ from school.forms import (
 )
 from school.models import Person, Family, FamilyMember, Athlete, FamilyAthleteProfile, FamilyService, FamilyPayment, Club
 from school.models import DiscountType, ServiceType, AthleteContract
+from bot.models import TelegramParticipant
 from school.services import (
     ensure_monthly_service_for_contract,
     get_month_range,
@@ -33,6 +35,27 @@ from school.services import (
 from members.models import PersonDedupJob, PersonDuplicateCluster, PersonMergeRedirect
 from members.services import apply_cluster_merge, build_cluster_payload, build_job_payload
 from members.tasks import run_person_dedup_job_task
+from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
+from users.models import User, UserPersonLink, UserPersonLinkStatus
+from users.telegram_identity import normalize_phone, normalize_username, parse_telegram_reference, telegram_url_from_username
+
+
+NON_ALNUM_RE = re.compile(r"[^a-zа-яё0-9]+", re.IGNORECASE)
+
+
+def _normalize_name_token(value: str | None) -> str:
+    if not value:
+        return ""
+    normalized = str(value).strip().lower().replace("ё", "е")
+    return NON_ALNUM_RE.sub("", normalized)
+
+
+def _can_manage_people_records(user) -> bool:
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_staff or user.is_superuser:
+        return True
+    return user.groups.filter(name__in={ADMIN_GROUP_NAME, MANAGER_GROUP_NAME}).exists()
 
 
 def _group_users_by_person(person_ids):
@@ -225,6 +248,270 @@ class PersonDeleteView(ApprovedUserRequiredMixin, DeleteView):
         if not request.user.is_staff and not request.user.is_superuser:
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
+
+
+class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
+    template_name = "members/telegram_interlocutors.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not _can_manage_people_records(request.user):
+            return self.handle_no_permission()
+        return super().dispatch(request, *args, **kwargs)
+
+    def _participant_summary_rows(self):
+        participant_rows = list(
+            TelegramParticipant.objects
+            .select_related("chat", "linked_person")
+            .order_by("-last_seen", "-first_seen")
+        )
+        by_user_id: dict[int, dict] = {}
+
+        for row in participant_rows:
+            summary = by_user_id.get(row.user_id)
+            if not summary:
+                summary = {
+                    "user_id": row.user_id,
+                    "username": row.username or "",
+                    "first_name": row.first_name or "",
+                    "last_name": row.last_name or "",
+                    "phone": row.phone or "",
+                    "first_seen": row.first_seen,
+                    "last_seen": row.last_seen,
+                    "chat_titles": set(),
+                    "chat_ids": set(),
+                    "rows_count": 0,
+                    "linked_person": row.linked_person,
+                }
+                by_user_id[row.user_id] = summary
+
+            summary["rows_count"] += 1
+            summary["chat_ids"].add(row.chat_id)
+            summary["chat_titles"].add(row.chat.title or row.chat.username or str(row.chat.chat_id))
+            if row.first_seen and row.first_seen < summary["first_seen"]:
+                summary["first_seen"] = row.first_seen
+            if row.last_seen and row.last_seen > summary["last_seen"]:
+                summary["last_seen"] = row.last_seen
+            if not summary["username"] and row.username:
+                summary["username"] = row.username
+            if not summary["first_name"] and row.first_name:
+                summary["first_name"] = row.first_name
+            if not summary["last_name"] and row.last_name:
+                summary["last_name"] = row.last_name
+            if not summary["phone"] and row.phone:
+                summary["phone"] = row.phone
+            if not summary["linked_person"] and row.linked_person:
+                summary["linked_person"] = row.linked_person
+
+        summaries = list(by_user_id.values())
+        summaries.sort(key=lambda item: item["last_seen"] or timezone.now(), reverse=True)
+        return summaries
+
+    @staticmethod
+    def _score_person_candidate(summary: dict, person: Person) -> tuple[int, list[str]]:
+        score = 0
+        reasons: list[str] = []
+
+        if person.telegram_id and person.telegram_id == summary["user_id"]:
+            return 100, ["telegram_id_exact"]
+
+        summary_username = normalize_username(summary.get("username"))
+        person_username, _, _ = parse_telegram_reference(person.telegram)
+        if summary_username and person_username and summary_username == person_username:
+            score += 70
+            reasons.append("telegram_username_exact")
+
+        summary_phone = normalize_phone(summary.get("phone"))
+        person_phone = normalize_phone(person.phone)
+        if summary_phone and person_phone and summary_phone == person_phone:
+            score += 60
+            reasons.append("phone_exact")
+
+        summary_last = _normalize_name_token(summary.get("last_name"))
+        summary_first = _normalize_name_token(summary.get("first_name"))
+        person_last = _normalize_name_token(person.surname)
+        person_first = _normalize_name_token(person.name)
+
+        if summary_last and summary_first and summary_last == person_last and summary_first == person_first:
+            score += 50
+            reasons.append("full_name_exact")
+        else:
+            if summary_last and person_last and summary_last == person_last:
+                score += 30
+                reasons.append("surname_exact")
+            if summary_first and person_first and summary_first == person_first:
+                score += 20
+                reasons.append("name_exact")
+
+        return score, reasons
+
+    def _build_candidates(self, summary: dict, people: list[Person]) -> list[dict]:
+        candidates = []
+        for person in people:
+            score, reasons = self._score_person_candidate(summary, person)
+            if score <= 0:
+                continue
+            candidates.append({
+                "person": person,
+                "score": score,
+                "reasons": reasons,
+            })
+        candidates.sort(key=lambda item: (item["score"], item["person"].id), reverse=True)
+        return candidates[:5]
+
+    def _link_interlocutor(self, *, user_id: int, person: Person, actor: User) -> None:
+        now = timezone.now()
+        rows = list(
+            TelegramParticipant.objects
+            .filter(user_id=user_id)
+            .select_related("linked_person")
+            .order_by("-last_seen")
+        )
+        if not rows:
+            return
+
+        TelegramParticipant.objects.filter(user_id=user_id).update(
+            linked_person=person,
+            linked_by=actor,
+            linked_at=now,
+        )
+
+        latest = rows[0]
+        person_updates: list[str] = []
+        if not person.telegram_id:
+            person.telegram_id = user_id
+            person_updates.append("telegram_id")
+        if not person.telegram and latest.username:
+            person.telegram = telegram_url_from_username(latest.username)
+            person_updates.append("telegram")
+        if not person.phone and latest.phone:
+            person.phone = latest.phone
+            person_updates.append("phone")
+        if person_updates:
+            person.save(update_fields=person_updates)
+
+        user = User.objects.filter(tg_id=user_id).first()
+        if not user:
+            return
+
+        user_updates: list[str] = []
+        if user.person_id != person.id:
+            user.person = person
+            user_updates.append("person")
+        if not user.is_approved:
+            user.is_approved = True
+            user_updates.append("is_approved")
+        if user_updates:
+            user.save(update_fields=user_updates)
+
+        link, _ = UserPersonLink.objects.get_or_create(user=user)
+        link.suggested_person = person
+        reasons = set(link.matched_reasons or [])
+        reasons.add("manual_interlocutor_link")
+        if person.telegram_id and user.tg_id and person.telegram_id == user.tg_id:
+            reasons.add("telegram_id_exact")
+        link.matched_reasons = sorted(reasons)
+        link.apply_decision(UserPersonLinkStatus.APPROVED, decided_by=actor)
+        link.save(update_fields=[
+            "suggested_person",
+            "matched_reasons",
+            "status",
+            "decided_by",
+            "decided_at",
+            "decision_note",
+            "updated_at",
+        ])
+
+    def post(self, request, *args, **kwargs):
+        action = (request.POST.get("action") or "").strip()
+        user_id_raw = request.POST.get("user_id")
+        try:
+            user_id = int(user_id_raw)
+        except (TypeError, ValueError):
+            messages.error(request, "Некорректный идентификатор собеседника.")
+            return redirect("members:telegram_interlocutors")
+
+        if action == "bind_existing":
+            person_id = request.POST.get("person_id")
+            person = get_object_or_404(Person, pk=person_id)
+            with transaction.atomic():
+                self._link_interlocutor(user_id=user_id, person=person, actor=request.user)
+            messages.success(request, f"Собеседник {user_id} привязан к {person}.")
+            return redirect("members:telegram_interlocutors")
+
+        if action == "create_person":
+            gender = (request.POST.get("gender") or "male").strip()
+            if gender not in {choice[0] for choice in Person.GENDER_CHOICES}:
+                gender = "male"
+
+            participant = (
+                TelegramParticipant.objects
+                .filter(user_id=user_id)
+                .order_by("-last_seen")
+                .first()
+            )
+            if not participant:
+                messages.error(request, "Собеседник не найден.")
+                return redirect("members:telegram_interlocutors")
+
+            surname = (participant.last_name or "").strip()
+            name = (participant.first_name or "").strip()
+            if not surname and not name and participant.username:
+                surname = participant.username
+                name = "Telegram"
+            if not surname:
+                surname = "Пользователь"
+            if not name:
+                name = "Telegram"
+
+            with transaction.atomic():
+                person = Person.objects.create(
+                    surname=surname[:100],
+                    name=name[:100],
+                    middlename="",
+                    phone=(participant.phone or "")[:15] or None,
+                    telegram=telegram_url_from_username(participant.username) if participant.username else "",
+                    telegram_id=user_id,
+                    gender=gender,
+                )
+                self._link_interlocutor(user_id=user_id, person=person, actor=request.user)
+
+            messages.success(request, f"Создана новая персона {person} и выполнена привязка.")
+            return redirect("members:telegram_interlocutors")
+
+        messages.error(request, "Неизвестное действие.")
+        return redirect("members:telegram_interlocutors")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        show_linked = self.request.GET.get("show") == "all"
+        summaries = self._participant_summary_rows()
+        people = list(Person.objects.order_by("surname", "name"))
+        unlinked_people = list(
+            Person.objects
+            .filter(linked_users__isnull=True, telegram_participant_links__isnull=True)
+            .order_by("surname", "name")
+            .distinct()
+        )
+
+        rows = []
+        for summary in summaries:
+            if summary["linked_person"] and not show_linked:
+                continue
+            candidates = self._build_candidates(summary, people)
+            rows.append({
+                **summary,
+                "chat_titles": sorted(summary["chat_titles"]),
+                "chat_count": len(summary["chat_ids"]),
+                "candidates": candidates,
+            })
+
+        context["rows"] = rows
+        context["unlinked_people"] = unlinked_people
+        context["show_linked"] = show_linked
+        context["gender_choices"] = Person.GENDER_CHOICES
+        context["total_count"] = len(summaries)
+        context["unlinked_count"] = sum(1 for item in summaries if not item["linked_person"])
+        return context
 
 
 class FamilyListView(ApprovedUserRequiredMixin, ListView):
