@@ -479,6 +479,9 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
     def _build_candidates(self, summary: dict, people: list[Person]) -> list[dict]:
         candidates = []
         for person in people:
+            has_telegram = bool(person.telegram_id) or bool((person.telegram or "").strip())
+            if has_telegram:
+                continue
             score, reasons = self._score_person_candidate(summary, person)
             if score <= 0:
                 continue
@@ -616,10 +619,16 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         show_linked = self.request.GET.get("show") == "all"
+        redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
         summaries = self._participant_summary_rows()
-        people = list(Person.objects.order_by("surname", "name"))
+        people = list(
+            Person.objects
+            .exclude(id__in=redirected_sources)
+            .order_by("surname", "name")
+        )
         unlinked_people = list(
             Person.objects
+            .exclude(id__in=redirected_sources)
             .filter(linked_users__isnull=True, telegram_participant_links__isnull=True)
             .order_by("surname", "name")
             .distinct()
