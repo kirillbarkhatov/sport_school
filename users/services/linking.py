@@ -321,6 +321,32 @@ def ensure_user_for_start(profile: UserTelegramProfile, token: Optional[str]) ->
 
     assign_groups_from_env(user)
     link, _ = refresh_user_person_link(user)
+
+    matched_reasons = set(link.matched_reasons or [])
+    if link.suggested_person_id and "telegram_id_exact" in matched_reasons:
+        user_updates: list[str] = []
+        if user.person_id != link.suggested_person_id:
+            user.person = link.suggested_person
+            user_updates.append("person")
+        if not user.is_approved:
+            user.is_approved = True
+            user_updates.append("is_approved")
+        if user_updates:
+            user.save(update_fields=user_updates)
+
+        link.apply_decision(
+            UserPersonLinkStatus.APPROVED,
+            note="auto approved: exact telegram_id match",
+        )
+        link.save(update_fields=[
+            "status",
+            "decided_by",
+            "decided_at",
+            "decision_note",
+            "updated_at",
+        ])
+        _ensure_person_telegram_link(user, profile)
+
     return user, created, link
 
 

@@ -13,6 +13,7 @@ from tg_bot.services.notifications import (
     user_is_coach,
     user_is_manager,
 )
+from tg_bot.handlers.onboarding import maybe_start_group_onboarding
 from tg_bot.services.user_sync import ensure_user_for_start_async
 from tg_bot.services.training_overview import (
     build_attendance_lines,
@@ -193,6 +194,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reply_markup = None
     link_status = link.status if link else None
     is_confirmed = bool(user.person_id and link_status == UserPersonLinkStatus.APPROVED)
+    can_auto_bind = bool(
+        is_confirmed
+        or (
+            link
+            and link.suggested_person_id
+            and "telegram_id_exact" in (link.matched_reasons or [])
+        )
+    )
+    if await maybe_start_group_onboarding(
+        update,
+        context,
+        user=user,
+        is_privileged=is_privileged,
+        can_auto_bind=can_auto_bind,
+    ):
+        return
     show_quick_commands = is_admin or is_coach or is_manager or is_confirmed
     login_instructions = _format_login_instructions(token)
 

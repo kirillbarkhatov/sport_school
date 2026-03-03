@@ -28,6 +28,7 @@ from tg_bot.services.reminders import (
     build_training_reminder_text,
 )
 from tg_bot.handlers.auth import build_authenticated_keyboard, start as start_command
+from tg_bot.handlers.onboarding import cancel_onboarding
 from tg_bot.services.notifications import user_is_admin, user_is_coach, user_is_manager
 from users.utils import get_person_queryset_for_user
 from users.services import normalize_phone
@@ -1108,6 +1109,9 @@ async def cancel_current_action(update: Update, context: ContextTypes.DEFAULT_TY
 
     if context.user_data.pop(COMMENT_STATE_KEY, None):
         await update.effective_message.reply_text("Добавление комментария отменено.")
+        return
+
+    if await cancel_onboarding(update, context):
         return
 
     from tg_bot.handlers.manager import cancel_manager_state
