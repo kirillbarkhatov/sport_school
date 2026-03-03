@@ -16,7 +16,7 @@ from users.telegram_identity import parse_telegram_reference, telegram_url_from_
 
 ONBOARDING_STATE_KEY = "group_onboarding_state"
 ONBOARDING_SKIP_KEY = "group_onboarding_skip"
-TARGET_GROUP_CHAT_IDS = {-1002102842870, -1003506899595}
+TARGET_GROUP_CHAT_IDS = {-1002102842870, -1003506899595, -1003528047322}
 PARENT_RELATIONS = {"mother", "father", "grandmother", "grandfather", "guardian", "representative"}
 
 
