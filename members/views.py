@@ -392,6 +392,51 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
                 summary["linked_person"] = row.linked_person
 
         summaries = list(by_user_id.values())
+
+        redirected_sources = set(
+            PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
+        )
+        person_candidates = list(
+            Person.objects
+            .exclude(id__in=redirected_sources)
+            .order_by("id")
+        )
+        person_by_tg_id: dict[int, Person | None] = {}
+        person_by_username: dict[str, Person | None] = {}
+        for person in person_candidates:
+            if person.telegram_id:
+                if person.telegram_id in person_by_tg_id:
+                    person_by_tg_id[person.telegram_id] = None
+                else:
+                    person_by_tg_id[person.telegram_id] = person
+            username_key, _, _ = parse_telegram_reference(person.telegram)
+            if username_key:
+                if username_key in person_by_username:
+                    person_by_username[username_key] = None
+                else:
+                    person_by_username[username_key] = person
+
+        sync_updates: dict[int, int] = {}
+        for summary in summaries:
+            if summary["linked_person"]:
+                continue
+            resolved_person = person_by_tg_id.get(summary["user_id"])
+            if not resolved_person:
+                summary_username = normalize_username(summary.get("username"))
+                if summary_username:
+                    resolved_person = person_by_username.get(summary_username)
+            if resolved_person:
+                summary["linked_person"] = resolved_person
+                sync_updates[summary["user_id"]] = resolved_person.id
+
+        if sync_updates:
+            now = timezone.now()
+            for user_id, person_id in sync_updates.items():
+                TelegramParticipant.objects.filter(user_id=user_id, linked_person__isnull=True).update(
+                    linked_person_id=person_id,
+                    linked_at=now,
+                )
+
         summaries.sort(key=lambda item: item["last_seen"] or timezone.now(), reverse=True)
         return summaries
 
