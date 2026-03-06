@@ -1,0 +1,110 @@
+{% extends "school/base.html" %}
+
+{% block title %}Online Results: Потоки{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mt-3 mb-3">
+    <h2 class="mb-0">Online Results: Потоки</h2>
+    <a class="btn btn-outline-secondary" href="{% url 'online-results-webhook-events' %}">
+        Входящие webhook-события
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">Запуск потока</div>
+    <div class="card-body">
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            <div class="col-md-12">
+                <label class="form-label" for="{{ form.protocol_link.id_for_label }}">Ссылка на онлайн-результаты</label>
+                {{ form.protocol_link }}
+                <div class="form-text">Остальные параметры запуска будут переданы во внешний сервис автоматически.</div>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary">Запустить поток</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        Запущенные потоки
+    </div>
+    <div class="card-body">
+        <form method="get" class="row g-2 mb-3">
+            <div class="col-md-4">
+                <input type="text" class="form-control" name="stream_id" placeholder="Фильтр по stream_id" value="{{ stream_filter }}">
+            </div>
+            <div class="col-md-3">
+                <select name="status" class="form-select">
+                    <option value="">Все статусы</option>
+                    {% for value, label in status_choices %}
+                        <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-primary w-100">Применить</button>
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Поток</th>
+                    <th>Ссылка</th>
+                    <th>Статус</th>
+                    <th>Создан</th>
+                    <th>Запущен</th>
+                    <th>Завершен</th>
+                    <th>Событий</th>
+                    <th>Последнее событие</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for item in runs_payload %}
+                    <tr>
+                        <td>{{ item.run.id }}</td>
+                        <td>{{ item.run.stream_id }}</td>
+                        <td><code>{{ item.run.protocol_link|truncatechars:60 }}</code></td>
+                        <td>
+                            <span class="badge text-bg-secondary">{{ item.run.get_status_display }}</span>
+                        </td>
+                        <td>{{ item.run.created_at|date:"d.m.Y H:i" }}</td>
+                        <td>{{ item.run.started_at|date:"d.m.Y H:i"|default:"-" }}</td>
+                        <td>{{ item.run.finished_at|date:"d.m.Y H:i"|default:"-" }}</td>
+                        <td>{{ item.events_count }}</td>
+                        <td>{{ item.last_event_received_at|date:"d.m.Y H:i"|default:"-" }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-muted">Запусков пока нет.</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if page_obj.has_other_pages %}
+            <nav>
+                <ul class="pagination pagination-sm mb-0">
+                    {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.previous_page_number }}&stream_id={{ stream_filter }}&status={{ status_filter }}">Назад</a>
+                        </li>
+                    {% endif %}
+                    <li class="page-item disabled"><span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+                    {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ page_obj.next_page_number }}&stream_id={{ stream_filter }}&status={{ status_filter }}">Вперед</a>
+                        </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -17,6 +17,11 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
+from api.views import (
+    OnlineResultsStreamRunsView,
+    OnlineResultsWebhookEventsView,
+    OnlineResultsWebhookView,
+)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -27,4 +32,19 @@ urlpatterns = [
     path("classes/", include("classes.urls", namespace="classes")),
     path("groups/", include("groups.urls", namespace="groups")),
     path("notifications/", include("notifications.urls", namespace="notifications")),
+    path(
+        "integrations/online-results/webhook/",
+        OnlineResultsWebhookView.as_view(),
+        name="online-results-webhook",
+    ),
+    path(
+        "integrations/online-results/streams/",
+        OnlineResultsStreamRunsView.as_view(),
+        name="online-results-stream-runs",
+    ),
+    path(
+        "integrations/online-results/events/",
+        OnlineResultsWebhookEventsView.as_view(),
+        name="online-results-webhook-events",
+    ),
 ]

@@ -101,6 +101,14 @@
                         <i class="bi bi-chat-dots"></i>
                         Уведомления
                     </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/integrations/online-results/streams' %}active{% endif %}" href="{% url 'online-results-stream-runs' %}">
+                        <i class="bi bi-broadcast-pin"></i>
+                        Online Results: Потоки
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/integrations/online-results/events' %}active{% endif %}" href="{% url 'online-results-webhook-events' %}">
+                        <i class="bi bi-inboxes"></i>
+                        Online Results: Webhook события
+                    </a>
                     {% endif %}
                 {% endif %}
             </nav>
