@@ -279,6 +279,49 @@ class OnlineResultsPagesTests(APITestCase):
             StreamRun.objects.filter(protocol_link=run.protocol_link, stream_id="recovered-stream-id").exists()
         )
 
+    @override_settings(ONLINE_RESULTS_STREAM_RESUME_STALE_SEC=0, ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC=60)
+    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": False})
+    @patch("api.views.launch_online_results_stream")
+    def test_live_state_reuses_recent_recovery_run_without_creating_new_one(self, launch_mock, _probe_mock):
+        stale_run = StreamRun.objects.create(
+            stream_id="stale-with-cooldown",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            status=StreamRun.Status.RUNNING,
+            started_at=timezone.now() - timedelta(minutes=10),
+            created_by=self.user,
+        )
+        recent_recovery = StreamRun.objects.create(
+            stream_id="pending-recovery-existing",
+            protocol_link=stale_run.protocol_link,
+            callback_url="https://example.com/callback",
+            status=StreamRun.Status.PENDING,
+            created_by=self.user,
+        )
+        response = self.client.get(reverse("online-results-live-state"), data={"stream_id": stale_run.stream_id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["resolved_stream_id"], recent_recovery.stream_id)
+        launch_mock.assert_not_called()
+
+    @override_settings(ONLINE_RESULTS_STREAM_RESUME_STALE_SEC=0)
+    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": False})
+    @patch("api.views.launch_online_results_stream")
+    def test_live_state_does_not_recover_when_stream_stopped_manually(self, launch_mock, _probe_mock):
+        run = StreamRun.objects.create(
+            stream_id="manual-stopped-stream",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            status=StreamRun.Status.STOPPED,
+            last_error="manual_stop_by_user_1",
+            created_by=self.user,
+        )
+        response = self.client.get(reverse("online-results-live-state"), data={"stream_id": run.stream_id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["resolved_stream_id"], run.stream_id)
+        launch_mock.assert_not_called()
+
     @override_settings(ONLINE_RESULTS_STREAM_RESUME_STALE_SEC=0)
     @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"})
     @patch("api.views.launch_online_results_stream")
@@ -447,6 +490,19 @@ class OnlineResultsPagesTests(APITestCase):
         stop_delay_mock.assert_called_once()
         called_run_id = stop_delay_mock.call_args.args[0]
         self.assertEqual(called_run_id, run.id)
+
+    def test_stream_runs_page_shows_competition_title_and_hides_service_columns(self):
+        StreamRun.objects.create(
+            stream_id="stream-title-case",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            external_response_json={"stream_output": {"competition_title": "Кубок Ленинградской области"}},
+        )
+        response = self.client.get(reverse("online-results-stream-runs"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(response, "Кубок Ленинградской области")
+        self.assertContains(response, "<th>Соревнование</th>", html=False)
+        self.assertNotContains(response, "<th>Поток</th>", html=False)
 
 
 @override_settings(
@@ -650,6 +706,61 @@ class OnlineResultsServicesTests(APITestCase):
         run.refresh_from_db()
         completed = run.external_response_json.get("stream_output", {}).get("completed_groups", {})
         self.assertNotIn("sheet|group-b|run1", completed)
+
+    def test_stream_snapshot_populates_teams_groups_and_completed(self):
+        run = self._create_run(stream_id="remote-snapshot")
+        event = WebhookEvent.objects.create(
+            stream_id="remote-snapshot",
+            event_type="stream_snapshot",
+            payload_json={
+                "payload": {
+                    "competition_phase": "upcoming",
+                    "status_text": "Соревнование скоро начнется",
+                    "competition_title": "КУБОК ТЕСТ",
+                    "teams": ["Канаев Ски Клаб", "ЛУЧ"],
+                    "groups": [
+                        {
+                            "group_key": "sheet|group-c",
+                            "sheet_name": "sheet",
+                            "group_name": "group-c",
+                            "run_stage": 1,
+                            "is_finalized": True,
+                            "data": {"headers": ["h1"], "rows": [{"run1": "21.11"}], "lines_plain": ["line"]},
+                        }
+                    ],
+                }
+            },
+            payload_hash="a" * 63 + "b",
+        )
+        process_online_results_webhook_event(event.id)
+        run.refresh_from_db()
+        output = run.external_response_json.get("stream_output", {})
+        self.assertEqual(output.get("competition_phase"), "upcoming")
+        self.assertEqual(output.get("competition_title"), "КУБОК ТЕСТ")
+        self.assertEqual(output.get("teams"), ["Канаев Ски Клаб", "ЛУЧ"])
+        self.assertIn("sheet|group-c", output.get("latest_group_tables", {}))
+        self.assertIn("sheet|group-c|run1", output.get("completed_groups", {}))
+
+    def test_start_forecast_event_is_saved(self):
+        run = self._create_run(stream_id="remote-forecast")
+        event = WebhookEvent.objects.create(
+            stream_id="remote-forecast",
+            event_type="start_forecast_updated",
+            payload_json={
+                "payload": {
+                    "competition_phase": "running",
+                    "rows": [
+                        {"athlete_key": "a1", "club": "Канаев Ски Клаб", "eta": "2026-03-07T12:00:00"},
+                    ],
+                }
+            },
+            payload_hash="b" * 63 + "c",
+        )
+        process_online_results_webhook_event(event.id)
+        run.refresh_from_db()
+        output = run.external_response_json.get("stream_output", {})
+        self.assertEqual(output.get("competition_phase"), "running")
+        self.assertEqual(output.get("start_forecast", {}).get("rows", [])[0].get("athlete_key"), "a1")
 
     def test_stop_stream_marks_run_stopped(self):
         run = self._create_run(stream_id="remote-stop")

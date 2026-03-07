@@ -151,6 +151,20 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
             }
         )
     completed_items.sort(key=lambda item: str(item.get("last_updated_at") or ""), reverse=True)
+    all_groups_items: list[dict[str, object]] = []
+    for key, value in latest_group_tables.items():
+        if not isinstance(value, dict):
+            continue
+        all_groups_items.append(
+            {
+                "group_key": key,
+                "sheet_name": str(value.get("sheet_name") or ""),
+                "group_name": str(value.get("group_name") or ""),
+                "is_finalized": bool(value.get("is_finalized")),
+                "last_updated_at": str(value.get("last_updated_at") or ""),
+                "data": value.get("data") if isinstance(value.get("data"), dict) else {},
+            }
+        )
 
     selected_group = {}
     if group_key:
@@ -170,6 +184,12 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
             current_group = maybe
 
     teams: set[str] = set()
+    payload_teams = output.get("teams")
+    if isinstance(payload_teams, list):
+        for team in payload_teams:
+            team_name = str(team or "").strip()
+            if team_name:
+                teams.add(team_name)
     for block in list(latest_group_tables.values()) + list(completed_groups_raw.values()):
         if not isinstance(block, dict):
             continue
@@ -187,7 +207,20 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
                 teams.add(club)
     sorted_teams = sorted(teams, key=str.lower)
     default_teams = [team for team in sorted_teams if ("канаев" in team.lower()) or ("kanaev" in team.lower())]
-    competition_title = _extract_competition_title(output)
+    competition_title = str(output.get("competition_title") or "") or _extract_competition_title(output)
+    start_forecast = output.get("start_forecast")
+    if not isinstance(start_forecast, dict):
+        start_forecast = {}
+    forecast_rows = start_forecast.get("rows")
+    if not isinstance(forecast_rows, list):
+        forecast_rows = []
+    competition_phase = str(output.get("competition_phase") or "")
+    if not competition_phase:
+        if run.status == StreamRun.Status.SUCCESS:
+            competition_phase = "completed"
+        else:
+            competition_phase = "running"
+    status_text = str(output.get("status_text") or "")
 
     return {
         "stream": {
@@ -203,10 +236,15 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
         "current_group": current_group,
         "selected_group": selected_group,
         "completed_groups": completed_items,
+        "all_groups": all_groups_items,
         "overall_stats_lines": output.get("overall_stats_lines_plain") or output.get("overall_stats_lines") or [],
         "overall_stats_data": output.get("overall_stats_data") if isinstance(output.get("overall_stats_data"), dict) else {},
         "last_tick": output.get("last_tick") if isinstance(output.get("last_tick"), dict) else {},
         "last_event": output.get("last_event") if isinstance(output.get("last_event"), dict) else {},
+        "last_warning": output.get("last_warning") if isinstance(output.get("last_warning"), dict) else {},
+        "start_forecast": {"rows": forecast_rows, "updated_at": str(start_forecast.get("updated_at") or "")},
+        "competition_phase": competition_phase,
+        "status_text": status_text,
         "teams": sorted_teams,
         "default_selected_teams": default_teams,
         "competition_title": competition_title,
@@ -272,7 +310,12 @@ def _probe_online_results_stream_state(stream_id: str) -> dict[str, object]:
 
 def _should_recover_stream(run: StreamRun) -> bool:
     now = timezone.now()
-    if run.status in {StreamRun.Status.FAILED, StreamRun.Status.STOPPED}:
+    if run.status == StreamRun.Status.STOPPED:
+        # Do not auto-recover streams explicitly stopped by operator action.
+        if "manual_stop" in str(run.last_error or ""):
+            return False
+        return True
+    if run.status == StreamRun.Status.FAILED:
         return True
     if run.status == StreamRun.Status.PENDING:
         age = (now - run.created_at).total_seconds()
@@ -295,6 +338,26 @@ def _should_recover_stream(run: StreamRun) -> bool:
         return False
     silence_sec = (now - last_event_at).total_seconds()
     return silence_sec >= settings.ONLINE_RESULTS_STREAM_RESUME_STALE_SEC
+
+
+def _find_recent_recovery_candidate(source_run: StreamRun) -> StreamRun | None:
+    protocol_link = str(source_run.protocol_link or "").strip()
+    if not protocol_link:
+        return None
+    cooldown_sec = int(getattr(settings, "ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC", 30))
+    if cooldown_sec <= 0:
+        return None
+    cutoff = timezone.now() - timedelta(seconds=cooldown_sec)
+    return (
+        StreamRun.objects.filter(
+            protocol_link=protocol_link,
+            status__in=[StreamRun.Status.PENDING, StreamRun.Status.RUNNING],
+            created_at__gte=cutoff,
+        )
+        .exclude(id=source_run.id)
+        .order_by("-created_at")
+        .first()
+    )
 
 
 def _create_and_start_recovery_run(
@@ -342,6 +405,10 @@ def _resolve_or_recover_stream_run(
 
     if not _should_recover_stream(run):
         return run
+
+    recent_recovery = _find_recent_recovery_candidate(run)
+    if recent_recovery is not None:
+        return recent_recovery
 
     callback_url = _build_online_results_callback_url(request)
     recovered = _create_and_start_recovery_run(source_run=run, callback_url=callback_url, created_by=created_by)
@@ -607,9 +674,14 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
         for run in page_obj.object_list:
             event_stats = events_map.get(run.stream_id, {})
             public_link = public_links_map.get(run.id)
+            output = run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
+            if not isinstance(output, dict):
+                output = {}
+            competition_title = str(output.get("competition_title") or "").strip() or _extract_competition_title(output)
             runs_payload.append(
                 {
                     "run": run,
+                    "competition_title": competition_title or "Без названия",
                     "events_count": event_stats.get("events_count", 0),
                     "last_event_received_at": event_stats.get("last_event_received_at"),
                     "public_url": (
