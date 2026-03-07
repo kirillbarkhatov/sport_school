@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class WebhookEvent(models.Model):
@@ -55,3 +56,25 @@ class StreamRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.stream_id}:{self.status}"
+
+
+class PublicStreamAccess(models.Model):
+    stream_run = models.ForeignKey(
+        StreamRun,
+        on_delete=models.CASCADE,
+        related_name="public_access_links",
+    )
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self) -> str:
+        return f"{self.stream_run_id}:{self.token[:8]}"
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() >= self.expires_at

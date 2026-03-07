@@ -18,6 +18,8 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from api.views import (
+    OnlineResultsCompetitionLivePublicStateView,
+    OnlineResultsCompetitionLivePublicView,
     OnlineResultsCompetitionLiveStateView,
     OnlineResultsCompetitionLiveView,
     OnlineResultsStreamRunsView,
@@ -58,5 +60,15 @@ urlpatterns = [
         "integrations/online-results/live-state/",
         OnlineResultsCompetitionLiveStateView.as_view(),
         name="online-results-live-state",
+    ),
+    path(
+        "integrations/online-results/live/public/<str:token>/",
+        OnlineResultsCompetitionLivePublicView.as_view(),
+        name="online-results-live-public",
+    ),
+    path(
+        "integrations/online-results/live/public/<str:token>/state/",
+        OnlineResultsCompetitionLivePublicStateView.as_view(),
+        name="online-results-live-public-state",
     ),
 ]

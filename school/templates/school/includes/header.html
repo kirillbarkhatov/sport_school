@@ -1,6 +1,8 @@
 <header class="navbar sticky-top bg-dark flex-md-nowrap p-0 shadow" data-bs-theme="dark">
-    <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 text-white" href="{% url 'school:index' %}">
-        {% if user.is_authenticated and not user.is_staff and not user.is_superuser and user.person_id %}
+    <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 text-white" href="{% if hide_navigation %}#{% else %}{% url 'school:index' %}{% endif %}">
+        {% if app_brand_title %}
+            {{ app_brand_title }}
+        {% elif user.is_authenticated and not user.is_staff and not user.is_superuser and user.person_id %}
             Горнолыжная школа
         {% else %}
             Центр управления школой
@@ -8,6 +10,7 @@
     </a>
 
     <!--    Адаптив для мобильных устройств-->
+    {% if not hide_navigation %}
     <ul class="navbar-nav flex-row d-md-none">
         <li class="nav-item text-nowrap">
             <button class="nav-link px-3 text-white" type="button" data-bs-toggle="collapse"
@@ -28,11 +31,14 @@
             </button>
         </li>
     </ul>
+    {% endif %}
 
+    {% if not hide_navigation %}
     <div class="d-none d-md-flex align-items-center text-white ms-auto me-3 small gap-3">
         {% if user.is_authenticated %}
             <span class="opacity-75">{% if user.is_staff %}Администратор{% elif user.is_approved %}Участник{% else %}Ожидание подтверждения{% endif %}</span>
             <strong>{{ user.get_full_name|default:user.email }}</strong>
         {% endif %}
     </div>
+    {% endif %}
 </header>
