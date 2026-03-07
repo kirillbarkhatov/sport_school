@@ -1,0 +1,148 @@
+{% extends "school/base.html" %}
+
+{% block title %}Online Results: Текущие соревнования{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mt-3 mb-3">
+    <h2 class="mb-0">Online Results: Текущие соревнования</h2>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'online-results-stream-runs' %}">Потоки</a>
+        <a class="btn btn-outline-secondary" href="{% url 'online-results-webhook-events' %}">Webhook события</a>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2">
+            <div class="col-md-6">
+                <input type="text" class="form-control" name="stream_id" placeholder="stream_id" value="{{ stream_id }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-primary w-100">Подключить</button>
+            </div>
+            <div class="col-md-4 d-flex align-items-center">
+                <small class="text-muted" id="live-meta">Ожидание данных...</small>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">1. Текущая группа (live)</div>
+    <div class="card-body">
+        <pre class="mb-0" id="current-group-lines">Нет данных</pre>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">2. Финализированные группы</div>
+    <div class="card-body">
+        <div class="row g-2 mb-3">
+            <div class="col-md-6">
+                <select class="form-select" id="completed-group-select"></select>
+            </div>
+        </div>
+        <pre class="mb-0" id="selected-group-lines">Нет данных</pre>
+        <hr>
+        <pre class="mb-0" id="selected-group-stats">Нет данных</pre>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">3. Сводная статистика</div>
+    <div class="card-body">
+        <pre class="mb-0" id="overall-lines">Нет данных</pre>
+    </div>
+</div>
+
+<script>
+(() => {
+  const streamId = "{{ stream_id|escapejs }}";
+  if (!streamId) return;
+
+  const metaEl = document.getElementById("live-meta");
+  const currentEl = document.getElementById("current-group-lines");
+  const selectEl = document.getElementById("completed-group-select");
+  const selectedLinesEl = document.getElementById("selected-group-lines");
+  const selectedStatsEl = document.getElementById("selected-group-stats");
+  const overallEl = document.getElementById("overall-lines");
+
+  let selectedGroupKey = "";
+
+  function getLines(block, fallbackField) {
+    if (!block || typeof block !== "object") return [];
+    if (Array.isArray(block.lines_plain) && block.lines_plain.length) return block.lines_plain;
+    if (Array.isArray(block[fallbackField]) && block[fallbackField].length) return block[fallbackField];
+    if (block.data && Array.isArray(block.data.lines_plain) && block.data.lines_plain.length) return block.data.lines_plain;
+    return [];
+  }
+
+  async function refresh() {
+    const params = new URLSearchParams({stream_id: streamId});
+    if (selectedGroupKey) params.set("group_key", selectedGroupKey);
+    const resp = await fetch(`{% url 'online-results-live-state' %}?${params.toString()}`, {credentials: "same-origin"});
+    if (!resp.ok) {
+      metaEl.textContent = `Ошибка получения состояния: ${resp.status}`;
+      return;
+    }
+    const data = await resp.json();
+
+    const stream = data.stream || {};
+    metaEl.textContent = `Статус: ${stream.status || "-"} | stream_id: ${stream.stream_id || "-"} | последнее событие: ${(data.last_event || {}).event_type || "-"}`;
+
+    const currentGroup = data.current_group || {};
+    currentEl.textContent = getLines(currentGroup, "lines").join("\n") || "Нет данных";
+
+    const completed = Array.isArray(data.completed_groups) ? data.completed_groups : [];
+    const selectedFromServer = data.selected_group_key || "";
+    if (!selectedGroupKey) selectedGroupKey = selectedFromServer;
+
+    const oldValue = selectEl.value;
+    selectEl.innerHTML = "";
+    if (!completed.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "Нет финализированных групп";
+      selectEl.appendChild(opt);
+    } else {
+      completed.forEach((item) => {
+        const key = item.group_key || "";
+        const opt = document.createElement("option");
+        opt.value = key;
+        const marker = item.is_finalized ? "финализирована" : "в процессе";
+        opt.textContent = `${item.sheet_name || "-"} -> ${item.group_name || "-"} (${marker})`;
+        selectEl.appendChild(opt);
+      });
+      if (selectedGroupKey && completed.some((item) => item.group_key === selectedGroupKey)) {
+        selectEl.value = selectedGroupKey;
+      } else if (oldValue && completed.some((item) => item.group_key === oldValue)) {
+        selectEl.value = oldValue;
+        selectedGroupKey = oldValue;
+      } else {
+        selectEl.value = completed[0].group_key || "";
+        selectedGroupKey = selectEl.value;
+      }
+    }
+
+    const selected = data.selected_group || {};
+    const selectedLines = getLines(selected, "table_lines");
+    selectedLinesEl.textContent = selectedLines.join("\n") || "Нет данных";
+    const selectedStats = getLines(selected, "club_stats_lines");
+    selectedStatsEl.textContent = selectedStats.join("\n") || "Нет данных";
+
+    const overallLines = Array.isArray(data.overall_stats_lines) ? data.overall_stats_lines : [];
+    overallEl.textContent = overallLines.join("\n") || "Нет данных";
+  }
+
+  selectEl.addEventListener("change", () => {
+    selectedGroupKey = selectEl.value;
+    refresh().catch((e) => { metaEl.textContent = `Ошибка: ${e}`; });
+  });
+
+  refresh().catch((e) => { metaEl.textContent = `Ошибка: ${e}`; });
+  setInterval(() => {
+    refresh().catch((e) => { metaEl.textContent = `Ошибка: ${e}`; });
+  }, 3000);
+})();
+</script>
+{% endblock %}

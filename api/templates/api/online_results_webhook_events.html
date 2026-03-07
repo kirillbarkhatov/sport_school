@@ -1,0 +1,113 @@
+{% extends "school/base.html" %}
+
+{% block title %}Online Results: Webhook события{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mt-3 mb-3">
+    <h2 class="mb-0">Online Results: Входящие webhook-события</h2>
+    <a class="btn btn-outline-secondary" href="{% url 'online-results-stream-runs' %}">
+        Потоки
+    </a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2">
+            <div class="col-md-3">
+                <input type="text" class="form-control" name="stream_id" placeholder="stream_id" value="{{ stream_filter }}">
+            </div>
+            <div class="col-md-3">
+                <select name="event_type" class="form-select">
+                    <option value="">Все event_type</option>
+                    {% for value in event_type_options %}
+                        <option value="{{ value }}" {% if event_type_filter == value %}selected{% endif %}>{{ value }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <input type="date" class="form-control" name="date_from" value="{{ date_from }}">
+            </div>
+            <div class="col-md-2">
+                <input type="date" class="form-control" name="date_to" value="{{ date_to }}">
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-outline-primary w-100">Фильтровать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>received_at</th>
+                    <th>stream_id</th>
+                    <th>event_type</th>
+                    <th>event_time</th>
+                    <th>payload_hash</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for event in page_obj.object_list %}
+                    <tr>
+                        <td>{{ event.id }}</td>
+                        <td>{{ event.received_at|date:"d.m.Y H:i:s" }}</td>
+                        <td>{{ event.stream_id|default:"-" }}</td>
+                        <td>{{ event.event_type|default:"-" }}</td>
+                        <td>{{ event.event_time|date:"d.m.Y H:i:s"|default:"-" }}</td>
+                        <td><code>{{ event.payload_hash }}</code></td>
+                        <td>
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="?page={{ page_obj.number }}&stream_id={{ stream_filter }}&event_type={{ event_type_filter }}&date_from={{ date_from }}&date_to={{ date_to }}&event_id={{ event.id }}">
+                                Payload
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-muted p-3">Событий пока нет.</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if page_obj.has_other_pages %}
+    <nav class="mb-3">
+        <ul class="pagination pagination-sm mb-0">
+            {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}&stream_id={{ stream_filter }}&event_type={{ event_type_filter }}&date_from={{ date_from }}&date_to={{ date_to }}">Назад</a>
+                </li>
+            {% endif %}
+            <li class="page-item disabled"><span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+            {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}&stream_id={{ stream_filter }}&event_type={{ event_type_filter }}&date_from={{ date_from }}&date_to={{ date_to }}">Вперед</a>
+                </li>
+            {% endif %}
+        </ul>
+    </nav>
+{% endif %}
+
+<div class="card">
+    <div class="card-header">Payload</div>
+    <div class="card-body">
+        {% if selected_event %}
+            <div class="small text-muted mb-2">
+                Событие #{{ selected_event.id }} | stream_id={{ selected_event.stream_id|default:"-" }} | event_type={{ selected_event.event_type|default:"-" }}
+            </div>
+            <pre class="mb-0"><code>{{ selected_event.payload_json|pprint }}</code></pre>
+        {% else %}
+            <p class="text-muted mb-0">Выберите событие по кнопке Payload в таблице выше.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
