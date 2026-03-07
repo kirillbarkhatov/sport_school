@@ -20,7 +20,8 @@ class StreamRun(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Ожидает запуска"
         RUNNING = "running", "Выполняется"
-        SUCCESS = "success", "Успешно"
+        SUCCESS = "success", "Завершен"
+        STOPPED = "stopped", "Остановлен"
         FAILED = "failed", "Ошибка"
 
     stream_id = models.CharField(max_length=255, db_index=True)

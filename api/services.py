@@ -2,8 +2,10 @@ import logging
 from json import JSONDecodeError
 import json
 from urllib import error, request
+from urllib.parse import quote
 
 from django.conf import settings
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from api.models import StreamRun
@@ -21,6 +23,17 @@ def process_online_results_webhook_event(event_id: int) -> None:
     if event is None:
         logger.warning("WebhookEvent not found for processing: id=%s", event_id)
         return
+
+    run = _find_stream_run_by_stream_id(event.stream_id)
+    if run:
+        _apply_webhook_event_to_stream_run(run=run, event=event)
+    else:
+        logger.warning(
+            "StreamRun not found for webhook event: event_id=%s stream_id=%s event_type=%s",
+            event.id,
+            event.stream_id,
+            event.event_type,
+        )
 
     logger.info(
         "Processed Online Results webhook event: id=%s stream_id=%s event_type=%s payload_hash=%s",
@@ -41,6 +54,8 @@ def launch_online_results_stream(run_id: int) -> None:
     run.started_at = timezone.now()
     run.last_error = ""
     run.save(update_fields=["status", "started_at", "last_error", "updated_at"])
+
+    _stop_duplicate_running_streams(current_run=run)
 
     start_url = settings.ONLINE_RESULTS_STREAM_START_URL
     timeout_sec = settings.ONLINE_RESULTS_STREAM_TIMEOUT_SEC
@@ -82,20 +97,21 @@ def launch_online_results_stream(run_id: int) -> None:
         with request.urlopen(req, timeout=timeout_sec) as response:  # noqa: S310
             raw_response = response.read().decode("utf-8")
             response_json = _safe_json(raw_response)
-            run.external_response_json = response_json
+            current_state = _normalize_state(run.external_response_json)
+            current_state["start_response"] = response_json
             remote_stream_id = str(response_json.get("stream_id") or "")
             if remote_stream_id:
                 run.stream_id = remote_stream_id
             run.external_run_id = str(response_json.get("run_id") or response_json.get("id") or "")
-            run.status = StreamRun.Status.SUCCESS
-            run.finished_at = timezone.now()
+            run.external_response_json = current_state
+            run.status = StreamRun.Status.RUNNING
+            run.finished_at = None
             run.save(
                 update_fields=[
                     "stream_id",
                     "external_response_json",
                     "external_run_id",
                     "status",
-                    "finished_at",
                     "updated_at",
                 ]
             )
@@ -139,6 +155,55 @@ def launch_online_results_stream(run_id: int) -> None:
         )
 
 
+def stop_online_results_stream(run_id: int, reason: str = "manual_stop") -> None:
+    run = StreamRun.objects.filter(id=run_id).first()
+    if run is None:
+        logger.warning("StreamRun not found for stop: id=%s", run_id)
+        return
+
+    stop_url = _build_stop_url(run.stream_id)
+    stop_error = ""
+    stop_response_json: dict[str, object] = {}
+
+    headers = {"Content-Type": "application/json"}
+    auth_token = settings.ONLINE_RESULTS_STREAM_AUTH_TOKEN
+    timeout_sec = settings.ONLINE_RESULTS_STREAM_TIMEOUT_SEC
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+
+    if stop_url and run.stream_id and not run.stream_id.startswith("pending-"):
+        req = request.Request(url=stop_url, method="POST", data=b"", headers=headers)
+        try:
+            with request.urlopen(req, timeout=timeout_sec) as response:  # noqa: S310
+                raw_response = response.read().decode("utf-8")
+                stop_response_json = _safe_json(raw_response)
+        except error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            stop_response_json = _safe_json(body)
+            stop_error = f"http_{exc.code}"
+        except (error.URLError, TimeoutError, OSError) as exc:
+            stop_error = str(exc)[:500]
+
+    state = _normalize_state(run.external_response_json)
+    state["stop_response"] = stop_response_json
+    if stop_error:
+        state["stop_error"] = stop_error
+
+    run.external_response_json = state
+    run.status = StreamRun.Status.STOPPED
+    run.finished_at = timezone.now()
+    run.last_error = (f"{reason}; stop_error={stop_error}" if stop_error else reason)[:500]
+    run.save(
+        update_fields=[
+            "external_response_json",
+            "status",
+            "finished_at",
+            "last_error",
+            "updated_at",
+        ]
+    )
+
+
 def _safe_json(raw_response: str) -> dict[str, object]:
     if not raw_response:
         return {}
@@ -149,3 +214,175 @@ def _safe_json(raw_response: str) -> dict[str, object]:
     if isinstance(data, dict):
         return data
     return {"data": data}
+
+
+def _build_stop_url(stream_id: str) -> str:
+    template = getattr(settings, "ONLINE_RESULTS_STREAM_STOP_URL_TEMPLATE", "").strip()
+    if template and "{stream_id}" in template:
+        return template.replace("{stream_id}", quote(stream_id, safe=""))
+
+    start_url = settings.ONLINE_RESULTS_STREAM_START_URL.strip()
+    suffix = "/v1/streams"
+    if start_url.endswith(suffix):
+        return f"{start_url}/{quote(stream_id, safe='')}/stop"
+    return ""
+
+
+def _stop_duplicate_running_streams(current_run: StreamRun) -> None:
+    duplicates = (
+        StreamRun.objects.filter(protocol_link=current_run.protocol_link, status=StreamRun.Status.RUNNING)
+        .exclude(id=current_run.id)
+        .order_by("-created_at")
+    )
+    for duplicate in duplicates:
+        logger.info(
+            "Stopping duplicate stream before new launch: old_run_id=%s old_stream_id=%s new_run_id=%s",
+            duplicate.id,
+            duplicate.stream_id,
+            current_run.id,
+        )
+        stop_online_results_stream(run_id=duplicate.id, reason=f"replaced_by_run_{current_run.id}")
+
+
+def _find_stream_run_by_stream_id(stream_id: str) -> StreamRun | None:
+    if not stream_id:
+        return None
+    queryset: QuerySet[StreamRun] = StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at")
+    return queryset.first()
+
+
+def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> None:
+    payload_wrapper = event.payload_json if isinstance(event.payload_json, dict) else {}
+    payload = payload_wrapper.get("payload")
+    if not isinstance(payload, dict):
+        payload = {}
+
+    event_type = event.event_type or str(payload_wrapper.get("event_type") or "")
+    event_time = event.event_time or event.received_at or timezone.now()
+    state = _normalize_state(run.external_response_json)
+    stream_output = state.setdefault("stream_output", {})
+    if not isinstance(stream_output, dict):
+        stream_output = {}
+        state["stream_output"] = stream_output
+
+    counters = stream_output.setdefault("event_counters", {})
+    if isinstance(counters, dict):
+        counters[event_type] = int(counters.get(event_type, 0)) + 1
+
+    stream_output["last_event"] = {
+        "event_id": event.id,
+        "event_type": event_type,
+        "event_time": event_time.isoformat(),
+        "received_at": event.received_at.isoformat() if event.received_at else "",
+    }
+
+    update_fields = {"external_response_json", "updated_at"}
+    if event_type in {"stream_started", "tick", "result_updated", "group_table_updated", "group_completed", "overall_completed", "kanaev_summary_updated"}:
+        if run.status == StreamRun.Status.PENDING:
+            run.status = StreamRun.Status.RUNNING
+            update_fields.add("status")
+        if run.started_at is None and event_type == "stream_started":
+            run.started_at = event_time
+            update_fields.add("started_at")
+        if event_type == "tick":
+            stream_output["last_tick"] = {
+                "ts": str(payload.get("ts") or ""),
+                "changed_count": int(payload.get("changed_count") or 0),
+            }
+        elif event_type == "result_updated":
+            lines = _payload_lines(payload.get("lines"))
+            if lines:
+                stream_output["last_result_lines"] = lines
+                _log_console_lines(prefix="result_updated", lines=lines)
+        elif event_type == "group_table_updated":
+            group_key = str(payload.get("group_key") or "")
+            lines = _payload_lines(payload.get("lines"))
+            if group_key and lines:
+                tables = stream_output.setdefault("latest_group_tables", {})
+                if isinstance(tables, dict):
+                    tables[group_key] = {
+                        "sheet_name": str(payload.get("sheet_name") or ""),
+                        "group_name": str(payload.get("group_name") or ""),
+                        "lines": lines,
+                    }
+                _log_console_lines(prefix=f"group_table_updated:{group_key}", lines=lines)
+        elif event_type == "group_completed":
+            group_key = str(payload.get("group_key") or "")
+            table_lines = _payload_lines(payload.get("table_lines"))
+            club_stats_lines = _payload_lines(payload.get("club_stats_lines"))
+            if group_key:
+                completed_groups = stream_output.setdefault("completed_groups", {})
+                if isinstance(completed_groups, dict):
+                    completed_groups[group_key] = {
+                        "sheet_name": str(payload.get("sheet_name") or ""),
+                        "group_name": str(payload.get("group_name") or ""),
+                        "table_lines": table_lines,
+                        "club_stats_lines": club_stats_lines,
+                    }
+            _log_console_lines(prefix=f"group_completed:{group_key}:table", lines=table_lines)
+            _log_console_lines(prefix=f"group_completed:{group_key}:club", lines=club_stats_lines)
+        elif event_type == "overall_completed":
+            lines = _payload_lines(payload.get("lines"))
+            stream_output["overall_stats_lines"] = lines
+            _log_console_lines(prefix="overall_completed", lines=lines)
+        elif event_type == "kanaev_summary_updated":
+            sheet_name = str(payload.get("sheet_name") or "")
+            lines = _payload_lines(payload.get("lines"))
+            if sheet_name and lines:
+                summaries = stream_output.setdefault("latest_sheet_summaries", {})
+                if isinstance(summaries, dict):
+                    summaries[sheet_name] = lines
+            _log_console_lines(prefix=f"kanaev_summary_updated:{sheet_name}", lines=lines)
+
+    if event_type == "stream_started":
+        run.status = StreamRun.Status.RUNNING
+        run.started_at = run.started_at or event_time
+        run.last_error = ""
+        run.finished_at = None
+        update_fields.update({"status", "started_at", "last_error", "finished_at"})
+    elif event_type == "stream_completed":
+        run.status = StreamRun.Status.SUCCESS
+        run.finished_at = event_time
+        update_fields.update({"status", "finished_at"})
+    elif event_type == "stream_stopped":
+        run.status = StreamRun.Status.STOPPED
+        run.finished_at = event_time
+        reason = str(payload.get("reason") or "").strip()
+        if reason:
+            run.last_error = reason
+            update_fields.add("last_error")
+        update_fields.update({"status", "finished_at"})
+    elif event_type == "stream_error":
+        run.status = StreamRun.Status.FAILED
+        run.finished_at = event_time
+        run.last_error = str(payload.get("error") or "stream_error")[:500]
+        update_fields.update({"status", "finished_at", "last_error"})
+
+    run.external_response_json = state
+    run.save(update_fields=sorted(update_fields))
+
+
+def _normalize_state(raw: object) -> dict[str, object]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    return {}
+
+
+def _payload_lines(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    lines: list[str] = []
+    for item in value:
+        if item is None:
+            continue
+        text = str(item).rstrip()
+        if text:
+            lines.append(text)
+    return lines[:200]
+
+
+def _log_console_lines(prefix: str, lines: list[str]) -> None:
+    if not lines:
+        return
+    for line in lines:
+        logger.info("Online Results %s: %s", prefix, line)

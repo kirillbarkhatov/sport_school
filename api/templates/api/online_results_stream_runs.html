@@ -62,6 +62,7 @@
                     <th>Завершен</th>
                     <th>Событий</th>
                     <th>Последнее событие</th>
+                    <th></th>
                 </tr>
                 </thead>
                 <tbody>
@@ -78,10 +79,22 @@
                         <td>{{ item.run.finished_at|date:"d.m.Y H:i"|default:"-" }}</td>
                         <td>{{ item.events_count }}</td>
                         <td>{{ item.last_event_received_at|date:"d.m.Y H:i"|default:"-" }}</td>
+                        <td>
+                            {% if item.run.status == "running" %}
+                                <form method="post" class="m-0">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="stop">
+                                    <input type="hidden" name="run_id" value="{{ item.run.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Остановить</button>
+                                </form>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="9" class="text-muted">Запусков пока нет.</td>
+                        <td colspan="10" class="text-muted">Запусков пока нет.</td>
                     </tr>
                 {% endfor %}
                 </tbody>

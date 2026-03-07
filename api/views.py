@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import uuid
+from urllib.parse import urljoin
 
 from django.conf import settings
 from django.contrib import messages
@@ -25,7 +26,11 @@ from rest_framework.views import APIView
 
 from api.forms import StreamRunLaunchForm
 from api.models import StreamRun, WebhookEvent
-from api.tasks import launch_online_results_stream_task, process_online_results_webhook_event_task
+from api.tasks import (
+    launch_online_results_stream_task,
+    process_online_results_webhook_event_task,
+    stop_online_results_stream_task,
+)
 from school.models import Person
 from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
@@ -50,6 +55,14 @@ def _can_manage_online_results(user: User) -> bool:
     if user.is_staff or user.is_superuser:
         return True
     return user.groups.filter(name__in={ADMIN_GROUP_NAME, MANAGER_GROUP_NAME}).exists()
+
+
+def _build_online_results_callback_url(request) -> str:
+    callback_path = reverse("online-results-webhook")
+    public_base = settings.ONLINE_RESULTS_WEBHOOK_PUBLIC_BASE_URL
+    if public_base:
+        return urljoin(f"{public_base.rstrip('/')}/", callback_path.lstrip("/"))
+    return request.build_absolute_uri(callback_path)
 
 
 class PersonViewSet(viewsets.ModelViewSet):
@@ -154,7 +167,8 @@ class OnlineResultsWebhookView(APIView):
     http_method_names = ["post"]
 
     def post(self, request, *args, **kwargs):
-        if request.content_type != "application/json":
+        content_type = (request.content_type or "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
             return Response(
                 {"detail": "Content-Type must be application/json."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -321,13 +335,37 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
         )
 
     def post(self, request, *args, **kwargs):
+        action = (request.POST.get("action") or "start").strip()
+        if action == "stop":
+            run_id_raw = (request.POST.get("run_id") or "").strip()
+            if not run_id_raw.isdigit():
+                messages.error(request, "Некорректный идентификатор потока.")
+                return redirect("online-results-stream-runs")
+
+            run = StreamRun.objects.filter(id=int(run_id_raw)).first()
+            if run is None:
+                messages.error(request, "Поток не найден.")
+                return redirect("online-results-stream-runs")
+            if run.status != StreamRun.Status.RUNNING:
+                messages.warning(request, "Поток уже не выполняется.")
+                return redirect("online-results-stream-runs")
+
+            transaction.on_commit(
+                lambda: stop_online_results_stream_task.delay(
+                    run.id,
+                    reason=f"manual_stop_by_user_{request.user.id}",
+                )
+            )
+            messages.success(request, f"Остановка потока {run.stream_id} поставлена в очередь.")
+            return redirect("online-results-stream-runs")
+
         form = StreamRunLaunchForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Проверьте параметры запуска потока.")
             return redirect("online-results-stream-runs")
 
         protocol_link: str = form.cleaned_data["protocol_link"].strip()
-        callback_url = request.build_absolute_uri(reverse("online-results-webhook"))
+        callback_url = _build_online_results_callback_url(request)
 
         stream_run = StreamRun.objects.create(
             stream_id=f"pending-{uuid.uuid4().hex[:10]}",
