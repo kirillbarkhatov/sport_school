@@ -58,42 +58,42 @@
             <table class="table table-sm align-middle">
                 <thead>
                 <tr>
-                    <th>ID</th>
-                    <th>Поток</th>
-                    <th>Ссылка</th>
+                    <th>Соревнование</th>
+                    <th>Источник</th>
                     <th>Статус</th>
-                    <th>Создан</th>
                     <th>Запущен</th>
                     <th>Завершен</th>
                     <th>Событий</th>
                     <th>Последнее событие</th>
-                    <th>Публичная ссылка (48ч)</th>
-                    <th></th>
+                    <th>Действия</th>
+                    <th>Подробнее</th>
                 </tr>
                 </thead>
                 <tbody>
                 {% for item in runs_payload %}
                     <tr>
-                        <td>{{ item.run.id }}</td>
-                        <td>{{ item.run.stream_id }}</td>
-                        <td><code>{{ item.run.protocol_link|truncatechars:60 }}</code></td>
+                        <td>{{ item.competition_title }}</td>
                         <td>
-                            <span class="badge text-bg-secondary">{{ item.run.get_status_display }}</span>
-                        </td>
-                        <td>{{ item.run.created_at|date:"d.m.Y H:i" }}</td>
-                        <td>{{ item.run.started_at|date:"d.m.Y H:i"|default:"-" }}</td>
-                        <td>{{ item.run.finished_at|date:"d.m.Y H:i"|default:"-" }}</td>
-                        <td>{{ item.events_count }}</td>
-                        <td>{{ item.last_event_received_at|date:"d.m.Y H:i"|default:"-" }}</td>
-                        <td>
-                            {% if item.public_url %}
-                                <div><a href="{{ item.public_url }}" target="_blank" rel="noopener">Открыть</a></div>
-                                <small class="text-muted">до {{ item.public_expires_at|date:"d.m.Y H:i" }}</small>
+                            {% if item.run.protocol_link %}
+                                <a href="{{ item.run.protocol_link }}" target="_blank" rel="noopener">Ссылка на протокол</a>
                             {% else %}
                                 <span class="text-muted">-</span>
                             {% endif %}
                         </td>
                         <td>
+                            <span class="badge text-bg-secondary">{{ item.run.get_status_display }}</span>
+                        </td>
+                        <td>{{ item.run.started_at|date:"d.m.Y H:i"|default:"-" }}</td>
+                        <td>{{ item.run.finished_at|date:"d.m.Y H:i"|default:"-" }}</td>
+                        <td>{{ item.events_count }}</td>
+                        <td>{{ item.last_event_received_at|date:"d.m.Y H:i"|default:"-" }}</td>
+                        <td>
+                            <div class="d-flex flex-column gap-1 mb-2">
+                                <a href="{% url 'online-results-live' %}?stream_id={{ item.run.stream_id|urlencode }}" class="btn btn-sm btn-outline-secondary">Открыть live</a>
+                                {% if item.public_url %}
+                                    <a href="{{ item.public_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Открыть public</a>
+                                {% endif %}
+                            </div>
                             {% if item.run.status == "running" %}
                                 <form method="post" class="m-0">
                                     {% csrf_token %}
@@ -105,10 +105,20 @@
                                 <span class="text-muted">-</span>
                             {% endif %}
                         </td>
+                        <td>
+                            <details>
+                                <summary>Тех. данные</summary>
+                                <div><small class="text-muted">run_id: {{ item.run.id }}</small></div>
+                                <div><small class="text-muted">stream_id: {{ item.run.stream_id|default:"-" }}</small></div>
+                                {% if item.run.last_error %}
+                                    <div><small class="text-muted">last_error: {{ item.run.last_error|truncatechars:120 }}</small></div>
+                                {% endif %}
+                            </details>
+                        </td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="11" class="text-muted">Запусков пока нет.</td>
+                        <td colspan="9" class="text-muted">Запусков пока нет.</td>
                     </tr>
                 {% endfor %}
                 </tbody>

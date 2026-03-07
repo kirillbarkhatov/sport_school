@@ -80,10 +80,19 @@
     z-index: 1080;
     max-height: none !important;
     margin: 0 !important;
-    padding: 0.5rem !important;
+    padding: 4rem 0.5rem 0.5rem 0.5rem !important;
     background: var(--bs-body-bg);
     border-radius: 0 !important;
     border: 0 !important;
+  }
+  .table-fullscreen-controls {
+    position: fixed;
+    top: 0.75rem;
+    left: 0.75rem;
+    z-index: 1090;
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
   }
   .table-fullscreen-active {
     overflow: hidden;
@@ -113,6 +122,24 @@
   #selected-group-viewport {
     padding: 0;
   }
+  #waiting-start-scroll {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+    max-height: 55vh;
+  }
+  #waiting-start-table > .live-scroll {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    min-height: 26vh;
+  }
+  #waiting-start-table .live-table {
+    min-width: 100%;
+  }
+  #waiting-start-viewport {
+    padding: 0;
+  }
   .team-filter-dropdown summary {
     cursor: pointer;
     user-select: none;
@@ -134,6 +161,32 @@
   }
   .results-controls {
     margin-left: auto;
+  }
+  .groups-browser-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1095;
+    background: var(--bs-body-bg);
+    display: none;
+    padding: 0.75rem;
+    overflow: auto;
+  }
+  .groups-browser-overlay.active {
+    display: block;
+  }
+  .groups-browser-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .groups-browser-title {
+    font-weight: 600;
+    margin-right: auto;
+  }
+  .hidden-block {
+    display: none !important;
   }
   @media (max-width: 767px) {
     .live-table {
@@ -159,7 +212,7 @@
 </details>
 
 {% if not is_public %}
-<div class="card mb-3">
+<div class="card mb-3" id="stream-connect-card">
     <div class="card-body">
         <form method="get" class="row g-2">
             <div class="col-md-5">
@@ -176,7 +229,7 @@
 </div>
 {% endif %}
 
-<div class="card mb-3">
+<div class="card mb-3" id="current-group-card">
     <div class="card-header d-flex justify-content-between align-items-center">
       <span>1. Текущая группа (live)</span>
       <div class="live-toolbar-inline">
@@ -194,8 +247,9 @@
           <div id="current-group-table"></div>
           <pre class="mb-0 d-none p-3" id="current-group-fallback"></pre>
         </div>
-        <div class="px-3 pb-2 text-end">
-          <button id="current-fullscreen-toggle" class="btn btn-link btn-sm p-0" type="button">на весь экран</button>
+        <div id="current-fullscreen-controls" class="px-3 pb-2 text-end">
+          <button id="open-groups-browser" class="btn btn-outline-secondary btn-sm" type="button">Все группы</button>
+          <button id="current-fullscreen-toggle" class="btn btn-outline-secondary btn-sm" type="button">На весь экран</button>
         </div>
       </div>
     </div>
@@ -224,18 +278,36 @@
           <div id="selected-group-table"></div>
           <pre class="mb-0 p-3" id="selected-group-empty">Выберите группу/заезд...</pre>
         </div>
-        <div class="px-3 pb-2 text-end">
-          <button id="selected-fullscreen-toggle" class="btn btn-link btn-sm p-0" type="button">на весь экран</button>
+        <div id="selected-fullscreen-controls" class="px-3 pb-2 text-end">
+          <button id="selected-fullscreen-toggle" class="btn btn-outline-secondary btn-sm" type="button">На весь экран</button>
         </div>
       </div>
     </div>
 </div>
 
-<div class="card mb-3">
-    <div class="card-header">3. Сводная статистика</div>
-    <div class="card-body">
+<div class="card mb-3" id="block3-card">
+    <div class="card-header" id="block3-title">3. Сводная статистика</div>
+    <div class="card-body p-0" id="block3-body">
+        <div id="waiting-start-block" class="hidden-block">
+          <div id="waiting-start-scroll">
+            <div class="live-viewport" id="waiting-start-viewport">
+              <div id="waiting-start-table"></div>
+              <pre class="mb-0 p-3 d-none" id="waiting-start-empty">Нет ожидающих</pre>
+            </div>
+          </div>
+        </div>
         <pre class="mb-0" id="overall-lines">Нет данных</pre>
     </div>
+</div>
+
+<div id="groups-browser" class="groups-browser-overlay" aria-hidden="true">
+  <div class="groups-browser-toolbar">
+    <button id="groups-browser-back" class="btn btn-outline-secondary btn-sm" type="button">назад</button>
+    <button id="groups-browser-prev" class="btn btn-outline-secondary btn-sm" type="button">←</button>
+    <button id="groups-browser-next" class="btn btn-outline-secondary btn-sm" type="button">→</button>
+    <span id="groups-browser-title" class="groups-browser-title">Группы</span>
+  </div>
+  <div id="groups-browser-table"></div>
 </div>
 
 <script>
@@ -262,16 +334,38 @@
   const selectedZoomLabel = document.getElementById("selected-zoom-label");
   const currentFullscreenToggle = document.getElementById("current-fullscreen-toggle");
   const selectedFullscreenToggle = document.getElementById("selected-fullscreen-toggle");
+  const currentFullscreenControls = document.getElementById("current-fullscreen-controls");
+  const selectedFullscreenControls = document.getElementById("selected-fullscreen-controls");
+  const block3CardEl = document.getElementById("block3-card");
+  const block3TitleEl = document.getElementById("block3-title");
+  const waitingStartBlock = document.getElementById("waiting-start-block");
+  const waitingStartTableEl = document.getElementById("waiting-start-table");
+  const waitingStartEmptyEl = document.getElementById("waiting-start-empty");
+  const waitingStartViewport = document.getElementById("waiting-start-viewport");
+  const waitingStartScroll = document.getElementById("waiting-start-scroll");
+  const groupsBrowserEl = document.getElementById("groups-browser");
+  const groupsBrowserTableEl = document.getElementById("groups-browser-table");
+  const groupsBrowserTitleEl = document.getElementById("groups-browser-title");
+  const groupsBrowserBackBtn = document.getElementById("groups-browser-back");
+  const groupsBrowserPrevBtn = document.getElementById("groups-browser-prev");
+  const groupsBrowserNextBtn = document.getElementById("groups-browser-next");
+  const openGroupsBrowserBtn = document.getElementById("open-groups-browser");
 
   let selectedGroupKey = "";
   let selectedTeams = new Set();
   let teamOptions = [];
+  let defaultsAppliedForCurrentStream = false;
+  let hasUserTeamSelection = false;
   let currentScale = 1;
   let selectedScale = 1;
+  let waitingScale = 1;
   let currentAutoFit = true;
   let selectedAutoFit = true;
+  let waitingAutoFit = true;
   let currentFullscreen = false;
   let selectedFullscreen = false;
+  let allGroups = [];
+  let groupsBrowserIndex = 0;
 
   function syncFullscreenBodyState() {
     if (currentFullscreen || selectedFullscreen) {
@@ -284,7 +378,9 @@
   function setCurrentFullscreen(enabled) {
     currentFullscreen = !!enabled;
     currentScroll.classList.toggle("table-fullscreen", currentFullscreen);
-    currentFullscreenToggle.textContent = currentFullscreen ? "назад" : "на весь экран";
+    currentFullscreenControls.classList.toggle("table-fullscreen-controls", currentFullscreen);
+    currentFullscreenControls.classList.toggle("text-end", !currentFullscreen);
+    currentFullscreenToggle.textContent = currentFullscreen ? "назад" : "На весь экран";
     syncFullscreenBodyState();
     if (currentAutoFit) {
       setTimeout(fitCurrentViewport, 0);
@@ -294,7 +390,9 @@
   function setSelectedFullscreen(enabled) {
     selectedFullscreen = !!enabled;
     selectedScroll.classList.toggle("table-fullscreen", selectedFullscreen);
-    selectedFullscreenToggle.textContent = selectedFullscreen ? "назад" : "на весь экран";
+    selectedFullscreenControls.classList.toggle("table-fullscreen-controls", selectedFullscreen);
+    selectedFullscreenControls.classList.toggle("text-end", !selectedFullscreen);
+    selectedFullscreenToggle.textContent = selectedFullscreen ? "назад" : "На весь экран";
     syncFullscreenBodyState();
     if (selectedAutoFit) {
       setTimeout(fitSelectedViewport, 0);
@@ -369,24 +467,47 @@
     return true;
   }
 
+  function renderGroupBrowserTable(groupItem) {
+    if (!groupItem || typeof groupItem !== "object") {
+      groupsBrowserTitleEl.textContent = "Группы";
+      groupsBrowserTableEl.innerHTML = "<p class=\"text-muted\">Нет данных</p>";
+      return;
+    }
+    const tableData = getTableData(groupItem);
+    const title = `${groupItem.sheet_name || "-"} -> ${groupItem.group_name || "-"}`;
+    groupsBrowserTitleEl.textContent = title;
+    if (!renderTable(groupsBrowserTableEl, tableData)) {
+      groupsBrowserTableEl.innerHTML = "<p class=\"text-muted\">Нет данных по группе</p>";
+    }
+  }
+
   function updateTeamOptions(allTeams, defaults) {
     const nextOptions = Array.isArray(allTeams) ? allTeams : [];
-    const firstInit = teamOptions.length === 0;
+    const optionsChanged = JSON.stringify(teamOptions) !== JSON.stringify(nextOptions);
     teamOptions = nextOptions;
-    teamSelect.innerHTML = "";
-    teamOptions.forEach((team) => {
-      const option = document.createElement("option");
-      option.value = team;
-      option.textContent = team;
-      teamSelect.appendChild(option);
-    });
+    if (optionsChanged) {
+      teamSelect.innerHTML = "";
+      teamOptions.forEach((team) => {
+        const option = document.createElement("option");
+        option.value = team;
+        option.textContent = team;
+        teamSelect.appendChild(option);
+      });
+    }
 
-    const saved = localStorage.getItem(`online_results_selected_teams_${streamId}`);
+    const storageKey = `online_results_selected_teams_${streamId}`;
+    const touchedKey = `online_results_selected_teams_touched_${streamId}`;
+    hasUserTeamSelection = localStorage.getItem(touchedKey) === "1";
+    const saved = localStorage.getItem(storageKey);
     let target = [];
-    if (saved) {
+    if (hasUserTeamSelection && saved !== null) {
       try { target = JSON.parse(saved); } catch (_) { target = []; }
-    } else if (firstInit && Array.isArray(defaults)) {
+    } else if (!hasUserTeamSelection && !defaultsAppliedForCurrentStream && teamOptions.length && Array.isArray(defaults)) {
       target = defaults;
+      defaultsAppliedForCurrentStream = true;
+      localStorage.setItem(storageKey, JSON.stringify(target));
+    } else if (saved !== null) {
+      try { target = JSON.parse(saved); } catch (_) { target = []; }
     }
     selectedTeams = new Set(target.filter((team) => teamOptions.includes(team)));
     for (const option of teamSelect.options) {
@@ -395,10 +516,9 @@
   }
 
   function persistSelectedTeams() {
-    localStorage.setItem(
-      `online_results_selected_teams_${streamId}`,
-      JSON.stringify(Array.from(selectedTeams))
-    );
+    hasUserTeamSelection = true;
+    localStorage.setItem(`online_results_selected_teams_touched_${streamId}`, "1");
+    localStorage.setItem(`online_results_selected_teams_${streamId}`, JSON.stringify(Array.from(selectedTeams)));
   }
 
   function fitCurrentViewport() {
@@ -457,6 +577,69 @@
     selectedZoomLabel.textContent = `${Math.round(selectedScale * 100)}%`;
   }
 
+  function fitWaitingViewport() {
+    const table = waitingStartTableEl.querySelector("table");
+    if (!table) {
+      waitingScale = 1;
+      waitingStartViewport.style.width = "100%";
+      waitingStartViewport.style.transform = "scale(1)";
+      return;
+    }
+    waitingStartViewport.style.transform = "scale(1)";
+    waitingStartViewport.style.width = "100%";
+    const contentWidth = table.scrollWidth + 16;
+    const availableWidth = waitingStartScroll.clientWidth;
+    waitingScale = Math.min(1, availableWidth / Math.max(contentWidth, 1));
+    if (!Number.isFinite(waitingScale) || waitingScale <= 0) waitingScale = 1;
+    waitingStartViewport.style.width = waitingScale < 1 ? `${(100 / waitingScale).toFixed(2)}%` : "100%";
+    waitingStartViewport.style.transform = `scale(${waitingScale})`;
+  }
+
+  const moscowTimeFormatter = new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Europe/Moscow",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  function formatMoscowTime(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "-";
+    if (/^\d{2}:\d{2}$/.test(raw)) {
+      const [hour, minute] = raw.split(":").map((part) => Number(part));
+      if (!Number.isFinite(hour) || !Number.isFinite(minute)) return "-";
+      // Upstream may send HH:MM in UTC; normalize explicitly to UTC then render in Moscow timezone.
+      const now = new Date();
+      const utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, minute, 0));
+      return moscowTimeFormatter.format(utcDate);
+    }
+    // Treat timezone-less ISO datetime as UTC (upstream emits naive datetime from UTC runtime).
+    const normalized = raw.replace(" ", "T");
+    const naiveIso = normalized.match(
+      /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?$/
+    );
+    if (naiveIso) {
+      const year = Number(naiveIso[1]);
+      const month = Number(naiveIso[2]) - 1;
+      const day = Number(naiveIso[3]);
+      const hour = Number(naiveIso[4]);
+      const minute = Number(naiveIso[5]);
+      const second = Number(naiveIso[6] || "0");
+      const ms = Number((naiveIso[7] || "0").slice(0, 3).padEnd(3, "0"));
+      if ([year, month, day, hour, minute, second, ms].every(Number.isFinite)) {
+        const utcDate = new Date(Date.UTC(year, month, day, hour, minute, second, ms));
+        return moscowTimeFormatter.format(utcDate);
+      }
+    }
+
+    let parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime()) && raw.includes(" ")) {
+      parsed = new Date(normalized);
+    }
+    if (Number.isNaN(parsed.getTime())) return "-";
+    return moscowTimeFormatter.format(parsed);
+  }
+
   async function refresh() {
     const params = new URLSearchParams({stream_id: streamId});
     if (selectedGroupKey) params.set("group_key", selectedGroupKey);
@@ -470,18 +653,26 @@
     if (resolvedStreamId && resolvedStreamId !== streamId) {
       streamId = resolvedStreamId;
       if (streamInputEl) streamInputEl.value = resolvedStreamId;
+      defaultsAppliedForCurrentStream = false;
+      hasUserTeamSelection = localStorage.getItem(`online_results_selected_teams_touched_${streamId}`) === "1";
     }
 
     const stream = data.stream || {};
     if (metaEl) {
+      const statusText = String(data.status_text || "");
       if (isPublic) {
-        metaEl.textContent = `Статус: ${stream.status || "-"} | событие: ${(data.last_event || {}).event_type || "-"}`;
+        metaEl.textContent = statusText || `Статус: ${stream.status || "-"} | событие: ${(data.last_event || {}).event_type || "-"}`;
       } else {
-        metaEl.textContent = `Статус: ${stream.status || "-"} | stream_id: ${stream.stream_id || "-"} | событие: ${(data.last_event || {}).event_type || "-"}`;
+        metaEl.textContent = statusText || `Статус: ${stream.status || "-"} | stream_id: ${stream.stream_id || "-"} | событие: ${(data.last_event || {}).event_type || "-"}`;
       }
     }
 
     updateTeamOptions(data.teams || [], data.default_selected_teams || []);
+    allGroups = Array.isArray(data.all_groups) ? data.all_groups : [];
+    if (groupsBrowserEl.classList.contains("active")) {
+      if (groupsBrowserIndex >= allGroups.length) groupsBrowserIndex = 0;
+      renderGroupBrowserTable(allGroups[groupsBrowserIndex]);
+    }
 
     const currentGroup = data.current_group || {};
     const currentTableData = getTableData(currentGroup);
@@ -577,7 +768,68 @@
     }
 
     const overallLines = Array.isArray(data.overall_stats_lines) ? data.overall_stats_lines : [];
-    overallEl.textContent = overallLines.join("\n") || "Нет данных";
+    const competitionPhase = String(data.competition_phase || "");
+    const hasOverallData = overallLines.length > 0;
+    const isCompletedPhase = competitionPhase === "completed" || (stream.status === "success" && hasOverallData);
+    const forecastRowsRaw = (((data.start_forecast || {}).rows) || []);
+    const forecastRows = Array.isArray(forecastRowsRaw) ? forecastRowsRaw : [];
+    const filteredWaiting = forecastRows.filter((item) => {
+      if (!item || typeof item !== "object") return false;
+      if (item.has_result) return false;
+      const club = String(item.club || "");
+      return selectedTeams.size > 0 && selectedTeams.has(club);
+    });
+    if (!isCompletedPhase && selectedTeams.size > 0) {
+      block3CardEl.classList.remove("hidden-block");
+      block3TitleEl.textContent = "3. Ожидают старта";
+      waitingStartBlock.classList.remove("hidden-block");
+      overallEl.classList.add("hidden-block");
+      if (!filteredWaiting.length) {
+        waitingStartTableEl.innerHTML = "";
+        waitingStartEmptyEl.classList.remove("d-none");
+        waitingStartEmptyEl.textContent = "Нет ожидающих";
+        fitWaitingViewport();
+      } else {
+        const waitingTableData = {
+          headers: ["Группа", "ст.№", "ФИО", "клуб", "Заезд", "Прогноз (МСК)"],
+          rows: filteredWaiting.map((item) => ({
+            "Группа": String(item.group_name || "-"),
+            "ст.№": String(item.start_number || "-"),
+            "ФИО": String(item.full_name || "-"),
+            "клуб": String(item.club || "-"),
+            "Заезд": String(item.run_number || "-"),
+            "Прогноз (МСК)": formatMoscowTime(item.eta),
+          })),
+        };
+        if (renderTable(waitingStartTableEl, waitingTableData)) {
+          waitingStartEmptyEl.classList.add("d-none");
+          if (waitingAutoFit) {
+            fitWaitingViewport();
+          } else {
+            waitingStartViewport.style.width = waitingScale < 1 ? `${(100 / waitingScale).toFixed(2)}%` : "100%";
+            waitingStartViewport.style.transform = `scale(${waitingScale})`;
+          }
+        } else {
+          waitingStartTableEl.innerHTML = "";
+          waitingStartEmptyEl.classList.remove("d-none");
+          waitingStartEmptyEl.textContent = "Нет ожидающих";
+          fitWaitingViewport();
+        }
+      }
+    } else {
+      if (!isCompletedPhase && selectedTeams.size === 0) {
+        block3CardEl.classList.remove("hidden-block");
+        block3TitleEl.textContent = "3. Ожидают старта";
+        overallEl.textContent = "Выберите команду для прогноза времени старта.";
+      } else {
+        block3CardEl.classList.remove("hidden-block");
+        block3TitleEl.textContent = "3. Сводная статистика";
+        overallEl.textContent = overallLines.join("\n") || "Нет данных";
+      }
+      waitingStartBlock.classList.add("hidden-block");
+      waitingStartTableEl.innerHTML = "";
+      overallEl.classList.remove("hidden-block");
+    }
   }
 
   teamSelect.addEventListener("change", () => {
@@ -612,14 +864,39 @@
     if (next && currentFullscreen) setCurrentFullscreen(false);
     setSelectedFullscreen(next);
   });
+  openGroupsBrowserBtn.addEventListener("click", () => {
+    groupsBrowserIndex = 0;
+    groupsBrowserEl.classList.add("active");
+    document.body.classList.add("table-fullscreen-active");
+    renderGroupBrowserTable(allGroups[groupsBrowserIndex]);
+  });
+  groupsBrowserBackBtn.addEventListener("click", () => {
+    groupsBrowserEl.classList.remove("active");
+    syncFullscreenBodyState();
+  });
+  groupsBrowserPrevBtn.addEventListener("click", () => {
+    if (!allGroups.length) return;
+    groupsBrowserIndex = (groupsBrowserIndex - 1 + allGroups.length) % allGroups.length;
+    renderGroupBrowserTable(allGroups[groupsBrowserIndex]);
+  });
+  groupsBrowserNextBtn.addEventListener("click", () => {
+    if (!allGroups.length) return;
+    groupsBrowserIndex = (groupsBrowserIndex + 1) % allGroups.length;
+    renderGroupBrowserTable(allGroups[groupsBrowserIndex]);
+  });
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (currentFullscreen) setCurrentFullscreen(false);
     if (selectedFullscreen) setSelectedFullscreen(false);
+    if (groupsBrowserEl.classList.contains("active")) {
+      groupsBrowserEl.classList.remove("active");
+      syncFullscreenBodyState();
+    }
   });
   window.addEventListener("resize", () => {
     fitCurrentViewport();
     fitSelectedViewport();
+    fitWaitingViewport();
   });
 
   refresh().catch((e) => { if (metaEl) metaEl.textContent = `Ошибка: ${e}`; });
