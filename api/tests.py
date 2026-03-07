@@ -230,6 +230,25 @@ class OnlineResultsPagesTests(APITestCase):
         response = self.client.get(reverse("online-results-stream-runs"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_live_page_available(self):
+        response = self.client.get(reverse("online-results-live"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_live_state_returns_payload(self):
+        run = StreamRun.objects.create(
+            stream_id="stream-live-state",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            external_response_json={"stream_output": {"overall_stats_lines": ["x"]}},
+        )
+        response = self.client.get(
+            reverse("online-results-live-state"),
+            data={"stream_id": run.stream_id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["stream"]["stream_id"], run.stream_id)
+
     @patch("api.views.launch_online_results_stream_task.delay")
     def test_stream_run_create_from_page(self, delay_mock):
         payload = {
@@ -416,6 +435,29 @@ class OnlineResultsServicesTests(APITestCase):
             ["table row"],
         )
         self.assertEqual(stream_output.get("overall_stats_lines"), ["club stats"])
+
+    def test_group_table_structured_data_is_saved(self):
+        run = self._create_run(stream_id="remote-structured")
+        event = WebhookEvent.objects.create(
+            stream_id="remote-structured",
+            event_type="group_table_updated",
+            payload_json={
+                "payload": {
+                    "group_key": "s|g",
+                    "sheet_name": "sheet",
+                    "group_name": "group",
+                    "lines": ["line"],
+                    "lines_plain": ["line_plain"],
+                    "data": {"headers": ["h1"], "rows": [{"v": 1}]},
+                }
+            },
+            payload_hash="7" * 64,
+        )
+        process_online_results_webhook_event(event.id)
+        run.refresh_from_db()
+        latest = run.external_response_json.get("stream_output", {}).get("latest_group_tables", {}).get("s|g", {})
+        self.assertEqual(latest.get("lines_plain"), ["line_plain"])
+        self.assertEqual(latest.get("data", {}).get("headers"), ["h1"])
 
     def test_stop_stream_marks_run_stopped(self):
         run = self._create_run(stream_id="remote-stop")

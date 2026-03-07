@@ -18,6 +18,8 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from api.views import (
+    OnlineResultsCompetitionLiveStateView,
+    OnlineResultsCompetitionLiveView,
     OnlineResultsStreamRunsView,
     OnlineResultsWebhookEventsView,
     OnlineResultsWebhookView,
@@ -46,5 +48,15 @@ urlpatterns = [
         "integrations/online-results/events/",
         OnlineResultsWebhookEventsView.as_view(),
         name="online-results-webhook-events",
+    ),
+    path(
+        "integrations/online-results/live/",
+        OnlineResultsCompetitionLiveView.as_view(),
+        name="online-results-live",
+    ),
+    path(
+        "integrations/online-results/live-state/",
+        OnlineResultsCompetitionLiveStateView.as_view(),
+        name="online-results-live-state",
     ),
 ]

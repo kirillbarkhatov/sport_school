@@ -258,6 +258,7 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
         payload = {}
 
     event_type = event.event_type or str(payload_wrapper.get("event_type") or "")
+    schema_version = int(payload.get("schema_version") or payload_wrapper.get("schema_version") or 1)
     event_time = event.event_time or event.received_at or timezone.now()
     state = _normalize_state(run.external_response_json)
     stream_output = state.setdefault("stream_output", {})
@@ -272,6 +273,7 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
     stream_output["last_event"] = {
         "event_id": event.id,
         "event_type": event_type,
+        "schema_version": schema_version,
         "event_time": event_time.isoformat(),
         "received_at": event.received_at.isoformat() if event.received_at else "",
     }
@@ -294,18 +296,31 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
             if lines:
                 stream_output["last_result_lines"] = lines
                 _log_console_lines(prefix="result_updated", lines=lines)
+            data = payload.get("data")
+            if isinstance(data, dict):
+                stream_output["last_result_data"] = data
         elif event_type == "group_table_updated":
             group_key = str(payload.get("group_key") or "")
             lines = _payload_lines(payload.get("lines"))
-            if group_key and lines:
+            data = payload.get("data")
+            if group_key and (lines or isinstance(data, dict)):
                 tables = stream_output.setdefault("latest_group_tables", {})
                 if isinstance(tables, dict):
                     tables[group_key] = {
                         "sheet_name": str(payload.get("sheet_name") or ""),
                         "group_name": str(payload.get("group_name") or ""),
                         "lines": lines,
+                        "lines_plain": _payload_lines(payload.get("lines_plain")) or lines,
+                        "data": data if isinstance(data, dict) else {},
+                        "is_finalized": bool(
+                            tables.get(group_key, {}).get("is_finalized")
+                            if isinstance(tables.get(group_key), dict)
+                            else False
+                        ),
+                        "last_updated_at": event_time.isoformat(),
                     }
                 _log_console_lines(prefix=f"group_table_updated:{group_key}", lines=lines)
+                stream_output["current_group_key"] = group_key
         elif event_type == "group_completed":
             group_key = str(payload.get("group_key") or "")
             table_lines = _payload_lines(payload.get("table_lines"))
@@ -317,13 +332,44 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                         "sheet_name": str(payload.get("sheet_name") or ""),
                         "group_name": str(payload.get("group_name") or ""),
                         "table_lines": table_lines,
+                        "table_lines_plain": _payload_lines(payload.get("table_lines_plain")) or table_lines,
                         "club_stats_lines": club_stats_lines,
+                        "club_stats_lines_plain": _payload_lines(payload.get("club_stats_lines_plain")) or club_stats_lines,
+                        "data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
+                        "finalized_at": event_time.isoformat(),
+                        "last_updated_at": event_time.isoformat(),
+                        "is_finalized": True,
                     }
+                tables = stream_output.setdefault("latest_group_tables", {})
+                if isinstance(tables, dict):
+                    current = tables.get(group_key, {}) if isinstance(tables.get(group_key), dict) else {}
+                    current.update(
+                        {
+                            "sheet_name": str(payload.get("sheet_name") or current.get("sheet_name") or ""),
+                            "group_name": str(payload.get("group_name") or current.get("group_name") or ""),
+                            "lines": table_lines or current.get("lines") or [],
+                            "lines_plain": _payload_lines(payload.get("table_lines_plain"))
+                            or current.get("lines_plain")
+                            or table_lines,
+                            "data": (
+                                payload.get("data", {}).get("group_table")
+                                if isinstance(payload.get("data"), dict)
+                                else current.get("data", {})
+                            ),
+                            "is_finalized": True,
+                            "finalized_at": event_time.isoformat(),
+                            "last_updated_at": event_time.isoformat(),
+                        }
+                    )
+                    tables[group_key] = current
             _log_console_lines(prefix=f"group_completed:{group_key}:table", lines=table_lines)
             _log_console_lines(prefix=f"group_completed:{group_key}:club", lines=club_stats_lines)
         elif event_type == "overall_completed":
             lines = _payload_lines(payload.get("lines"))
             stream_output["overall_stats_lines"] = lines
+            stream_output["overall_stats_lines_plain"] = _payload_lines(payload.get("lines_plain")) or lines
+            if isinstance(payload.get("data"), dict):
+                stream_output["overall_stats_data"] = payload.get("data")
             _log_console_lines(prefix="overall_completed", lines=lines)
         elif event_type == "kanaev_summary_updated":
             sheet_name = str(payload.get("sheet_name") or "")
@@ -331,7 +377,12 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
             if sheet_name and lines:
                 summaries = stream_output.setdefault("latest_sheet_summaries", {})
                 if isinstance(summaries, dict):
-                    summaries[sheet_name] = lines
+                    summaries[sheet_name] = {
+                        "lines": lines,
+                        "lines_plain": _payload_lines(payload.get("lines_plain")) or lines,
+                        "data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
+                        "last_updated_at": event_time.isoformat(),
+                    }
             _log_console_lines(prefix=f"kanaev_summary_updated:{sheet_name}", lines=lines)
 
     if event_type == "stream_started":

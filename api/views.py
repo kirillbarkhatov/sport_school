@@ -11,7 +11,7 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Max
-from django.http import HttpResponseForbidden
+from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -433,3 +433,106 @@ class OnlineResultsWebhookEventsView(ApprovedUserRequiredMixin, View):
                 "event_type_options": event_type_options,
             },
         )
+
+
+class OnlineResultsCompetitionLiveView(ApprovedUserRequiredMixin, View):
+    template_name = "api/online_results_live.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not _can_manage_online_results(request.user):
+            return HttpResponseForbidden("Недостаточно прав.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        stream_id = (request.GET.get("stream_id") or "").strip()
+        latest_run = StreamRun.objects.order_by("-created_at").first()
+        if not stream_id and latest_run:
+            stream_id = latest_run.stream_id
+        return render(
+            request,
+            self.template_name,
+            {
+                "stream_id": stream_id,
+                "latest_run": latest_run,
+            },
+        )
+
+
+class OnlineResultsCompetitionLiveStateView(ApprovedUserRequiredMixin, View):
+    def dispatch(self, request, *args, **kwargs):
+        if not _can_manage_online_results(request.user):
+            return HttpResponseForbidden("Недостаточно прав.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        stream_id = (request.GET.get("stream_id") or "").strip()
+        if not stream_id:
+            return JsonResponse({"detail": "stream_id is required"}, status=400)
+
+        run = StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at").first()
+        if run is None:
+            return JsonResponse({"detail": "stream not found"}, status=404)
+
+        output = run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
+        if not isinstance(output, dict):
+            output = {}
+
+        completed_groups_raw = output.get("completed_groups", {})
+        completed_items: list[dict[str, object]] = []
+        if isinstance(completed_groups_raw, dict):
+            for key, value in completed_groups_raw.items():
+                if not isinstance(value, dict):
+                    continue
+                completed_items.append(
+                    {
+                        "group_key": key,
+                        "sheet_name": str(value.get("sheet_name") or ""),
+                        "group_name": str(value.get("group_name") or ""),
+                        "is_finalized": bool(value.get("is_finalized", True)),
+                        "last_updated_at": str(value.get("last_updated_at") or value.get("finalized_at") or ""),
+                        "finalized_at": str(value.get("finalized_at") or ""),
+                    }
+                )
+        completed_items.sort(key=lambda item: str(item.get("last_updated_at") or ""), reverse=True)
+
+        group_key = (request.GET.get("group_key") or "").strip()
+        if not group_key:
+            if isinstance(output.get("current_group_key"), str) and output.get("current_group_key"):
+                group_key = str(output.get("current_group_key"))
+            elif completed_items:
+                group_key = str(completed_items[0]["group_key"])
+
+        latest_group_tables = output.get("latest_group_tables", {})
+        selected_group = {}
+        if isinstance(latest_group_tables, dict) and group_key:
+            selected_group = latest_group_tables.get(group_key) if isinstance(latest_group_tables.get(group_key), dict) else {}
+        if (not selected_group) and isinstance(completed_groups_raw, dict) and group_key:
+            selected_group = completed_groups_raw.get(group_key) if isinstance(completed_groups_raw.get(group_key), dict) else {}
+
+        current_group = {}
+        current_group_key = str(output.get("current_group_key") or "")
+        if current_group_key and isinstance(latest_group_tables, dict):
+            maybe = latest_group_tables.get(current_group_key)
+            if isinstance(maybe, dict):
+                current_group = maybe
+
+        payload = {
+            "stream": {
+                "id": run.id,
+                "stream_id": run.stream_id,
+                "status": run.status,
+                "started_at": run.started_at.isoformat() if run.started_at else "",
+                "finished_at": run.finished_at.isoformat() if run.finished_at else "",
+                "last_error": run.last_error,
+            },
+            "selected_group_key": group_key,
+            "current_group_key": current_group_key,
+            "current_group": current_group,
+            "selected_group": selected_group,
+            "completed_groups": completed_items,
+            "overall_stats_lines": output.get("overall_stats_lines_plain") or output.get("overall_stats_lines") or [],
+            "overall_stats_data": output.get("overall_stats_data") if isinstance(output.get("overall_stats_data"), dict) else {},
+            "last_tick": output.get("last_tick") if isinstance(output.get("last_tick"), dict) else {},
+            "last_event": output.get("last_event") if isinstance(output.get("last_event"), dict) else {},
+        }
+        return JsonResponse(payload)

@@ -5,9 +5,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
     <h2 class="mb-0">Online Results: Потоки</h2>
-    <a class="btn btn-outline-secondary" href="{% url 'online-results-webhook-events' %}">
-        Входящие webhook-события
-    </a>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'online-results-live' %}">
+            Текущие соревнования
+        </a>
+        <a class="btn btn-outline-secondary" href="{% url 'online-results-webhook-events' %}">
+            Входящие webhook-события
+        </a>
+    </div>
 </div>
 
 <div class="card mb-4">
