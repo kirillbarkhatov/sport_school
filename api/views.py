@@ -3,13 +3,17 @@ import hmac
 import json
 import logging
 import re
+import secrets
 import uuid
-from urllib.parse import urljoin
+from datetime import datetime, timedelta
+from urllib import error, request
+from urllib.parse import quote, urljoin, urlsplit
 
 from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
+from django.db import IntegrityError
 from django.db.models import Count, Max
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
@@ -25,12 +29,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.forms import StreamRunLaunchForm
-from api.models import StreamRun, WebhookEvent
+from api.models import PublicStreamAccess, StreamRun, WebhookEvent
 from api.tasks import (
     launch_online_results_stream_task,
     process_online_results_webhook_event_task,
     stop_online_results_stream_task,
 )
+from api.services import launch_online_results_stream
 from school.models import Person
 from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
@@ -47,6 +52,7 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 SIGNATURE_PATTERN = re.compile(r"^sha256=[0-9a-f]{64}$")
+PUBLIC_STREAM_LINK_TTL = timedelta(days=2)
 
 
 def _can_manage_online_results(user: User) -> bool:
@@ -63,6 +69,283 @@ def _build_online_results_callback_url(request) -> str:
     if public_base:
         return urljoin(f"{public_base.rstrip('/')}/", callback_path.lstrip("/"))
     return request.build_absolute_uri(callback_path)
+
+
+def _create_public_stream_access(stream_run: StreamRun) -> PublicStreamAccess:
+    PublicStreamAccess.objects.filter(stream_run=stream_run, is_active=True).update(is_active=False)
+    expires_at = timezone.now() + PUBLIC_STREAM_LINK_TTL
+    for _ in range(5):
+        token = secrets.token_urlsafe(24)
+        try:
+            return PublicStreamAccess.objects.create(
+                stream_run=stream_run,
+                token=token,
+                expires_at=expires_at,
+                is_active=True,
+            )
+        except IntegrityError:
+            continue
+    raise RuntimeError("Не удалось сгенерировать токен публичного доступа к трансляции.")
+
+
+def _extract_competition_title_from_athlete_key(athlete_key: object) -> str:
+    if not isinstance(athlete_key, str):
+        return ""
+    parts = [part.strip() for part in athlete_key.split("|")]
+    if len(parts) >= 2 and parts[1]:
+        return parts[1]
+    return ""
+
+
+def _extract_competition_title(stream_output: dict[str, object]) -> str:
+    if not isinstance(stream_output, dict):
+        return ""
+
+    for root_key in ("last_tick", "last_result_data", "last_event"):
+        root = stream_output.get(root_key)
+        if not isinstance(root, dict):
+            continue
+        for updates_key in ("updated_results",):
+            updates = root.get(updates_key)
+            if not isinstance(updates, list):
+                continue
+            for item in updates:
+                if not isinstance(item, dict):
+                    continue
+                title = _extract_competition_title_from_athlete_key(item.get("athlete_key"))
+                if title:
+                    return title
+    return ""
+
+
+def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, object]:
+    output = run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
+    if not isinstance(output, dict):
+        output = {}
+
+    completed_groups_raw = output.get("completed_groups", {})
+    latest_group_tables = output.get("latest_group_tables", {})
+    if not isinstance(completed_groups_raw, dict):
+        completed_groups_raw = {}
+    if not isinstance(latest_group_tables, dict):
+        latest_group_tables = {}
+
+    completed_items: list[dict[str, object]] = []
+    for key, value in completed_groups_raw.items():
+        if not isinstance(value, dict):
+            continue
+        run_stage = int(value.get("run_stage") or 1)
+        group_name = str(value.get("group_name") or "")
+        completed_items.append(
+            {
+                "group_key": key,
+                "base_group_key": str(value.get("group_key") or key),
+                "sheet_name": str(value.get("sheet_name") or ""),
+                "group_name": group_name,
+                "is_finalized": bool(value.get("is_finalized", True)),
+                "last_updated_at": str(value.get("last_updated_at") or value.get("finalized_at") or ""),
+                "finalized_at": str(value.get("finalized_at") or ""),
+                "run_stage": run_stage,
+                "run_label": str(value.get("run_label") or f"заезд {run_stage}"),
+                "option_label": str(value.get("option_label") or f"{group_name} - заезд {run_stage}"),
+            }
+        )
+    completed_items.sort(key=lambda item: str(item.get("last_updated_at") or ""), reverse=True)
+
+    selected_group = {}
+    if group_key:
+        maybe = latest_group_tables.get(group_key)
+        if isinstance(maybe, dict):
+            selected_group = maybe
+        if not selected_group:
+            maybe = completed_groups_raw.get(group_key)
+            if isinstance(maybe, dict):
+                selected_group = maybe
+
+    current_group = {}
+    current_group_key = str(output.get("current_group_key") or "")
+    if current_group_key:
+        maybe = latest_group_tables.get(current_group_key)
+        if isinstance(maybe, dict):
+            current_group = maybe
+
+    teams: set[str] = set()
+    for block in list(latest_group_tables.values()) + list(completed_groups_raw.values()):
+        if not isinstance(block, dict):
+            continue
+        data = block.get("data")
+        if isinstance(data, dict) and isinstance(data.get("group_table"), dict):
+            data = data.get("group_table")
+        rows = data.get("rows") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            club = str(row.get("club") or "").strip()
+            if club:
+                teams.add(club)
+    sorted_teams = sorted(teams, key=str.lower)
+    default_teams = [team for team in sorted_teams if ("канаев" in team.lower()) or ("kanaev" in team.lower())]
+    competition_title = _extract_competition_title(output)
+
+    return {
+        "stream": {
+            "id": run.id,
+            "stream_id": run.stream_id,
+            "status": run.status,
+            "started_at": run.started_at.isoformat() if run.started_at else "",
+            "finished_at": run.finished_at.isoformat() if run.finished_at else "",
+            "last_error": run.last_error,
+        },
+        "selected_group_key": group_key,
+        "current_group_key": current_group_key,
+        "current_group": current_group,
+        "selected_group": selected_group,
+        "completed_groups": completed_items,
+        "overall_stats_lines": output.get("overall_stats_lines_plain") or output.get("overall_stats_lines") or [],
+        "overall_stats_data": output.get("overall_stats_data") if isinstance(output.get("overall_stats_data"), dict) else {},
+        "last_tick": output.get("last_tick") if isinstance(output.get("last_tick"), dict) else {},
+        "last_event": output.get("last_event") if isinstance(output.get("last_event"), dict) else {},
+        "teams": sorted_teams,
+        "default_selected_teams": default_teams,
+        "competition_title": competition_title,
+    }
+
+
+def _last_webhook_received_at(stream_id: str) -> datetime | None:
+    if not stream_id:
+        return None
+    return WebhookEvent.objects.filter(stream_id=stream_id).aggregate(last_at=Max("received_at")).get("last_at")
+
+
+def _build_remote_stream_state_url(stream_id: str) -> str:
+    start_url = str(getattr(settings, "ONLINE_RESULTS_STREAM_START_URL", "") or "").strip()
+    if not start_url or not stream_id:
+        return ""
+    suffix = "/v1/streams"
+    if start_url.endswith(suffix):
+        return f"{start_url}/{quote(stream_id, safe='')}"
+    parsed = urlsplit(start_url)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    path = parsed.path or ""
+    marker = path.find(suffix)
+    if marker < 0:
+        return ""
+    base_path = path[: marker + len(suffix)]
+    return f"{parsed.scheme}://{parsed.netloc}{base_path}/{quote(stream_id, safe='')}"
+
+
+def _probe_online_results_stream_state(stream_id: str) -> dict[str, object]:
+    state_url = _build_remote_stream_state_url(stream_id)
+    if not state_url:
+        return {"ok": False, "reason": "state_url_not_configured"}
+
+    headers = {"Content-Type": "application/json"}
+    auth_token = str(getattr(settings, "ONLINE_RESULTS_STREAM_AUTH_TOKEN", "") or "").strip()
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+
+    req = request.Request(url=state_url, method="GET", headers=headers)
+    timeout_sec = int(getattr(settings, "ONLINE_RESULTS_STREAM_TIMEOUT_SEC", 15))
+    try:
+        with request.urlopen(req, timeout=timeout_sec) as response:  # noqa: S310
+            raw = response.read().decode("utf-8")
+            payload = json.loads(raw) if raw else {}
+            if not isinstance(payload, dict):
+                payload = {}
+            return {
+                "ok": True,
+                "found": True,
+                "status": str(payload.get("status") or "").lower(),
+            }
+    except error.HTTPError as exc:
+        if exc.code == 404:
+            return {"ok": True, "found": False, "status": "not_found"}
+        logger.warning("online_results_state_probe_http_error stream_id=%s code=%s", stream_id, exc.code)
+        return {"ok": False, "reason": f"http_{exc.code}"}
+    except (error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        logger.warning("online_results_state_probe_transport_error stream_id=%s error=%s", stream_id, exc)
+        return {"ok": False, "reason": str(exc)[:200]}
+
+
+def _should_recover_stream(run: StreamRun) -> bool:
+    now = timezone.now()
+    if run.status in {StreamRun.Status.FAILED, StreamRun.Status.STOPPED}:
+        return True
+    if run.status == StreamRun.Status.PENDING:
+        age = (now - run.created_at).total_seconds()
+        return age >= settings.ONLINE_RESULTS_STREAM_PENDING_TIMEOUT_SEC
+    if run.status != StreamRun.Status.RUNNING:
+        return False
+    remote_state = _probe_online_results_stream_state(run.stream_id)
+    if bool(remote_state.get("ok")):
+        if not bool(remote_state.get("found")):
+            return True
+        remote_status = str(remote_state.get("status") or "").lower()
+        if remote_status == "running":
+            return False
+        if remote_status in {"completed", "success"}:
+            return False
+        if remote_status in {"failed", "stopped"}:
+            return True
+    last_event_at = _last_webhook_received_at(run.stream_id) or run.started_at or run.created_at
+    if last_event_at is None:
+        return False
+    silence_sec = (now - last_event_at).total_seconds()
+    return silence_sec >= settings.ONLINE_RESULTS_STREAM_RESUME_STALE_SEC
+
+
+def _create_and_start_recovery_run(
+    source_run: StreamRun,
+    callback_url: str,
+    created_by: User | None,
+) -> StreamRun:
+    stream_run = StreamRun.objects.create(
+        stream_id=f"pending-{uuid.uuid4().hex[:10]}",
+        protocol_link=source_run.protocol_link,
+        stream_type=source_run.stream_type,
+        status=StreamRun.Status.PENDING,
+        launch_payload_json=source_run.launch_payload_json or {},
+        callback_url=callback_url,
+        created_by=created_by if created_by and created_by.is_authenticated else None,
+    )
+    launch_online_results_stream(stream_run.id)
+    stream_run.refresh_from_db()
+    return stream_run
+
+
+def _resolve_or_recover_stream_run(
+    *,
+    request,
+    stream_id: str,
+    allow_recover: bool,
+    created_by: User | None = None,
+) -> StreamRun | None:
+    run = StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at").first()
+    if run is None:
+        return None
+    if not allow_recover:
+        return run
+
+    # If a newer running run for same link already exists, switch to it.
+    if run.protocol_link:
+        newer_running = (
+            StreamRun.objects.filter(protocol_link=run.protocol_link, status=StreamRun.Status.RUNNING)
+            .exclude(id=run.id)
+            .order_by("-created_at")
+            .first()
+        )
+        if newer_running:
+            return newer_running
+
+    if not _should_recover_stream(run):
+        return run
+
+    callback_url = _build_online_results_callback_url(request)
+    recovered = _create_and_start_recovery_run(source_run=run, callback_url=callback_url, created_by=created_by)
+    return recovered
 
 
 class PersonViewSet(viewsets.ModelViewSet):
@@ -301,6 +584,7 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
         page_obj = paginator.get_page(request.GET.get("page"))
 
         stream_ids = [item.stream_id for item in page_obj.object_list if item.stream_id]
+        run_ids = [item.id for item in page_obj.object_list]
         events_map = {
             item["stream_id"]: item
             for item in (
@@ -309,15 +593,33 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                 .annotate(events_count=Count("id"), last_event_received_at=Max("received_at"))
             )
         }
+        public_links_map: dict[int, PublicStreamAccess] = {}
+        public_links_qs = PublicStreamAccess.objects.filter(
+            stream_run_id__in=run_ids,
+            is_active=True,
+            expires_at__gt=timezone.now(),
+        ).order_by("-created_at")
+        for link in public_links_qs:
+            if link.stream_run_id not in public_links_map:
+                public_links_map[link.stream_run_id] = link
 
         runs_payload: list[dict[str, object]] = []
         for run in page_obj.object_list:
             event_stats = events_map.get(run.stream_id, {})
+            public_link = public_links_map.get(run.id)
             runs_payload.append(
                 {
                     "run": run,
                     "events_count": event_stats.get("events_count", 0),
                     "last_event_received_at": event_stats.get("last_event_received_at"),
+                    "public_url": (
+                        request.build_absolute_uri(
+                            reverse("online-results-live-public", kwargs={"token": public_link.token})
+                        )
+                        if public_link
+                        else ""
+                    ),
+                    "public_expires_at": public_link.expires_at if public_link else None,
                 }
             )
 
@@ -373,10 +675,12 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
             callback_url=callback_url,
             created_by=request.user,
         )
+        public_access = _create_public_stream_access(stream_run)
         transaction.on_commit(lambda: launch_online_results_stream_task.delay(stream_run.id))
         messages.success(
             request,
-            "Поток поставлен в очередь на запуск.",
+            f"Поток поставлен в очередь. Публичная ссылка активна до "
+            f"{timezone.localtime(public_access.expires_at).strftime('%d.%m.%Y %H:%M')}.",
         )
         return redirect("online-results-stream-runs")
 
@@ -448,12 +752,21 @@ class OnlineResultsCompetitionLiveView(ApprovedUserRequiredMixin, View):
         latest_run = StreamRun.objects.order_by("-created_at").first()
         if not stream_id and latest_run:
             stream_id = latest_run.stream_id
+        competition_title = ""
+        run_for_title = StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at").first() if stream_id else latest_run
+        if run_for_title:
+            payload = _live_payload_from_run(run=run_for_title)
+            competition_title = str(payload.get("competition_title") or "")
         return render(
             request,
             self.template_name,
             {
                 "stream_id": stream_id,
                 "latest_run": latest_run,
+                "state_url": reverse("online-results-live-state"),
+                "is_public": False,
+                "page_heading": "Online Results: Текущие соревнования",
+                "competition_title": competition_title,
             },
         )
 
@@ -469,70 +782,83 @@ class OnlineResultsCompetitionLiveStateView(ApprovedUserRequiredMixin, View):
         if not stream_id:
             return JsonResponse({"detail": "stream_id is required"}, status=400)
 
-        run = StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at").first()
+        run = _resolve_or_recover_stream_run(
+            request=request,
+            stream_id=stream_id,
+            allow_recover=True,
+            created_by=request.user,
+        )
         if run is None:
             return JsonResponse({"detail": "stream not found"}, status=404)
+        group_key = (request.GET.get("group_key") or "").strip()
+        payload = _live_payload_from_run(run=run, group_key=group_key)
+        payload["resolved_stream_id"] = run.stream_id
+        return JsonResponse(payload)
 
-        output = run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
-        if not isinstance(output, dict):
-            output = {}
 
-        completed_groups_raw = output.get("completed_groups", {})
-        completed_items: list[dict[str, object]] = []
-        if isinstance(completed_groups_raw, dict):
-            for key, value in completed_groups_raw.items():
-                if not isinstance(value, dict):
-                    continue
-                completed_items.append(
-                    {
-                        "group_key": key,
-                        "sheet_name": str(value.get("sheet_name") or ""),
-                        "group_name": str(value.get("group_name") or ""),
-                        "is_finalized": bool(value.get("is_finalized", True)),
-                        "last_updated_at": str(value.get("last_updated_at") or value.get("finalized_at") or ""),
-                        "finalized_at": str(value.get("finalized_at") or ""),
-                    }
-                )
-        completed_items.sort(key=lambda item: str(item.get("last_updated_at") or ""), reverse=True)
+class OnlineResultsCompetitionLivePublicView(View):
+    template_name = "api/online_results_live.html"
+
+    def get(self, request, token: str, *args, **kwargs):
+        access = (
+            PublicStreamAccess.objects.select_related("stream_run")
+            .filter(token=token, is_active=True)
+            .order_by("-created_at")
+            .first()
+        )
+        if access is None:
+            return HttpResponseForbidden("Публичная ссылка не найдена.")
+        if access.is_expired:
+            return HttpResponseForbidden("Срок действия публичной ссылки истек.")
+        payload = _live_payload_from_run(run=access.stream_run)
+        competition_title = str(payload.get("competition_title") or "").strip() or "Текущие соревнования"
+        return render(
+            request,
+            self.template_name,
+            {
+                "stream_id": access.stream_run.stream_id,
+                "latest_run": access.stream_run,
+                "state_url": reverse("online-results-live-public-state", kwargs={"token": token}),
+                "is_public": True,
+                "public_expires_at": access.expires_at,
+                "page_heading": competition_title,
+                "competition_title": competition_title,
+                "hide_navigation": True,
+                "app_brand_title": "Онлайн протокол",
+            },
+        )
+
+
+class OnlineResultsCompetitionLivePublicStateView(View):
+    def get(self, request, token: str, *args, **kwargs):
+        access = (
+            PublicStreamAccess.objects.select_related("stream_run")
+            .filter(token=token, is_active=True)
+            .order_by("-created_at")
+            .first()
+        )
+        if access is None:
+            return JsonResponse({"detail": "public link not found"}, status=404)
+        if access.is_expired:
+            return JsonResponse({"detail": "public link expired"}, status=410)
+
+        run = _resolve_or_recover_stream_run(
+            request=request,
+            stream_id=access.stream_run.stream_id,
+            allow_recover=True,
+            created_by=access.stream_run.created_by,
+        )
+        if run is None:
+            return JsonResponse({"detail": "stream not found"}, status=404)
+        if run.id != access.stream_run_id:
+            access.stream_run = run
+            access.save(update_fields=["stream_run"])
 
         group_key = (request.GET.get("group_key") or "").strip()
-        if not group_key:
-            if isinstance(output.get("current_group_key"), str) and output.get("current_group_key"):
-                group_key = str(output.get("current_group_key"))
-            elif completed_items:
-                group_key = str(completed_items[0]["group_key"])
-
-        latest_group_tables = output.get("latest_group_tables", {})
-        selected_group = {}
-        if isinstance(latest_group_tables, dict) and group_key:
-            selected_group = latest_group_tables.get(group_key) if isinstance(latest_group_tables.get(group_key), dict) else {}
-        if (not selected_group) and isinstance(completed_groups_raw, dict) and group_key:
-            selected_group = completed_groups_raw.get(group_key) if isinstance(completed_groups_raw.get(group_key), dict) else {}
-
-        current_group = {}
-        current_group_key = str(output.get("current_group_key") or "")
-        if current_group_key and isinstance(latest_group_tables, dict):
-            maybe = latest_group_tables.get(current_group_key)
-            if isinstance(maybe, dict):
-                current_group = maybe
-
-        payload = {
-            "stream": {
-                "id": run.id,
-                "stream_id": run.stream_id,
-                "status": run.status,
-                "started_at": run.started_at.isoformat() if run.started_at else "",
-                "finished_at": run.finished_at.isoformat() if run.finished_at else "",
-                "last_error": run.last_error,
-            },
-            "selected_group_key": group_key,
-            "current_group_key": current_group_key,
-            "current_group": current_group,
-            "selected_group": selected_group,
-            "completed_groups": completed_items,
-            "overall_stats_lines": output.get("overall_stats_lines_plain") or output.get("overall_stats_lines") or [],
-            "overall_stats_data": output.get("overall_stats_data") if isinstance(output.get("overall_stats_data"), dict) else {},
-            "last_tick": output.get("last_tick") if isinstance(output.get("last_tick"), dict) else {},
-            "last_event": output.get("last_event") if isinstance(output.get("last_event"), dict) else {},
+        payload = _live_payload_from_run(run=run, group_key=group_key)
+        payload["resolved_stream_id"] = run.stream_id
+        payload["public"] = {
+            "expires_at": access.expires_at.isoformat(),
+            "is_public": True,
         }
         return JsonResponse(payload)

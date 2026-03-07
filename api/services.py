@@ -319,16 +319,66 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                         ),
                         "last_updated_at": event_time.isoformat(),
                     }
+                    # If finalized group is updated later, sync the matching "group+run" snapshot too.
+                    run_stage = _detect_run_stage_from_payload(payload)
+                    completed_key = _build_completed_group_key(group_key=group_key, run_stage=run_stage)
+                    completed_groups = stream_output.setdefault("completed_groups", {})
+                    if isinstance(completed_groups, dict) and isinstance(completed_groups.get(completed_key), dict):
+                        completed_item = completed_groups.get(completed_key, {})
+                        completed_item.update(
+                            {
+                                "sheet_name": str(payload.get("sheet_name") or completed_item.get("sheet_name") or ""),
+                                "group_name": str(payload.get("group_name") or completed_item.get("group_name") or ""),
+                                "table_lines": lines or completed_item.get("table_lines") or [],
+                                "table_lines_plain": _payload_lines(payload.get("lines_plain")) or lines,
+                                "data": data if isinstance(data, dict) else (completed_item.get("data") or {}),
+                                "run_stage": run_stage,
+                                "run_label": f"заезд {run_stage}",
+                                "option_label": f"{str(payload.get('group_name') or completed_item.get('group_name') or '')} - заезд {run_stage}",
+                                "last_updated_at": event_time.isoformat(),
+                            }
+                        )
+                        completed_groups[completed_key] = completed_item
                 _log_console_lines(prefix=f"group_table_updated:{group_key}", lines=lines)
                 stream_output["current_group_key"] = group_key
+                inferred_final_stage = _detect_finalized_run_stage_from_payload(payload)
+                if inferred_final_stage in {1, 2}:
+                    completed_key = _build_completed_group_key(group_key=group_key, run_stage=inferred_final_stage)
+                    completed_groups = stream_output.setdefault("completed_groups", {})
+                    if isinstance(completed_groups, dict):
+                        existing = completed_groups.get(completed_key, {})
+                        if not isinstance(existing, dict):
+                            existing = {}
+                        completed_groups[completed_key] = {
+                            "group_key": group_key,
+                            "sheet_name": str(payload.get("sheet_name") or existing.get("sheet_name") or ""),
+                            "group_name": str(payload.get("group_name") or existing.get("group_name") or ""),
+                            "table_lines": lines or existing.get("table_lines") or [],
+                            "table_lines_plain": _payload_lines(payload.get("lines_plain")) or lines,
+                            "club_stats_lines": existing.get("club_stats_lines") or [],
+                            "club_stats_lines_plain": existing.get("club_stats_lines_plain") or [],
+                            "data": data if isinstance(data, dict) else (existing.get("data") or {}),
+                            "run_stage": inferred_final_stage,
+                            "run_label": f"заезд {inferred_final_stage}",
+                            "option_label": (
+                                f"{str(payload.get('group_name') or existing.get('group_name') or '')} - "
+                                f"заезд {inferred_final_stage}"
+                            ),
+                            "finalized_at": str(existing.get("finalized_at") or event_time.isoformat()),
+                            "last_updated_at": event_time.isoformat(),
+                            "is_finalized": True,
+                        }
         elif event_type == "group_completed":
             group_key = str(payload.get("group_key") or "")
             table_lines = _payload_lines(payload.get("table_lines"))
             club_stats_lines = _payload_lines(payload.get("club_stats_lines"))
             if group_key:
+                run_stage = _detect_run_stage_from_payload(payload)
+                completed_key = _build_completed_group_key(group_key=group_key, run_stage=run_stage)
                 completed_groups = stream_output.setdefault("completed_groups", {})
                 if isinstance(completed_groups, dict):
-                    completed_groups[group_key] = {
+                    completed_groups[completed_key] = {
+                        "group_key": group_key,
                         "sheet_name": str(payload.get("sheet_name") or ""),
                         "group_name": str(payload.get("group_name") or ""),
                         "table_lines": table_lines,
@@ -336,6 +386,9 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                         "club_stats_lines": club_stats_lines,
                         "club_stats_lines_plain": _payload_lines(payload.get("club_stats_lines_plain")) or club_stats_lines,
                         "data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
+                        "run_stage": run_stage,
+                        "run_label": f"заезд {run_stage}",
+                        "option_label": f"{str(payload.get('group_name') or '')} - заезд {run_stage}",
                         "finalized_at": event_time.isoformat(),
                         "last_updated_at": event_time.isoformat(),
                         "is_finalized": True,
@@ -430,6 +483,49 @@ def _payload_lines(value: object) -> list[str]:
         if text:
             lines.append(text)
     return lines[:200]
+
+
+def _detect_run_stage_from_payload(payload: dict[str, object]) -> int:
+    data = payload.get("data")
+    group_table = data.get("group_table") if isinstance(data, dict) else None
+    rows = group_table.get("rows") if isinstance(group_table, dict) else None
+    if not isinstance(rows, list):
+        rows = data.get("rows") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return 1
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        run2 = str(row.get("run2") or "").strip()
+        if run2 and run2 != "-":
+            return 2
+    return 1
+
+
+def _detect_finalized_run_stage_from_payload(payload: dict[str, object]) -> int | None:
+    data = payload.get("data")
+    group_table = data.get("group_table") if isinstance(data, dict) else None
+    rows = group_table.get("rows") if isinstance(group_table, dict) else None
+    if not isinstance(rows, list):
+        rows = data.get("rows") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    def _filled(value: object) -> bool:
+        text = str(value or "").strip()
+        return bool(text) and text != "-"
+
+    run1_values = [_filled(row.get("run1")) for row in rows if isinstance(row, dict)]
+    run2_values = [_filled(row.get("run2")) for row in rows if isinstance(row, dict)]
+    if not run1_values or not all(run1_values):
+        return None
+    if run2_values and any(run2_values) and all(run2_values):
+        return 2
+    return 1
+
+
+def _build_completed_group_key(group_key: str, run_stage: int) -> str:
+    return f"{group_key}|run{run_stage}"
 
 
 def _log_console_lines(prefix: str, lines: list[str]) -> None:

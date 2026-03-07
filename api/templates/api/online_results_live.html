@@ -1,50 +1,213 @@
 {% extends "school/base.html" %}
 
-{% block title %}Online Results: Текущие соревнования{% endblock %}
+{% block title %}{% if page_heading %}{{ page_heading }}{% else %}Online Results: Текущие соревнования{% endif %}{% endblock %}
 
 {% block content %}
+<style>
+  :root {
+    --live-table-bg: var(--bs-body-bg);
+    --live-table-text: var(--bs-body-color);
+    --live-table-border: var(--bs-border-color);
+    --live-table-head-bg: var(--bs-tertiary-bg);
+    --live-highlight-bg: rgba(13, 110, 253, 0.18);
+  }
+  [data-bs-theme="dark"] {
+    --live-table-bg: #1f2630;
+    --live-table-text: #e9ecef;
+    --live-table-border: #3a4554;
+    --live-table-head-bg: #2a3442;
+    --live-highlight-bg: rgba(13, 110, 253, 0.28);
+  }
+  .live-scroll {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+    border: 1px solid var(--live-table-border);
+    border-radius: 0.5rem;
+    background: var(--live-table-bg);
+    color: var(--live-table-text);
+  }
+  .live-viewport {
+    min-width: 100%;
+    transform-origin: top left;
+    padding: 0.5rem;
+  }
+  .live-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--live-table-text);
+    background: var(--live-table-bg);
+  }
+  .live-table th, .live-table td {
+    border: 1px solid var(--live-table-border);
+    padding: 0.25rem 0.4rem;
+    white-space: nowrap;
+    color: var(--live-table-text);
+    background: var(--live-table-bg);
+  }
+  .live-table th {
+    background: var(--live-table-head-bg);
+  }
+  .team-highlight td {
+    background: var(--live-highlight-bg);
+  }
+  .live-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .live-toolbar-inline {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+  .live-toolbar-inline .btn-group {
+    margin-right: 0.5rem;
+  }
+  #current-group-scroll {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+    max-height: 65vh;
+  }
+  #current-group-table > .live-scroll {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  #current-group-table .live-table {
+    min-width: 100%;
+  }
+  #current-group-viewport {
+    padding: 0;
+  }
+  #selected-group-scroll {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+    max-height: 65vh;
+  }
+  #selected-group-table > .live-scroll {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  #selected-group-viewport {
+    padding: 0;
+  }
+  .team-filter-dropdown summary {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 600;
+    padding: 0.5rem 0;
+  }
+  .results-header-line {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+  }
+  .results-title {
+    white-space: nowrap;
+  }
+  .results-select-wrap {
+    flex: 1 1 auto;
+    min-width: 180px;
+  }
+  .results-controls {
+    margin-left: auto;
+  }
+  @media (max-width: 767px) {
+    .live-table {
+      font-size: 0.82rem;
+    }
+  }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
-    <h2 class="mb-0">Online Results: Текущие соревнования</h2>
+    <h2 class="mb-0">{% if page_heading %}{{ page_heading }}{% else %}Online Results: Текущие соревнования{% endif %}</h2>
+    {% if not is_public %}
     <div class="d-flex gap-2">
         <a class="btn btn-outline-secondary" href="{% url 'online-results-stream-runs' %}">Потоки</a>
         <a class="btn btn-outline-secondary" href="{% url 'online-results-webhook-events' %}">Webhook события</a>
     </div>
+    {% endif %}
 </div>
 
+<details class="team-filter-dropdown mb-3">
+  <summary>Подсветка команд</summary>
+  <select id="team-filter" class="form-select" multiple size="6"></select>
+  <div class="form-text">По умолчанию выбираются команды с "Канаев"/"Kanaev".</div>
+</details>
+
+{% if not is_public %}
 <div class="card mb-3">
     <div class="card-body">
         <form method="get" class="row g-2">
-            <div class="col-md-6">
-                <input type="text" class="form-control" name="stream_id" placeholder="stream_id" value="{{ stream_id }}">
+            <div class="col-md-5">
+                <input type="text" class="form-control" name="stream_id" placeholder="stream_id" value="{{ stream_id }}" {% if is_public %}readonly{% endif %}>
             </div>
             <div class="col-md-2">
                 <button type="submit" class="btn btn-outline-primary w-100">Подключить</button>
             </div>
-            <div class="col-md-4 d-flex align-items-center">
+            <div class="col-md-5 d-flex align-items-center">
                 <small class="text-muted" id="live-meta">Ожидание данных...</small>
             </div>
         </form>
     </div>
 </div>
+{% endif %}
 
 <div class="card mb-3">
-    <div class="card-header">1. Текущая группа (live)</div>
-    <div class="card-body">
-        <pre class="mb-0" id="current-group-lines">Нет данных</pre>
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>1. Текущая группа (live)</span>
+      <div class="live-toolbar-inline">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Zoom controls">
+          <button id="zoom-out" class="btn btn-outline-secondary" type="button">-</button>
+          <button id="zoom-reset" class="btn btn-outline-secondary" type="button">fit</button>
+          <button id="zoom-in" class="btn btn-outline-secondary" type="button">+</button>
+        </div>
+        <small class="text-muted" id="zoom-label">100%</small>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      <div id="current-group-scroll">
+        <div class="live-viewport" id="current-group-viewport">
+          <div id="current-group-table"></div>
+          <pre class="mb-0 d-none p-3" id="current-group-fallback"></pre>
+        </div>
+      </div>
     </div>
 </div>
 
 <div class="card mb-3">
-    <div class="card-header">2. Финализированные группы</div>
-    <div class="card-body">
-        <div class="row g-2 mb-3">
-            <div class="col-md-6">
-                <select class="form-select" id="completed-group-select"></select>
-            </div>
+    <div class="card-header">
+      <div class="results-header-line">
+        <span class="results-title">2. Итоги</span>
+        <div class="results-select-wrap">
+          <select class="form-select form-select-sm" id="completed-group-select" aria-label="Группа/заезд"></select>
         </div>
-        <pre class="mb-0" id="selected-group-lines">Нет данных</pre>
-        <hr>
-        <pre class="mb-0" id="selected-group-stats">Нет данных</pre>
+        <div class="live-toolbar-inline results-controls">
+          <div class="btn-group btn-group-sm" role="group" aria-label="Selected zoom controls">
+              <button id="selected-zoom-out" class="btn btn-outline-secondary" type="button">-</button>
+              <button id="selected-zoom-reset" class="btn btn-outline-secondary" type="button">fit</button>
+              <button id="selected-zoom-in" class="btn btn-outline-secondary" type="button">+</button>
+            </div>
+            <small class="text-muted" id="selected-zoom-label">100%</small>
+          </div>
+        </div>
+      </div>
+    <div class="card-body p-0">
+      <div id="selected-group-scroll">
+        <div class="live-viewport" id="selected-group-viewport">
+          <div id="selected-group-table"></div>
+          <pre class="mb-0 p-3" id="selected-group-empty">Выберите группу/заезд...</pre>
+        </div>
+      </div>
     </div>
 </div>
 
@@ -57,91 +220,344 @@
 
 <script>
 (() => {
-  const streamId = "{{ stream_id|escapejs }}";
+  let streamId = "{{ stream_id|escapejs }}";
   if (!streamId) return;
+  const stateUrl = "{{ state_url|escapejs }}";
+  const isPublic = {{ is_public|yesno:"true,false" }};
 
+  const streamInputEl = document.querySelector('input[name="stream_id"]');
   const metaEl = document.getElementById("live-meta");
-  const currentEl = document.getElementById("current-group-lines");
   const selectEl = document.getElementById("completed-group-select");
-  const selectedLinesEl = document.getElementById("selected-group-lines");
-  const selectedStatsEl = document.getElementById("selected-group-stats");
+  const teamSelect = document.getElementById("team-filter");
   const overallEl = document.getElementById("overall-lines");
+  const currentTableEl = document.getElementById("current-group-table");
+  const currentFallbackEl = document.getElementById("current-group-fallback");
+  const currentViewport = document.getElementById("current-group-viewport");
+  const currentScroll = document.getElementById("current-group-scroll");
+  const selectedTableEl = document.getElementById("selected-group-table");
+  const selectedEmptyEl = document.getElementById("selected-group-empty");
+  const selectedViewport = document.getElementById("selected-group-viewport");
+  const selectedScroll = document.getElementById("selected-group-scroll");
+  const zoomLabel = document.getElementById("zoom-label");
+  const selectedZoomLabel = document.getElementById("selected-zoom-label");
 
   let selectedGroupKey = "";
+  let selectedTeams = new Set();
+  let teamOptions = [];
+  let currentScale = 1;
+  let selectedScale = 1;
+  let currentAutoFit = true;
+  let selectedAutoFit = true;
 
   function getLines(block, fallbackField) {
     if (!block || typeof block !== "object") return [];
     if (Array.isArray(block.lines_plain) && block.lines_plain.length) return block.lines_plain;
     if (Array.isArray(block[fallbackField]) && block[fallbackField].length) return block[fallbackField];
     if (block.data && Array.isArray(block.data.lines_plain) && block.data.lines_plain.length) return block.data.lines_plain;
+    if (block.data && block.data.group_table && Array.isArray(block.data.group_table.lines_plain)) return block.data.group_table.lines_plain;
     return [];
+  }
+
+  function getTableData(block) {
+    if (!block || typeof block !== "object") return null;
+    let data = block.data;
+    if (data && typeof data === "object" && data.group_table && typeof data.group_table === "object") {
+      data = data.group_table;
+    }
+    if (!data || typeof data !== "object") return null;
+    if (!Array.isArray(data.headers) || !Array.isArray(data.rows)) return null;
+    return data;
+  }
+
+  function renderTable(container, tableData) {
+    if (!tableData) {
+      container.innerHTML = "";
+      return false;
+    }
+    const headers = tableData.headers || [];
+    const rows = tableData.rows || [];
+    const html = [];
+    html.push('<div class="live-scroll"><table class="live-table"><thead><tr>');
+    headers.forEach((h) => html.push(`<th>${String(h)}</th>`));
+    html.push("</tr></thead><tbody>");
+    const headerKeyMap = {
+      "место": "place",
+      "ст.№": "start_number",
+      "фио": "full_name",
+      "клуб": "club",
+      "1 заезд": "run1",
+      "2 заезд": "run2",
+      "итог": "total",
+      "интервал": "interval",
+    };
+
+    rows.forEach((row) => {
+      const club = String(row.club || "");
+      const rowClass = selectedTeams.size && selectedTeams.has(club) ? "team-highlight" : "";
+      html.push(`<tr class="${rowClass}">`);
+      headers.forEach((header) => {
+        let value = row[header];
+        if (value === undefined) {
+          const key = String(header).toLowerCase().trim();
+          value = row[key];
+          if (value === undefined && headerKeyMap[key]) {
+            value = row[headerKeyMap[key]];
+          }
+        }
+        if (value === undefined && row.analytics && typeof row.analytics === "object") {
+          value = row.analytics[header] ?? row.analytics[String(header).toLowerCase()];
+        }
+        if (value === undefined || value === null || value === "") value = "-";
+        html.push(`<td>${String(value)}</td>`);
+      });
+      html.push("</tr>");
+    });
+    html.push("</tbody></table></div>");
+    container.innerHTML = html.join("");
+    return true;
+  }
+
+  function updateTeamOptions(allTeams, defaults) {
+    const nextOptions = Array.isArray(allTeams) ? allTeams : [];
+    const firstInit = teamOptions.length === 0;
+    teamOptions = nextOptions;
+    teamSelect.innerHTML = "";
+    teamOptions.forEach((team) => {
+      const option = document.createElement("option");
+      option.value = team;
+      option.textContent = team;
+      teamSelect.appendChild(option);
+    });
+
+    const saved = localStorage.getItem(`online_results_selected_teams_${streamId}`);
+    let target = [];
+    if (saved) {
+      try { target = JSON.parse(saved); } catch (_) { target = []; }
+    } else if (firstInit && Array.isArray(defaults)) {
+      target = defaults;
+    }
+    selectedTeams = new Set(target.filter((team) => teamOptions.includes(team)));
+    for (const option of teamSelect.options) {
+      option.selected = selectedTeams.has(option.value);
+    }
+  }
+
+  function persistSelectedTeams() {
+    localStorage.setItem(
+      `online_results_selected_teams_${streamId}`,
+      JSON.stringify(Array.from(selectedTeams))
+    );
+  }
+
+  function fitCurrentViewport() {
+    const table = currentTableEl.querySelector("table");
+    if (!table) {
+      currentScale = 1;
+      currentViewport.style.width = "100%";
+      currentViewport.style.transform = "scale(1)";
+      zoomLabel.textContent = "100%";
+      return;
+    }
+    currentViewport.style.transform = "scale(1)";
+    currentViewport.style.width = "100%";
+    const contentWidth = table.scrollWidth + 16;
+    const availableWidth = currentScroll.clientWidth;
+    currentScale = Math.min(1, availableWidth / Math.max(contentWidth, 1));
+    if (!Number.isFinite(currentScale) || currentScale <= 0) currentScale = 1;
+    currentViewport.style.width = currentScale < 1 ? `${(100 / currentScale).toFixed(2)}%` : "100%";
+    currentViewport.style.transform = `scale(${currentScale})`;
+    zoomLabel.textContent = `${Math.round(currentScale * 100)}%`;
+  }
+
+  function setScale(nextScale) {
+    currentAutoFit = false;
+    currentScale = Math.min(3, Math.max(0.4, nextScale));
+    currentViewport.style.width = currentScale < 1 ? `${(100 / currentScale).toFixed(2)}%` : "100%";
+    currentViewport.style.transform = `scale(${currentScale})`;
+    zoomLabel.textContent = `${Math.round(currentScale * 100)}%`;
+  }
+
+  function fitSelectedViewport() {
+    const table = selectedTableEl.querySelector("table");
+    if (!table) {
+      selectedScale = 1;
+      selectedViewport.style.width = "100%";
+      selectedViewport.style.transform = "scale(1)";
+      selectedZoomLabel.textContent = "100%";
+      return;
+    }
+    selectedViewport.style.transform = "scale(1)";
+    selectedViewport.style.width = "100%";
+    const contentWidth = table.scrollWidth + 16;
+    const availableWidth = selectedScroll.clientWidth;
+    selectedScale = Math.min(1, availableWidth / Math.max(contentWidth, 1));
+    if (!Number.isFinite(selectedScale) || selectedScale <= 0) selectedScale = 1;
+    selectedViewport.style.width = selectedScale < 1 ? `${(100 / selectedScale).toFixed(2)}%` : "100%";
+    selectedViewport.style.transform = `scale(${selectedScale})`;
+    selectedZoomLabel.textContent = `${Math.round(selectedScale * 100)}%`;
+  }
+
+  function setSelectedScale(nextScale) {
+    selectedAutoFit = false;
+    selectedScale = Math.min(3, Math.max(0.4, nextScale));
+    selectedViewport.style.width = selectedScale < 1 ? `${(100 / selectedScale).toFixed(2)}%` : "100%";
+    selectedViewport.style.transform = `scale(${selectedScale})`;
+    selectedZoomLabel.textContent = `${Math.round(selectedScale * 100)}%`;
   }
 
   async function refresh() {
     const params = new URLSearchParams({stream_id: streamId});
     if (selectedGroupKey) params.set("group_key", selectedGroupKey);
-    const resp = await fetch(`{% url 'online-results-live-state' %}?${params.toString()}`, {credentials: "same-origin"});
+    const resp = await fetch(`${stateUrl}?${params.toString()}`, {credentials: "same-origin"});
     if (!resp.ok) {
-      metaEl.textContent = `Ошибка получения состояния: ${resp.status}`;
+      if (metaEl) metaEl.textContent = `Ошибка получения состояния: ${resp.status}`;
       return;
     }
     const data = await resp.json();
+    const resolvedStreamId = String(data.resolved_stream_id || (data.stream || {}).stream_id || "");
+    if (resolvedStreamId && resolvedStreamId !== streamId) {
+      streamId = resolvedStreamId;
+      if (streamInputEl) streamInputEl.value = resolvedStreamId;
+    }
 
     const stream = data.stream || {};
-    metaEl.textContent = `Статус: ${stream.status || "-"} | stream_id: ${stream.stream_id || "-"} | последнее событие: ${(data.last_event || {}).event_type || "-"}`;
+    if (metaEl) {
+      if (isPublic) {
+        metaEl.textContent = `Статус: ${stream.status || "-"} | событие: ${(data.last_event || {}).event_type || "-"}`;
+      } else {
+        metaEl.textContent = `Статус: ${stream.status || "-"} | stream_id: ${stream.stream_id || "-"} | событие: ${(data.last_event || {}).event_type || "-"}`;
+      }
+    }
+
+    updateTeamOptions(data.teams || [], data.default_selected_teams || []);
 
     const currentGroup = data.current_group || {};
-    currentEl.textContent = getLines(currentGroup, "lines").join("\n") || "Нет данных";
+    const currentTableData = getTableData(currentGroup);
+    const hasCurrentTable = renderTable(currentTableEl, currentTableData);
+    if (hasCurrentTable) {
+      currentFallbackEl.classList.add("d-none");
+      currentFallbackEl.textContent = "";
+      if (currentAutoFit) {
+        fitCurrentViewport();
+      } else {
+        currentViewport.style.width = currentScale < 1 ? `${(100 / currentScale).toFixed(2)}%` : "100%";
+        currentViewport.style.transform = `scale(${currentScale})`;
+        zoomLabel.textContent = `${Math.round(currentScale * 100)}%`;
+      }
+    } else {
+      currentTableEl.innerHTML = "";
+      currentFallbackEl.classList.remove("d-none");
+      currentFallbackEl.textContent = getLines(currentGroup, "lines").join("\n") || "Нет данных";
+      if (currentAutoFit) {
+        fitCurrentViewport();
+      } else {
+        currentViewport.style.width = currentScale < 1 ? `${(100 / currentScale).toFixed(2)}%` : "100%";
+        currentViewport.style.transform = `scale(${currentScale})`;
+        zoomLabel.textContent = `${Math.round(currentScale * 100)}%`;
+      }
+    }
 
     const completed = Array.isArray(data.completed_groups) ? data.completed_groups : [];
-    const selectedFromServer = data.selected_group_key || "";
-    if (!selectedGroupKey) selectedGroupKey = selectedFromServer;
-
-    const oldValue = selectEl.value;
+    const old = selectedGroupKey;
     selectEl.innerHTML = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Группа/заезд...";
+    selectEl.appendChild(placeholder);
     if (!completed.length) {
       const opt = document.createElement("option");
       opt.value = "";
-      opt.textContent = "Нет финализированных групп";
+      opt.textContent = "Нет итогов";
       selectEl.appendChild(opt);
+      selectedGroupKey = "";
     } else {
       completed.forEach((item) => {
         const key = item.group_key || "";
         const opt = document.createElement("option");
         opt.value = key;
-        const marker = item.is_finalized ? "финализирована" : "в процессе";
-        opt.textContent = `${item.sheet_name || "-"} -> ${item.group_name || "-"} (${marker})`;
+        opt.textContent = item.option_label || `${item.group_name || "-"} - ${item.run_label || "заезд 1"}`;
         selectEl.appendChild(opt);
       });
-      if (selectedGroupKey && completed.some((item) => item.group_key === selectedGroupKey)) {
-        selectEl.value = selectedGroupKey;
-      } else if (oldValue && completed.some((item) => item.group_key === oldValue)) {
-        selectEl.value = oldValue;
-        selectedGroupKey = oldValue;
+      if (old && completed.some((item) => item.group_key === old)) {
+        selectedGroupKey = old;
+        selectEl.value = old;
       } else {
-        selectEl.value = completed[0].group_key || "";
-        selectedGroupKey = selectEl.value;
+        selectedGroupKey = "";
+        selectEl.value = "";
       }
     }
 
-    const selected = data.selected_group || {};
-    const selectedLines = getLines(selected, "table_lines");
-    selectedLinesEl.textContent = selectedLines.join("\n") || "Нет данных";
-    const selectedStats = getLines(selected, "club_stats_lines");
-    selectedStatsEl.textContent = selectedStats.join("\n") || "Нет данных";
+    if (!selectedGroupKey) {
+      selectedTableEl.innerHTML = "";
+      selectedEmptyEl.classList.remove("d-none");
+      selectedEmptyEl.textContent = "Выберите группу/заезд...";
+      if (selectedAutoFit) {
+        fitSelectedViewport();
+      } else {
+        selectedViewport.style.width = selectedScale < 1 ? `${(100 / selectedScale).toFixed(2)}%` : "100%";
+        selectedViewport.style.transform = `scale(${selectedScale})`;
+        selectedZoomLabel.textContent = `${Math.round(selectedScale * 100)}%`;
+      }
+    } else {
+      const selected = data.selected_group || {};
+      const selectedTableData = getTableData(selected);
+      if (renderTable(selectedTableEl, selectedTableData)) {
+        selectedEmptyEl.classList.add("d-none");
+        if (selectedAutoFit) {
+          fitSelectedViewport();
+        } else {
+          selectedViewport.style.width = selectedScale < 1 ? `${(100 / selectedScale).toFixed(2)}%` : "100%";
+          selectedViewport.style.transform = `scale(${selectedScale})`;
+          selectedZoomLabel.textContent = `${Math.round(selectedScale * 100)}%`;
+        }
+      } else {
+        selectedTableEl.innerHTML = "";
+        selectedEmptyEl.classList.remove("d-none");
+        selectedEmptyEl.textContent = getLines(selected, "table_lines").join("\n") || "Нет данных";
+        if (selectedAutoFit) {
+          fitSelectedViewport();
+        } else {
+          selectedViewport.style.width = selectedScale < 1 ? `${(100 / selectedScale).toFixed(2)}%` : "100%";
+          selectedViewport.style.transform = `scale(${selectedScale})`;
+          selectedZoomLabel.textContent = `${Math.round(selectedScale * 100)}%`;
+        }
+      }
+    }
 
     const overallLines = Array.isArray(data.overall_stats_lines) ? data.overall_stats_lines : [];
     overallEl.textContent = overallLines.join("\n") || "Нет данных";
   }
 
+  teamSelect.addEventListener("change", () => {
+    selectedTeams = new Set(Array.from(teamSelect.selectedOptions).map((opt) => opt.value));
+    persistSelectedTeams();
+    refresh().catch((e) => { if (metaEl) metaEl.textContent = `Ошибка: ${e}`; });
+  });
   selectEl.addEventListener("change", () => {
     selectedGroupKey = selectEl.value;
-    refresh().catch((e) => { metaEl.textContent = `Ошибка: ${e}`; });
+    refresh().catch((e) => { if (metaEl) metaEl.textContent = `Ошибка: ${e}`; });
   });
 
-  refresh().catch((e) => { metaEl.textContent = `Ошибка: ${e}`; });
+  document.getElementById("zoom-in").addEventListener("click", () => setScale(currentScale + 0.1));
+  document.getElementById("zoom-out").addEventListener("click", () => setScale(currentScale - 0.1));
+  document.getElementById("zoom-reset").addEventListener("click", () => {
+    currentAutoFit = true;
+    fitCurrentViewport();
+  });
+  document.getElementById("selected-zoom-in").addEventListener("click", () => setSelectedScale(selectedScale + 0.1));
+  document.getElementById("selected-zoom-out").addEventListener("click", () => setSelectedScale(selectedScale - 0.1));
+  document.getElementById("selected-zoom-reset").addEventListener("click", () => {
+    selectedAutoFit = true;
+    fitSelectedViewport();
+  });
+  window.addEventListener("resize", () => {
+    fitCurrentViewport();
+    fitSelectedViewport();
+  });
+
+  refresh().catch((e) => { if (metaEl) metaEl.textContent = `Ошибка: ${e}`; });
   setInterval(() => {
-    refresh().catch((e) => { metaEl.textContent = `Ошибка: ${e}`; });
+    refresh().catch((e) => { if (metaEl) metaEl.textContent = `Ошибка: ${e}`; });
   }, 3000);
 })();
 </script>

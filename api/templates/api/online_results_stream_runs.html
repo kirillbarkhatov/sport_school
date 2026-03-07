@@ -67,6 +67,7 @@
                     <th>Завершен</th>
                     <th>Событий</th>
                     <th>Последнее событие</th>
+                    <th>Публичная ссылка (48ч)</th>
                     <th></th>
                 </tr>
                 </thead>
@@ -85,6 +86,14 @@
                         <td>{{ item.events_count }}</td>
                         <td>{{ item.last_event_received_at|date:"d.m.Y H:i"|default:"-" }}</td>
                         <td>
+                            {% if item.public_url %}
+                                <div><a href="{{ item.public_url }}" target="_blank" rel="noopener">Открыть</a></div>
+                                <small class="text-muted">до {{ item.public_expires_at|date:"d.m.Y H:i" }}</small>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
                             {% if item.run.status == "running" %}
                                 <form method="post" class="m-0">
                                     {% csrf_token %}
@@ -99,7 +108,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="10" class="text-muted">Запусков пока нет.</td>
+                        <td colspan="11" class="text-muted">Запусков пока нет.</td>
                     </tr>
                 {% endfor %}
                 </tbody>

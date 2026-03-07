@@ -12,7 +12,7 @@ from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from api.models import StreamRun, WebhookEvent
+from api.models import PublicStreamAccess, StreamRun, WebhookEvent
 from api.services import launch_online_results_stream, process_online_results_webhook_event
 from whatsapp.models import WhatsAppChat, WhatsAppChatMember
 
@@ -249,6 +249,144 @@ class OnlineResultsPagesTests(APITestCase):
         data = response.json()
         self.assertEqual(data["stream"]["stream_id"], run.stream_id)
 
+    @override_settings(ONLINE_RESULTS_STREAM_RESUME_STALE_SEC=0)
+    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": False})
+    @patch("api.views.launch_online_results_stream")
+    def test_live_state_recovers_stale_stream_and_returns_resolved_stream_id(self, launch_mock, _probe_mock):
+        run = StreamRun.objects.create(
+            stream_id="stale-stream-id",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            status=StreamRun.Status.RUNNING,
+            started_at=timezone.now() - timedelta(minutes=10),
+            created_by=self.user,
+            launch_payload_json={"poll_interval_sec": 2.0},
+        )
+
+        def _launch_side_effect(run_id):
+            new_run = StreamRun.objects.get(id=run_id)
+            new_run.stream_id = "recovered-stream-id"
+            new_run.status = StreamRun.Status.RUNNING
+            new_run.save(update_fields=["stream_id", "status", "updated_at"])
+
+        launch_mock.side_effect = _launch_side_effect
+        response = self.client.get(reverse("online-results-live-state"), data={"stream_id": run.stream_id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["resolved_stream_id"], "recovered-stream-id")
+        self.assertEqual(payload["stream"]["stream_id"], "recovered-stream-id")
+        self.assertTrue(
+            StreamRun.objects.filter(protocol_link=run.protocol_link, stream_id="recovered-stream-id").exists()
+        )
+
+    @override_settings(ONLINE_RESULTS_STREAM_RESUME_STALE_SEC=0)
+    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"})
+    @patch("api.views.launch_online_results_stream")
+    def test_live_state_does_not_recover_when_remote_stream_is_running(self, launch_mock, _probe_mock):
+        run = StreamRun.objects.create(
+            stream_id="healthy-stream-id",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            status=StreamRun.Status.RUNNING,
+            started_at=timezone.now() - timedelta(minutes=20),
+            created_by=self.user,
+            launch_payload_json={"poll_interval_sec": 2.0},
+        )
+        response = self.client.get(reverse("online-results-live-state"), data={"stream_id": run.stream_id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["resolved_stream_id"], run.stream_id)
+        self.assertEqual(StreamRun.objects.filter(protocol_link=run.protocol_link).count(), 1)
+        launch_mock.assert_not_called()
+
+    def test_public_live_state_returns_payload_without_auth(self):
+        run = StreamRun.objects.create(
+            stream_id="stream-public-live-state",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            external_response_json={"stream_output": {"overall_stats_lines": ["x"]}},
+        )
+        access = PublicStreamAccess.objects.create(
+            stream_run=run,
+            token="public-token-1",
+            expires_at=timezone.now() + timedelta(days=2),
+            is_active=True,
+        )
+        self.client.logout()
+        response = self.client.get(
+            reverse("online-results-live-public-state", kwargs={"token": access.token}),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["stream"]["stream_id"], run.stream_id)
+
+    @override_settings(ONLINE_RESULTS_STREAM_RESUME_STALE_SEC=0)
+    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": False})
+    @patch("api.views.launch_online_results_stream")
+    def test_public_live_state_recovers_and_rebinds_access_link(self, launch_mock, _probe_mock):
+        run = StreamRun.objects.create(
+            stream_id="public-stale-stream",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            status=StreamRun.Status.RUNNING,
+            started_at=timezone.now() - timedelta(minutes=10),
+            external_response_json={"stream_output": {"overall_stats_lines": ["x"]}},
+        )
+        access = PublicStreamAccess.objects.create(
+            stream_run=run,
+            token="public-token-recover",
+            expires_at=timezone.now() + timedelta(days=2),
+            is_active=True,
+        )
+
+        def _launch_side_effect(run_id):
+            new_run = StreamRun.objects.get(id=run_id)
+            new_run.stream_id = "public-recovered-stream"
+            new_run.status = StreamRun.Status.RUNNING
+            new_run.save(update_fields=["stream_id", "status", "updated_at"])
+
+        launch_mock.side_effect = _launch_side_effect
+        self.client.logout()
+        response = self.client.get(
+            reverse("online-results-live-public-state", kwargs={"token": access.token}),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["resolved_stream_id"], "public-recovered-stream")
+        access.refresh_from_db()
+        self.assertEqual(access.stream_run.stream_id, "public-recovered-stream")
+
+    def test_public_live_page_hides_navigation_and_stream_id_block(self):
+        run = StreamRun.objects.create(
+            stream_id="stream-public-live-page",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            external_response_json={
+                "stream_output": {
+                    "last_tick": {
+                        "updated_results": [
+                            {
+                                "athlete_key": "04.03.2026|ТЕСТ-ТЕСТ-ТЕСТ|Лист|Группа|1|ТЕСТ1",
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+        access = PublicStreamAccess.objects.create(
+            stream_run=run,
+            token="public-token-2",
+            expires_at=timezone.now() + timedelta(days=2),
+            is_active=True,
+        )
+        self.client.logout()
+        response = self.client.get(reverse("online-results-live-public", kwargs={"token": access.token}))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(response, "Онлайн протокол")
+        self.assertContains(response, "ТЕСТ-ТЕСТ-ТЕСТ")
+        self.assertNotContains(response, "Центр управления школой")
+        self.assertNotContains(response, '<input type="text" class="form-control" name="stream_id"')
+
     @patch("api.views.launch_online_results_stream_task.delay")
     def test_stream_run_create_from_page(self, delay_mock):
         payload = {
@@ -261,6 +399,7 @@ class OnlineResultsPagesTests(APITestCase):
         run = StreamRun.objects.get()
         self.assertEqual(run.protocol_link, payload["protocol_link"])
         self.assertTrue(run.stream_id.startswith("pending-"))
+        self.assertEqual(PublicStreamAccess.objects.filter(stream_run=run, is_active=True).count(), 1)
         delay_mock.assert_called_once_with(run.id)
 
     @override_settings(ONLINE_RESULTS_WEBHOOK_PUBLIC_BASE_URL="http://host.docker.internal:8000")
@@ -458,6 +597,59 @@ class OnlineResultsServicesTests(APITestCase):
         latest = run.external_response_json.get("stream_output", {}).get("latest_group_tables", {}).get("s|g", {})
         self.assertEqual(latest.get("lines_plain"), ["line_plain"])
         self.assertEqual(latest.get("data", {}).get("headers"), ["h1"])
+
+    def test_group_table_updated_infers_completed_group_for_run1(self):
+        run = self._create_run(stream_id="remote-infer-run1")
+        event = WebhookEvent.objects.create(
+            stream_id="remote-infer-run1",
+            event_type="group_table_updated",
+            payload_json={
+                "payload": {
+                    "group_key": "sheet|group-a",
+                    "sheet_name": "sheet",
+                    "group_name": "group-a",
+                    "lines": ["line"],
+                    "data": {
+                        "rows": [
+                            {"run1": "21.10", "run2": "-", "total": "21.10"},
+                            {"run1": "22.20", "run2": "-", "total": "22.20"},
+                        ]
+                    },
+                }
+            },
+            payload_hash="8" * 64,
+        )
+        process_online_results_webhook_event(event.id)
+        run.refresh_from_db()
+        completed = run.external_response_json.get("stream_output", {}).get("completed_groups", {})
+        self.assertIn("sheet|group-a|run1", completed)
+        self.assertEqual(completed.get("sheet|group-a|run1", {}).get("run_stage"), 1)
+
+    def test_group_table_updated_does_not_infer_completed_run1_when_group_is_in_progress(self):
+        run = self._create_run(stream_id="remote-infer-in-progress")
+        event = WebhookEvent.objects.create(
+            stream_id="remote-infer-in-progress",
+            event_type="group_table_updated",
+            payload_json={
+                "payload": {
+                    "group_key": "sheet|group-b",
+                    "sheet_name": "sheet",
+                    "group_name": "group-b",
+                    "lines": ["line"],
+                    "data": {
+                        "rows": [
+                            {"run1": "21.10", "run2": "-", "total": "21.10"},
+                            {"run1": "-", "run2": "-", "total": "-"},
+                        ]
+                    },
+                }
+            },
+            payload_hash="9" * 64,
+        )
+        process_online_results_webhook_event(event.id)
+        run.refresh_from_db()
+        completed = run.external_response_json.get("stream_output", {}).get("completed_groups", {})
+        self.assertNotIn("sheet|group-b|run1", completed)
 
     def test_stop_stream_marks_run_stopped(self):
         run = self._create_run(stream_id="remote-stop")
