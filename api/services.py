@@ -1,17 +1,30 @@
 import logging
 from json import JSONDecodeError
 import json
+from datetime import datetime
+import sys
+import hashlib
+from contextlib import contextmanager
+from time import perf_counter
 from urllib import error, request
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.cache import cache
+from django.db import connection, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from api.models import StreamRun
+from api.models import StreamRun, extract_source_id
 from api.models import WebhookEvent
+from api.telegram_streaming import SUPPORTED_EVENT_TYPES
+from api.telemetry import log_event
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_source_id(protocol_link: str) -> str:
+    return extract_source_id((protocol_link or "").strip())
 
 
 def process_online_results_webhook_event(event_id: int) -> None:
@@ -22,19 +35,38 @@ def process_online_results_webhook_event(event_id: int) -> None:
     event = WebhookEvent.objects.filter(id=event_id).first()
     if event is None:
         logger.warning("WebhookEvent not found for processing: id=%s", event_id)
+        log_event("webhook_process_missing_event", event_id=event_id)
         return
 
-    run = _find_stream_run_by_stream_id(event.stream_id)
-    if run:
-        _apply_webhook_event_to_stream_run(run=run, event=event)
-        _publish_webhook_event_to_telegram(run=run, event=event)
-    else:
-        logger.warning(
-            "StreamRun not found for webhook event: event_id=%s stream_id=%s event_type=%s",
-            event.id,
-            event.stream_id,
-            event.event_type,
-        )
+    started = perf_counter()
+    log_event(
+        "webhook_process_started",
+        event_id=event.id,
+        stream_id=event.stream_id,
+        event_type=event.event_type,
+    )
+    enqueue_telegram = False
+    with _stream_webhook_processing_lock(event.stream_id):
+        with transaction.atomic():
+            run = _find_stream_run_by_stream_id(event.stream_id)
+            if run:
+                _apply_webhook_event_to_stream_run(run=run, event=event)
+                enqueue_telegram = True
+            else:
+                logger.warning(
+                    "StreamRun not found for webhook event: event_id=%s stream_id=%s event_type=%s",
+                    event.id,
+                    event.stream_id,
+                    event.event_type,
+                )
+                log_event(
+                    "webhook_process_run_missing",
+                    event_id=event.id,
+                    stream_id=event.stream_id,
+                    event_type=event.event_type,
+                )
+    if enqueue_telegram:
+        _enqueue_telegram_publication(event_id=event.id)
 
     logger.info(
         "Processed Online Results webhook event: id=%s stream_id=%s event_type=%s payload_hash=%s",
@@ -42,6 +74,16 @@ def process_online_results_webhook_event(event_id: int) -> None:
         event.stream_id,
         event.event_type,
         event.payload_hash,
+    )
+    run_state = _find_stream_run_by_stream_id(event.stream_id)
+    log_event(
+        "webhook_process_finished",
+        event_id=event.id,
+        stream_id=event.stream_id,
+        event_type=event.event_type,
+        duration_ms=int((perf_counter() - started) * 1000),
+        run_status=(run_state.status if run_state else "missing"),
+        tg_enabled=bool(run_state and run_state.telegram_publish_enabled),
     )
 
 
@@ -51,10 +93,13 @@ def launch_online_results_stream(run_id: int) -> None:
         logger.warning("StreamRun not found for launch: id=%s", run_id)
         return
 
+    if not run.source_id and run.protocol_link:
+        run.source_id = normalize_source_id(run.protocol_link)
     run.status = StreamRun.Status.RUNNING
     run.started_at = timezone.now()
     run.last_error = ""
-    run.save(update_fields=["status", "started_at", "last_error", "updated_at"])
+    run.last_requested_at = timezone.now()
+    run.save(update_fields=["source_id", "status", "started_at", "last_error", "last_requested_at", "updated_at"])
 
     _stop_duplicate_running_streams(current_run=run)
 
@@ -230,11 +275,18 @@ def _build_stop_url(stream_id: str) -> str:
 
 
 def _stop_duplicate_running_streams(current_run: StreamRun) -> None:
-    duplicates = (
-        StreamRun.objects.filter(protocol_link=current_run.protocol_link, status=StreamRun.Status.RUNNING)
-        .exclude(id=current_run.id)
-        .order_by("-created_at")
-    )
+    if current_run.source_id:
+        duplicates = (
+            StreamRun.objects.filter(source_id=current_run.source_id, status=StreamRun.Status.RUNNING)
+            .exclude(id=current_run.id)
+            .order_by("-created_at")
+        )
+    else:
+        duplicates = (
+            StreamRun.objects.filter(protocol_link=current_run.protocol_link, status=StreamRun.Status.RUNNING)
+            .exclude(id=current_run.id)
+            .order_by("-created_at")
+        )
     for duplicate in duplicates:
         logger.info(
             "Stopping duplicate stream before new launch: old_run_id=%s old_stream_id=%s new_run_id=%s",
@@ -253,6 +305,9 @@ def _find_stream_run_by_stream_id(stream_id: str) -> StreamRun | None:
 
 
 def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> None:
+    run = StreamRun.objects.select_for_update().filter(pk=run.pk).first()
+    if run is None:
+        return
     payload_wrapper = event.payload_json if isinstance(event.payload_json, dict) else {}
     payload = payload_wrapper.get("payload")
     if not isinstance(payload, dict):
@@ -385,6 +440,7 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
             data = payload.get("data")
             if isinstance(data, dict):
                 stream_output["last_result_data"] = data
+                stream_output["last_result_event_id"] = event.id
         elif event_type == "group_table_updated":
             group_key = str(payload.get("group_key") or "")
             lines = _payload_lines(payload.get("lines"))
@@ -620,8 +676,192 @@ def _build_completed_group_key(group_key: str, run_stage: int) -> str:
 def _log_console_lines(prefix: str, lines: list[str]) -> None:
     if not lines:
         return
-    for line in lines:
+    max_lines = 6
+    if len(lines) <= max_lines:
+        for line in lines:
+            logger.info("Online Results %s: %s", prefix, line)
+        return
+    for line in lines[:max_lines]:
         logger.info("Online Results %s: %s", prefix, line)
+    logger.info(
+        "Online Results %s: ... skipped %s lines",
+        prefix,
+        len(lines) - max_lines,
+    )
+
+
+def reconcile_online_results_stream_runs() -> None:
+    remote_streams = _fetch_remote_streams()
+    if remote_streams is None:
+        return
+
+    canonical: list[dict[str, object]] = []
+    by_source: dict[str, list[dict[str, object]]] = {}
+    for item in remote_streams:
+        source_id = str(item.get("source_id") or "").strip()
+        if not source_id:
+            continue
+        by_source.setdefault(source_id, []).append(item)
+
+    for source_id, items in by_source.items():
+        items_sorted = sorted(items, key=_remote_stream_sort_key, reverse=True)
+        winner = items_sorted[0]
+        canonical.append(winner)
+        for duplicate in items_sorted[1:]:
+            duplicate_id = str(duplicate.get("stream_id") or "")
+            if duplicate_id:
+                _stop_remote_stream(duplicate_id)
+                logger.info(
+                    "Stopped duplicate remote stream during reconcile: source_id=%s stream_id=%s",
+                    source_id,
+                    duplicate_id,
+                )
+
+    keep_ids: set[int] = set()
+    for item in canonical:
+        stream_id = str(item.get("stream_id") or "").strip()
+        source_id = str(item.get("source_id") or "").strip()
+        if not stream_id or not source_id:
+            continue
+        run = StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at").first()
+        if run is None:
+            run = StreamRun.objects.filter(source_id=source_id).order_by("-created_at").first()
+        if run is None:
+            run = StreamRun.objects.create(
+                stream_id=stream_id,
+                protocol_link=str(item.get("protocol_link") or ""),
+                source_id=source_id,
+                callback_url=_build_callback_url_without_request(),
+            )
+        run.stream_id = stream_id
+        if str(item.get("protocol_link") or "").strip():
+            run.protocol_link = str(item.get("protocol_link") or "").strip()
+        run.source_id = source_id
+        run.status = _map_remote_status_to_local(str(item.get("status") or ""))
+        run.last_requested_at = timezone.now()
+        run.save(
+            update_fields=[
+                "stream_id",
+                "protocol_link",
+                "source_id",
+                "status",
+                "last_requested_at",
+                "updated_at",
+            ]
+        )
+        keep_ids.add(run.id)
+        old_duplicates = StreamRun.objects.filter(source_id=source_id).exclude(id=run.id)
+        old_duplicates.delete()
+
+    if keep_ids:
+        StreamRun.objects.exclude(id__in=keep_ids).delete()
+    else:
+        StreamRun.objects.all().delete()
+
+
+def _fetch_remote_streams() -> list[dict[str, object]] | None:
+    start_url = str(getattr(settings, "ONLINE_RESULTS_STREAM_START_URL", "") or "").strip()
+    if not start_url:
+        return None
+    headers = {"Content-Type": "application/json"}
+    auth_token = str(getattr(settings, "ONLINE_RESULTS_STREAM_AUTH_TOKEN", "") or "").strip()
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    req = request.Request(url=start_url, method="GET", headers=headers)
+    timeout_sec = int(getattr(settings, "ONLINE_RESULTS_STREAM_TIMEOUT_SEC", 15))
+    try:
+        with request.urlopen(req, timeout=timeout_sec) as response:  # noqa: S310
+            raw = response.read().decode("utf-8")
+            payload = json.loads(raw) if raw else []
+            if not isinstance(payload, list):
+                return []
+            normalized: list[dict[str, object]] = []
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                source_id = str(item.get("spreadsheet_id") or "").strip()
+                normalized.append(
+                    {
+                        "stream_id": str(item.get("stream_id") or "").strip(),
+                        "source_id": source_id,
+                        "status": str(item.get("status") or "").strip().lower(),
+                        "started_at": str(item.get("started_at") or "").strip(),
+                        "last_event_at": str(item.get("last_event_at") or "").strip(),
+                    }
+                )
+            return normalized
+    except Exception as exc:
+        logger.warning("Failed to reconcile stream runs from remote list: %s", exc)
+        return None
+
+
+def _build_callback_url_without_request() -> str:
+    public_base = str(getattr(settings, "ONLINE_RESULTS_WEBHOOK_PUBLIC_BASE_URL", "") or "").strip()
+    callback_path = "/integrations/online-results/webhook/"
+    if public_base:
+        return f"{public_base.rstrip('/')}{callback_path}"
+    site_base = str(getattr(settings, "SITE_BASE_URL", "") or "").strip()
+    if site_base:
+        return f"{site_base.rstrip('/')}{callback_path}"
+    return "http://localhost:8000/integrations/online-results/webhook/"
+
+
+def _map_remote_status_to_local(status: str) -> str:
+    status = (status or "").lower()
+    if status == "running":
+        return StreamRun.Status.RUNNING
+    if status == "completed":
+        return StreamRun.Status.SUCCESS
+    if status == "failed":
+        return StreamRun.Status.FAILED
+    if status == "stopped":
+        return StreamRun.Status.STOPPED
+    return StreamRun.Status.PENDING
+
+
+def _remote_stream_sort_key(item: dict[str, object]) -> tuple[int, float]:
+    status = str(item.get("status") or "").lower()
+    status_weight = 1 if status == "running" else 0
+    ts_raw = str(item.get("last_event_at") or item.get("started_at") or "")
+    ts = _parse_remote_ts(ts_raw)
+    return status_weight, ts
+
+
+def _parse_remote_ts(value: str) -> float:
+    text = (value or "").strip()
+    if not text:
+        return 0.0
+    parsed = None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = None
+    if parsed is None:
+        return 0.0
+    try:
+        return float(parsed.timestamp())
+    except (OverflowError, OSError, ValueError):
+        return 0.0
+
+
+def _stop_remote_stream(stream_id: str) -> None:
+    stream_id = (stream_id or "").strip()
+    if not stream_id:
+        return
+    stop_url = _build_stop_url(stream_id)
+    if not stop_url:
+        return
+    headers = {"Content-Type": "application/json"}
+    auth_token = str(getattr(settings, "ONLINE_RESULTS_STREAM_AUTH_TOKEN", "") or "").strip()
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    timeout_sec = int(getattr(settings, "ONLINE_RESULTS_STREAM_TIMEOUT_SEC", 15))
+    req = request.Request(url=stop_url, method="POST", data=b"", headers=headers)
+    try:
+        with request.urlopen(req, timeout=timeout_sec):  # noqa: S310
+            return
+    except Exception:
+        logger.info("Failed to stop remote duplicate stream: stream_id=%s", stream_id)
 
 
 def _publish_webhook_event_to_telegram(run: StreamRun, event: WebhookEvent) -> None:
@@ -638,3 +878,201 @@ def _publish_webhook_event_to_telegram(run: StreamRun, event: WebhookEvent) -> N
             run.stream_id,
             event.id,
         )
+
+
+def _enqueue_telegram_publication(event_id: int) -> None:
+    if "test" in sys.argv:
+        publish_online_results_event_to_telegram(event_id=event_id)
+        return
+    event = WebhookEvent.objects.filter(id=event_id).only("id", "stream_id", "event_type").first()
+    if event is None:
+        log_event("tg_enqueue_skipped", reason="event_missing", event_id=event_id)
+        return
+    if event.event_type not in SUPPORTED_EVENT_TYPES:
+        log_event(
+            "tg_enqueue_skipped",
+            reason="unsupported_event_type",
+            event_id=event.id,
+            event_type=event.event_type,
+            stream_id=event.stream_id,
+        )
+        return
+    stream_id = str(event.stream_id or "").strip()
+    if not stream_id:
+        log_event("tg_enqueue_skipped", reason="empty_stream_id", event_id=event.id)
+        return
+    min_interval_sec = float(getattr(settings, "ONLINE_RESULTS_TELEGRAM_PUBLISH_MIN_INTERVAL_SEC", 2.0))
+    if min_interval_sec < 0.5:
+        min_interval_sec = 0.5
+    cooldown_key = f"online_results:tg_cooldown:{stream_id}"
+    cooldown_ttl = int(min_interval_sec) if min_interval_sec.is_integer() else int(min_interval_sec) + 1
+    if not cache.add(cooldown_key, "1", timeout=max(1, cooldown_ttl)):
+        log_event(
+            "tg_enqueue_skipped",
+            reason="cooldown",
+            event_id=event.id,
+            stream_id=stream_id,
+            interval_sec=min_interval_sec,
+        )
+        return
+    try:
+        from api.tasks import publish_online_results_stream_to_telegram_task
+
+        publish_online_results_stream_to_telegram_task.delay(stream_id)
+        log_event(
+            "tg_enqueue_scheduled",
+            event_id=event.id,
+            stream_id=stream_id,
+            interval_sec=min_interval_sec,
+        )
+    except Exception:
+        logger.exception("Failed to enqueue telegram publication task: event_id=%s", event_id)
+        log_event(
+            "tg_enqueue_failed_fallback_sync",
+            event_id=event_id,
+            stream_id=stream_id,
+        )
+        # Fallback for local/dev when Celery broker is unavailable.
+        publish_online_results_event_to_telegram(event_id=event_id)
+
+
+def publish_online_results_event_to_telegram(event_id: int) -> None:
+    started = perf_counter()
+    event = WebhookEvent.objects.filter(id=event_id).first()
+    if event is None:
+        log_event("tg_publish_event_skipped", reason="event_missing", event_id=event_id)
+        return
+    run = _find_stream_run_by_stream_id(event.stream_id)
+    if run is None:
+        log_event(
+            "tg_publish_event_skipped",
+            reason="run_missing",
+            event_id=event.id,
+            stream_id=event.stream_id,
+        )
+        return
+    if not run.telegram_publish_enabled or run.telegram_channel_id is None:
+        log_event(
+            "tg_publish_event_skipped",
+            reason="tg_disabled_or_channel_missing",
+            event_id=event.id,
+            stream_id=event.stream_id,
+        )
+        return
+    if _has_newer_telegram_relevant_event(event=event):
+        log_event(
+            "tg_publish_event_skipped",
+            reason="newer_relevant_event_exists",
+            event_id=event.id,
+            stream_id=event.stream_id,
+        )
+        return
+    log_event(
+        "tg_publish_event_started",
+        event_id=event.id,
+        stream_id=event.stream_id,
+        event_type=event.event_type,
+    )
+    _publish_webhook_event_to_telegram(run=run, event=event)
+    log_event(
+        "tg_publish_event_finished",
+        event_id=event.id,
+        stream_id=event.stream_id,
+        duration_ms=int((perf_counter() - started) * 1000),
+    )
+
+
+def _has_newer_telegram_relevant_event(event: WebhookEvent) -> bool:
+    return WebhookEvent.objects.filter(
+        stream_id=event.stream_id,
+        id__gt=event.id,
+        event_type__in=sorted(SUPPORTED_EVENT_TYPES),
+    ).exists()
+
+
+def publish_online_results_stream_to_telegram(stream_id: str) -> None:
+    stream_id = (stream_id or "").strip()
+    if not stream_id:
+        return
+    started = perf_counter()
+    advisory_lock_acquired = _acquire_stream_publish_advisory_lock(stream_id)
+    if not advisory_lock_acquired:
+        log_event("tg_publish_stream_skipped", stream_id=stream_id, reason="advisory_lock_busy")
+        return
+    publish_lock_key = f"online_results:tg_publish_lock:{stream_id}"
+    if not cache.add(publish_lock_key, "1", timeout=10):
+        log_event("tg_publish_stream_skipped", stream_id=stream_id, reason="publish_lock_busy")
+        _release_stream_publish_advisory_lock(stream_id)
+        return
+    log_event("tg_publish_stream_started", stream_id=stream_id)
+    try:
+        latest_event = (
+            WebhookEvent.objects.filter(stream_id=stream_id, event_type__in=sorted(SUPPORTED_EVENT_TYPES))
+            .order_by("-id")
+            .first()
+        )
+        if latest_event is None:
+            log_event("tg_publish_stream_finished", stream_id=stream_id, reason="no_relevant_events")
+            return
+        publish_online_results_event_to_telegram(event_id=latest_event.id)
+        log_event(
+            "tg_publish_stream_finished",
+            stream_id=stream_id,
+            latest_event_id=latest_event.id,
+            latest_event_type=latest_event.event_type,
+            duration_ms=int((perf_counter() - started) * 1000),
+        )
+    finally:
+        cache.delete(publish_lock_key)
+        _release_stream_publish_advisory_lock(stream_id)
+
+
+def _acquire_stream_publish_advisory_lock(stream_id: str) -> bool:
+    if connection.vendor != "postgresql":
+        return True
+    lock_key = _stream_publish_lock_key(stream_id)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", [lock_key])
+        row = cursor.fetchone()
+    return bool(row and row[0])
+
+
+def _release_stream_publish_advisory_lock(stream_id: str) -> None:
+    if connection.vendor != "postgresql":
+        return
+    lock_key = _stream_publish_lock_key(stream_id)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_unlock(%s)", [lock_key])
+
+
+def _stream_publish_lock_key(stream_id: str) -> int:
+    digest = hashlib.sha256(stream_id.encode("utf-8")).digest()
+    value = int.from_bytes(digest[:8], byteorder="big", signed=True)
+    if value == 0:
+        return 1
+    return value
+
+
+@contextmanager
+def _stream_webhook_processing_lock(stream_id: str):
+    stream_id = (stream_id or "").strip()
+    if not stream_id or connection.vendor != "postgresql":
+        yield
+        return
+
+    lock_key = _stream_webhook_lock_key(stream_id)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_lock(%s)", [lock_key])
+    try:
+        yield
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [lock_key])
+
+
+def _stream_webhook_lock_key(stream_id: str) -> int:
+    digest = hashlib.sha256(f"webhook:{stream_id}".encode("utf-8")).digest()
+    value = int.from_bytes(digest[:8], byteorder="big", signed=True)
+    if value == 0:
+        return 7
+    return value

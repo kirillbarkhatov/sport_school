@@ -22,6 +22,7 @@ from api.views import (
     OnlineResultsCompetitionLivePublicView,
     OnlineResultsCompetitionLiveStateView,
     OnlineResultsCompetitionLiveView,
+    OnlineResultsCompetitionSoftRefreshView,
     OnlineResultsStreamRunsView,
     OnlineResultsWebhookEventsView,
     OnlineResultsWebhookView,
@@ -60,6 +61,11 @@ urlpatterns = [
         "integrations/online-results/live-state/",
         OnlineResultsCompetitionLiveStateView.as_view(),
         name="online-results-live-state",
+    ),
+    path(
+        "integrations/online-results/soft-refresh/",
+        OnlineResultsCompetitionSoftRefreshView.as_view(),
+        name="online-results-soft-refresh",
     ),
     path(
         "integrations/online-results/live/public/<str:token>/",
