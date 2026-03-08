@@ -27,6 +27,7 @@ def process_online_results_webhook_event(event_id: int) -> None:
     run = _find_stream_run_by_stream_id(event.stream_id)
     if run:
         _apply_webhook_event_to_stream_run(run=run, event=event)
+        _publish_webhook_event_to_telegram(run=run, event=event)
     else:
         logger.warning(
             "StreamRun not found for webhook event: event_id=%s stream_id=%s event_type=%s",
@@ -621,3 +622,19 @@ def _log_console_lines(prefix: str, lines: list[str]) -> None:
         return
     for line in lines:
         logger.info("Online Results %s: %s", prefix, line)
+
+
+def _publish_webhook_event_to_telegram(run: StreamRun, event: WebhookEvent) -> None:
+    if not run.telegram_publish_enabled or run.telegram_channel_id is None:
+        return
+    try:
+        from api.telegram_streaming import publish_stream_event_to_telegram
+
+        publish_stream_event_to_telegram(run=run, event=event)
+    except Exception:
+        logger.exception(
+            "Failed to publish Online Results event to Telegram: run_id=%s stream_id=%s event_id=%s",
+            run.id,
+            run.stream_id,
+            event.id,
+        )
