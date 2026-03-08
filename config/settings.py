@@ -293,6 +293,9 @@ ONLINE_RESULTS_STREAM_PENDING_TIMEOUT_SEC = int(
 ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC = int(
     os.getenv("ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC", "30")
 )
+ONLINE_RESULTS_TELEGRAM_PUBLISH_MIN_INTERVAL_SEC = float(
+    os.getenv("ONLINE_RESULTS_TELEGRAM_PUBLISH_MIN_INTERVAL_SEC", "2.0")
+)
 
 LOGIN_URL = "users:login_page"
 LOGIN_REDIRECT_URL = "school:index"
@@ -326,6 +329,7 @@ try:
 except OSError:
     pass
 DJANGO_LOG_FILE = LOG_DIR / "django.log"
+ONLINE_RESULTS_EVENTS_LOG_FILE = LOG_DIR / "online_results_events.txt"
 
 
 LOGGING = {
@@ -348,6 +352,13 @@ LOGGING = {
             "when": "midnight",
             "backupCount": 7,
         },
+        "online_results_telemetry_file": {
+            "class": "logging.handlers.TimedRotatingFileHandler",
+            "formatter": "standard",
+            "filename": str(ONLINE_RESULTS_EVENTS_LOG_FILE),
+            "when": "midnight",
+            "backupCount": 14,
+        },
     },
     "loggers": {
         "django": {
@@ -362,6 +373,11 @@ LOGGING = {
         },
         "bot.telegram": {
             "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "online_results.telemetry": {
+            "handlers": ["online_results_telemetry_file"],
             "level": "INFO",
             "propagate": False,
         },

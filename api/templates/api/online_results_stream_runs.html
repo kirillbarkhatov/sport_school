@@ -28,22 +28,6 @@
                     <div class="text-danger small mt-1">{{ form.protocol_link.errors|join:", " }}</div>
                 {% endif %}
             </div>
-            <div class="col-md-12">
-                <div class="form-check">
-                    {{ form.telegram_publish_enabled }}
-                    <label class="form-check-label" for="{{ form.telegram_publish_enabled.id_for_label }}">
-                        {{ form.telegram_publish_enabled.label }}
-                    </label>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <label class="form-label" for="{{ form.telegram_channel.id_for_label }}">Канал для публикации</label>
-                {{ form.telegram_channel }}
-                <div class="form-text">{{ form.telegram_channel.help_text }}</div>
-                {% if form.telegram_channel.errors %}
-                    <div class="text-danger small mt-1">{{ form.telegram_channel.errors|join:", " }}</div>
-                {% endif %}
-            </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-primary">Запустить поток</button>
             </div>
@@ -84,7 +68,7 @@
                     <th>Завершен</th>
                     <th>Событий</th>
                     <th>Последнее событие</th>
-                    <th>Действия</th>
+                    <th>Действия / Telegram</th>
                     <th>Подробнее</th>
                 </tr>
                 </thead>
@@ -113,6 +97,28 @@
                                     <a href="{{ item.public_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">Открыть public</a>
                                 {% endif %}
                             </div>
+                            <form method="post" class="d-flex flex-column gap-1 mb-2">
+                                {% csrf_token %}
+                                <input type="hidden" name="run_id" value="{{ item.run.id }}">
+                                <input type="hidden" name="action" value="telegram_enable">
+                                <select name="telegram_channel_id" class="form-select form-select-sm">
+                                    <option value="">Telegram группа/канал</option>
+                                    {% for channel in telegram_channels %}
+                                        <option value="{{ channel.id }}" {% if item.telegram_channel_id == channel.id %}selected{% endif %}>
+                                            {{ channel.title|default:channel.username|default:channel.chat_id }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                    {% if item.run.telegram_publish_enabled %}Обновить TG{% else %}Вкл TG{% endif %}
+                                </button>
+                            </form>
+                            <form method="post" class="m-0 mb-2">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="telegram_disable">
+                                <input type="hidden" name="run_id" value="{{ item.run.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Выкл TG</button>
+                            </form>
                             {% if item.run.status == "running" %}
                                 <form method="post" class="m-0">
                                     {% csrf_token %}
@@ -129,6 +135,8 @@
                                 <summary>Тех. данные</summary>
                                 <div><small class="text-muted">run_id: {{ item.run.id }}</small></div>
                                 <div><small class="text-muted">stream_id: {{ item.run.stream_id|default:"-" }}</small></div>
+                                <div><small class="text-muted">source_id: {{ item.run.source_id|default:"-" }}</small></div>
+                                <div><small class="text-muted">telegram: {% if item.run.telegram_publish_enabled %}on{% else %}off{% endif %}</small></div>
                                 {% if item.run.last_error %}
                                     <div><small class="text-muted">last_error: {{ item.run.last_error|truncatechars:120 }}</small></div>
                                 {% endif %}

@@ -35,7 +35,10 @@ from api.tasks import (
     process_online_results_webhook_event_task,
     stop_online_results_stream_task,
 )
-from api.services import launch_online_results_stream
+from api.services import launch_online_results_stream, normalize_source_id
+from api.telegram_streaming import disable_stream_telegram_publication, enable_stream_telegram_publication
+from api.telemetry import log_event
+from bot.models import TelegramChat, TelegramParticipant
 from school.models import Person
 from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
@@ -53,6 +56,21 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 SIGNATURE_PATTERN = re.compile(r"^sha256=[0-9a-f]{64}$")
 PUBLIC_STREAM_LINK_TTL = timedelta(days=2)
+
+
+def _telegram_channels_queryset():
+    return (
+        TelegramChat.objects.filter(
+            type__in=[TelegramChat.ChatType.CHANNEL, TelegramChat.ChatType.SUPERGROUP],
+            participants__is_bot=True,
+            participants__status__in=[
+                TelegramParticipant.MemberStatus.ADMIN,
+                TelegramParticipant.MemberStatus.CREATOR,
+            ],
+        )
+        .order_by("title", "chat_id")
+        .distinct()
+    )
 
 
 def _can_manage_online_results(user: User) -> bool:
@@ -86,6 +104,21 @@ def _create_public_stream_access(stream_run: StreamRun) -> PublicStreamAccess:
         except IntegrityError:
             continue
     raise RuntimeError("Не удалось сгенерировать токен публичного доступа к трансляции.")
+
+
+def _ensure_active_public_stream_access(stream_run: StreamRun) -> PublicStreamAccess:
+    active = (
+        PublicStreamAccess.objects.filter(
+            stream_run=stream_run,
+            is_active=True,
+            expires_at__gt=timezone.now(),
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if active is not None:
+        return active
+    return _create_public_stream_access(stream_run)
 
 
 def _extract_competition_title_from_athlete_key(athlete_key: object) -> str:
@@ -341,8 +374,8 @@ def _should_recover_stream(run: StreamRun) -> bool:
 
 
 def _find_recent_recovery_candidate(source_run: StreamRun) -> StreamRun | None:
-    protocol_link = str(source_run.protocol_link or "").strip()
-    if not protocol_link:
+    source_id = str(source_run.source_id or "").strip() or normalize_source_id(str(source_run.protocol_link or ""))
+    if not source_id:
         return None
     cooldown_sec = int(getattr(settings, "ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC", 30))
     if cooldown_sec <= 0:
@@ -350,7 +383,7 @@ def _find_recent_recovery_candidate(source_run: StreamRun) -> StreamRun | None:
     cutoff = timezone.now() - timedelta(seconds=cooldown_sec)
     return (
         StreamRun.objects.filter(
-            protocol_link=protocol_link,
+            source_id=source_id,
             status__in=[StreamRun.Status.PENDING, StreamRun.Status.RUNNING],
             created_at__gte=cutoff,
         )
@@ -368,6 +401,7 @@ def _create_and_start_recovery_run(
     stream_run = StreamRun.objects.create(
         stream_id=f"pending-{uuid.uuid4().hex[:10]}",
         protocol_link=source_run.protocol_link,
+        source_id=source_run.source_id or normalize_source_id(source_run.protocol_link),
         stream_type=source_run.stream_type,
         status=StreamRun.Status.PENDING,
         launch_payload_json=source_run.launch_payload_json or {},
@@ -393,9 +427,9 @@ def _resolve_or_recover_stream_run(
         return run
 
     # If a newer running run for same link already exists, switch to it.
-    if run.protocol_link:
+    if run.source_id:
         newer_running = (
-            StreamRun.objects.filter(protocol_link=run.protocol_link, status=StreamRun.Status.RUNNING)
+            StreamRun.objects.filter(source_id=run.source_id, status=StreamRun.Status.RUNNING)
             .exclude(id=run.id)
             .order_by("-created_at")
             .first()
@@ -594,9 +628,22 @@ class OnlineResultsWebhookView(APIView):
                 "Online Results webhook duplicate ignored: payload_hash=%s",
                 payload_hash,
             )
+            log_event(
+                "webhook_duplicate_ignored",
+                payload_hash=payload_hash,
+                stream_id=stream_id,
+                event_type=event_type,
+            )
             return Response(status=status.HTTP_200_OK)
 
         transaction.on_commit(lambda: self._enqueue_processing(event.id))
+        log_event(
+            "webhook_received",
+            event_id=event.id,
+            stream_id=stream_id,
+            event_type=event_type,
+            payload_hash=payload_hash,
+        )
         logger.info(
             "Online Results webhook accepted: event_id=%s stream_id=%s event_type=%s payload_hash=%s",
             event.id,
@@ -621,11 +668,13 @@ class OnlineResultsWebhookView(APIView):
     def _enqueue_processing(event_id: int) -> None:
         try:
             process_online_results_webhook_event_task.delay(event_id)
+            log_event("webhook_processing_enqueued", event_id=event_id)
         except Exception:
             logger.exception(
                 "Online Results webhook enqueue failed: event_id=%s",
                 event_id,
             )
+            log_event("webhook_processing_enqueue_failed", event_id=event_id)
 
 
 class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
@@ -638,10 +687,11 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
 
     def get(self, request, *args, **kwargs):
         form = StreamRunLaunchForm()
+        telegram_channels = list(_telegram_channels_queryset())
         status_filter = (request.GET.get("status") or "").strip()
         stream_filter = (request.GET.get("stream_id") or "").strip()
 
-        queryset = StreamRun.objects.select_related("created_by").order_by("-created_at")
+        queryset = StreamRun.objects.select_related("created_by", "telegram_channel").order_by("-last_requested_at", "-created_at")
         if status_filter:
             queryset = queryset.filter(status=status_filter)
         if stream_filter:
@@ -651,7 +701,6 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
         page_obj = paginator.get_page(request.GET.get("page"))
 
         stream_ids = [item.stream_id for item in page_obj.object_list if item.stream_id]
-        run_ids = [item.id for item in page_obj.object_list]
         events_map = {
             item["stream_id"]: item
             for item in (
@@ -660,20 +709,11 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                 .annotate(events_count=Count("id"), last_event_received_at=Max("received_at"))
             )
         }
-        public_links_map: dict[int, PublicStreamAccess] = {}
-        public_links_qs = PublicStreamAccess.objects.filter(
-            stream_run_id__in=run_ids,
-            is_active=True,
-            expires_at__gt=timezone.now(),
-        ).order_by("-created_at")
-        for link in public_links_qs:
-            if link.stream_run_id not in public_links_map:
-                public_links_map[link.stream_run_id] = link
 
         runs_payload: list[dict[str, object]] = []
         for run in page_obj.object_list:
             event_stats = events_map.get(run.stream_id, {})
-            public_link = public_links_map.get(run.id)
+            public_link = _ensure_active_public_stream_access(run)
             output = run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
             if not isinstance(output, dict):
                 output = {}
@@ -692,6 +732,7 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                         else ""
                     ),
                     "public_expires_at": public_link.expires_at if public_link else None,
+                    "telegram_channel_id": run.telegram_channel_id,
                 }
             )
 
@@ -705,6 +746,7 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                 "status_filter": status_filter,
                 "stream_filter": stream_filter,
                 "status_choices": StreamRun.Status.choices,
+                "telegram_channels": telegram_channels,
             },
         )
 
@@ -732,6 +774,38 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
             )
             messages.success(request, f"Остановка потока {run.stream_id} поставлена в очередь.")
             return redirect("online-results-stream-runs")
+        if action in {"telegram_enable", "telegram_disable"}:
+            run_id_raw = (request.POST.get("run_id") or "").strip()
+            if not run_id_raw.isdigit():
+                messages.error(request, "Некорректный идентификатор потока.")
+                return redirect("online-results-stream-runs")
+            run = StreamRun.objects.filter(id=int(run_id_raw)).first()
+            if run is None:
+                messages.error(request, "Поток не найден.")
+                return redirect("online-results-stream-runs")
+
+            if action == "telegram_disable":
+                try:
+                    disable_stream_telegram_publication(run=run)
+                except Exception:
+                    logger.exception("Failed to disable telegram publication: run_id=%s", run.id)
+                    messages.error(request, "Не удалось отключить Telegram-публикацию.")
+                    return redirect("online-results-stream-runs")
+                messages.success(request, "Telegram-публикация отключена.")
+                return redirect("online-results-stream-runs")
+
+            channel_id_raw = (request.POST.get("telegram_channel_id") or "").strip()
+            if not channel_id_raw.isdigit():
+                messages.error(request, "Выберите Telegram-группу/канал.")
+                return redirect("online-results-stream-runs")
+            try:
+                enable_stream_telegram_publication(run=run, channel_id=int(channel_id_raw))
+            except Exception:
+                logger.exception("Failed to enable telegram publication: run_id=%s", run.id)
+                messages.error(request, "Не удалось включить Telegram-публикацию.")
+                return redirect("online-results-stream-runs")
+            messages.success(request, "Telegram-публикация включена с текущего состояния соревнований.")
+            return redirect("online-results-stream-runs")
 
         form = StreamRunLaunchForm(request.POST)
         if not form.is_valid():
@@ -739,28 +813,55 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
             return redirect("online-results-stream-runs")
 
         protocol_link: str = form.cleaned_data["protocol_link"].strip()
-        telegram_publish_enabled: bool = bool(form.cleaned_data.get("telegram_publish_enabled"))
-        telegram_channel = form.cleaned_data.get("telegram_channel")
+        source_id = normalize_source_id(protocol_link)
         callback_url = _build_online_results_callback_url(request)
+        with transaction.atomic():
+            stream_run = StreamRun.objects.select_for_update().filter(source_id=source_id).first()
+            created = stream_run is None
+            if created:
+                stream_run = StreamRun.objects.create(
+                    stream_id=f"pending-{uuid.uuid4().hex[:10]}",
+                    protocol_link=protocol_link,
+                    source_id=source_id,
+                    callback_url=callback_url,
+                    created_by=request.user,
+                    status=StreamRun.Status.PENDING,
+                    last_requested_at=timezone.now(),
+                )
+                public_access = _create_public_stream_access(stream_run)
+            else:
+                stream_run.protocol_link = protocol_link
+                stream_run.callback_url = callback_url
+                stream_run.last_requested_at = timezone.now()
+                if stream_run.status != StreamRun.Status.RUNNING:
+                    stream_run.status = StreamRun.Status.PENDING
+                stream_run.save(
+                    update_fields=[
+                        "protocol_link",
+                        "callback_url",
+                        "status",
+                        "last_requested_at",
+                        "updated_at",
+                    ]
+                )
+                public_access = (
+                    PublicStreamAccess.objects.filter(stream_run=stream_run, is_active=True, expires_at__gt=timezone.now())
+                    .order_by("-created_at")
+                    .first()
+                )
+                if public_access is None:
+                    public_access = _create_public_stream_access(stream_run)
 
-        stream_run = StreamRun.objects.create(
-            stream_id=f"pending-{uuid.uuid4().hex[:10]}",
-            protocol_link=protocol_link,
-            callback_url=callback_url,
-            created_by=request.user,
-            telegram_publish_enabled=telegram_publish_enabled,
-            telegram_channel=telegram_channel if telegram_publish_enabled else None,
-        )
-        public_access = _create_public_stream_access(stream_run)
-        transaction.on_commit(lambda: launch_online_results_stream_task.delay(stream_run.id))
-        channel_note = ""
-        if telegram_publish_enabled and telegram_channel is not None:
-            channel_title = telegram_channel.title or telegram_channel.username or str(telegram_channel.chat_id)
-            channel_note = f" Публикация в Telegram: {channel_title}."
+        should_launch = stream_run.status != StreamRun.Status.RUNNING or stream_run.stream_id.startswith("pending-")
+        if should_launch:
+            transaction.on_commit(lambda: launch_online_results_stream_task.delay(stream_run.id))
+            launch_note = "Поток поставлен в очередь."
+        else:
+            launch_note = "Поток уже выполняется, строка обновлена."
         messages.success(
             request,
-            f"Поток поставлен в очередь. Публичная ссылка активна до "
-            f"{timezone.localtime(public_access.expires_at).strftime('%d.%m.%Y %H:%M')}.{channel_note}",
+            f"{launch_note} Публичная ссылка активна до "
+            f"{timezone.localtime(public_access.expires_at).strftime('%d.%m.%Y %H:%M')}.",
         )
         return redirect("online-results-stream-runs")
 
@@ -829,7 +930,7 @@ class OnlineResultsCompetitionLiveView(ApprovedUserRequiredMixin, View):
 
     def get(self, request, *args, **kwargs):
         stream_id = (request.GET.get("stream_id") or "").strip()
-        latest_run = StreamRun.objects.order_by("-created_at").first()
+        latest_run = StreamRun.objects.order_by("-last_requested_at", "-created_at").first()
         if not stream_id and latest_run:
             stream_id = latest_run.stream_id
         competition_title = ""
@@ -873,6 +974,34 @@ class OnlineResultsCompetitionLiveStateView(ApprovedUserRequiredMixin, View):
         group_key = (request.GET.get("group_key") or "").strip()
         payload = _live_payload_from_run(run=run, group_key=group_key)
         payload["resolved_stream_id"] = run.stream_id
+        return JsonResponse(payload)
+
+
+class OnlineResultsCompetitionSoftRefreshView(ApprovedUserRequiredMixin, View):
+    http_method_names = ["post"]
+
+    def dispatch(self, request, *args, **kwargs):
+        if not _can_manage_online_results(request.user):
+            return HttpResponseForbidden("Недостаточно прав.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        stream_id = (request.POST.get("stream_id") or request.GET.get("stream_id") or "").strip()
+        if not stream_id:
+            return JsonResponse({"detail": "stream_id is required"}, status=400)
+
+        run = _resolve_or_recover_stream_run(
+            request=request,
+            stream_id=stream_id,
+            allow_recover=True,
+            created_by=request.user,
+        )
+        if run is None:
+            return JsonResponse({"detail": "stream not found"}, status=404)
+
+        payload = _live_payload_from_run(run=run)
+        payload["resolved_stream_id"] = run.stream_id
+        payload["soft_refreshed"] = True
         return JsonResponse(payload)
 
 
