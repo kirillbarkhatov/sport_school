@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 from unittest.mock import MagicMock
 
@@ -14,6 +15,7 @@ from rest_framework.test import APITestCase
 
 from api.models import PublicStreamAccess, StreamRun, WebhookEvent
 from api.services import launch_online_results_stream, process_online_results_webhook_event
+from bot.models import TelegramChat, TelegramParticipant
 from whatsapp.models import WhatsAppChat, WhatsAppChatMember
 
 
@@ -445,6 +447,33 @@ class OnlineResultsPagesTests(APITestCase):
         self.assertEqual(PublicStreamAccess.objects.filter(stream_run=run, is_active=True).count(), 1)
         delay_mock.assert_called_once_with(run.id)
 
+    @patch("api.views.launch_online_results_stream_task.delay")
+    def test_stream_run_create_with_telegram_channel(self, delay_mock):
+        channel = TelegramChat.objects.create(
+            chat_id=-1001234567890,
+            type=TelegramChat.ChatType.CHANNEL,
+            title="Live Results",
+        )
+        TelegramParticipant.objects.create(
+            chat=channel,
+            user_id=777000,
+            is_bot=True,
+            status=TelegramParticipant.MemberStatus.ADMIN,
+        )
+        payload = {
+            "protocol_link": "https://docs.google.com/spreadsheets/d/test",
+            "telegram_publish_enabled": "on",
+            "telegram_channel": str(channel.id),
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(reverse("online-results-stream-runs"), data=payload)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        run = StreamRun.objects.get()
+        self.assertTrue(run.telegram_publish_enabled)
+        self.assertEqual(run.telegram_channel_id, channel.id)
+        delay_mock.assert_called_once_with(run.id)
+
     @override_settings(ONLINE_RESULTS_WEBHOOK_PUBLIC_BASE_URL="http://host.docker.internal:8000")
     @patch("api.views.launch_online_results_stream_task.delay")
     def test_stream_run_create_uses_public_webhook_base_url(self, delay_mock):
@@ -510,6 +539,7 @@ class OnlineResultsPagesTests(APITestCase):
     ONLINE_RESULTS_STREAM_TIMEOUT_SEC=15,
     ONLINE_RESULTS_STREAM_AUTH_TOKEN="",
     ONLINE_RESULTS_WEBHOOK_SECRET="test_secret",
+    BOT_TOKEN="test-token",
     ONLINE_RESULTS_STREAM_POLL_INTERVAL_SEC=1.0,
     ONLINE_RESULTS_STREAM_REFRESH_TITLES_EVERY=120,
     ONLINE_RESULTS_STREAM_FINALIZE_TIMEOUT_SEC=300,
@@ -761,6 +791,234 @@ class OnlineResultsServicesTests(APITestCase):
         output = run.external_response_json.get("stream_output", {})
         self.assertEqual(output.get("competition_phase"), "running")
         self.assertEqual(output.get("start_forecast", {}).get("rows", [])[0].get("athlete_key"), "a1")
+
+    @patch("api.telegram_streaming._send_message")
+    def test_telegram_publication_sends_message_for_new_group(self, send_mock):
+        channel = TelegramChat.objects.create(
+            chat_id=-100222000111,
+            type=TelegramChat.ChatType.CHANNEL,
+            title="Result Channel",
+        )
+        send_mock.return_value = SimpleNamespace(message_id=501)
+        run = self._create_run(stream_id="remote-tg-send")
+        run.telegram_publish_enabled = True
+        run.telegram_channel = channel
+        run.save(update_fields=["telegram_publish_enabled", "telegram_channel", "updated_at"])
+
+        event = WebhookEvent.objects.create(
+            stream_id="remote-tg-send",
+            event_type="group_table_updated",
+            payload_json={
+                "payload": {
+                    "group_key": "sheet|group-1",
+                    "group_name": "group-1",
+                    "data": {
+                        "rows": [
+                            {
+                                "place": 1,
+                                "start_number": 12,
+                                "full_name": "Иванов Иван",
+                                "run1": "20.11",
+                                "run2": "-",
+                                "total": "20.11",
+                                "interval": "+0.00",
+                            }
+                        ]
+                    },
+                }
+            },
+            payload_hash="c" * 63 + "d",
+        )
+        process_online_results_webhook_event(event.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.telegram_active_message_id, 501)
+        self.assertEqual(run.telegram_active_group_key, "sheet|group-1")
+        self.assertEqual(run.telegram_active_run_stage, 1)
+        send_mock.assert_called_once()
+
+    @patch("api.telegram_streaming._send_message")
+    def test_telegram_publication_creates_finisher_post_from_result_updated(self, send_mock):
+        channel = TelegramChat.objects.create(
+            chat_id=-100444000111,
+            type=TelegramChat.ChatType.CHANNEL,
+            title="Result Channel",
+        )
+        send_mock.return_value = SimpleNamespace(message_id=801)
+        run = self._create_run(stream_id="remote-tg-finisher")
+        run.telegram_publish_enabled = True
+        run.telegram_channel = channel
+        run.external_response_json = {
+            "stream_output": {
+                "latest_group_tables": {
+                    "sheet|group-z": {
+                        "data": {
+                            "rows": [
+                                {"athlete_key": "a-key-1", "place": 4},
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        run.save(
+            update_fields=[
+                "telegram_publish_enabled",
+                "telegram_channel",
+                "external_response_json",
+                "updated_at",
+            ]
+        )
+
+        event = WebhookEvent.objects.create(
+            stream_id="remote-tg-finisher",
+            event_type="result_updated",
+            payload_json={
+                "payload": {
+                    "data": {
+                        "updated_results": [
+                            {
+                                "athlete_key": "a-key-1",
+                                "full_name": "Иванов Иван Иванович",
+                                "club": "Канаев",
+                                "run1": "21.11",
+                                "run2": "-",
+                                "total": "21.11",
+                            }
+                        ]
+                    }
+                }
+            },
+            payload_hash="f" * 63 + "1",
+        )
+        process_online_results_webhook_event(event.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.telegram_finisher_message_id, 801)
+        self.assertTrue(run.telegram_finisher_last_hash)
+        send_mock.assert_called_once()
+
+    @patch("api.telegram_streaming._send_message")
+    def test_telegram_publication_keeps_finisher_post_last_when_new_table_created(self, send_mock):
+        channel = TelegramChat.objects.create(
+            chat_id=-100555000111,
+            type=TelegramChat.ChatType.CHANNEL,
+            title="Result Channel",
+        )
+        send_mock.side_effect = [
+            SimpleNamespace(message_id=901),  # initial finisher post
+            SimpleNamespace(message_id=902),  # new table post
+            SimpleNamespace(message_id=903),  # forced new finisher post (must stay last)
+        ]
+        run = self._create_run(stream_id="remote-tg-last-post")
+        run.telegram_publish_enabled = True
+        run.telegram_channel = channel
+        run.external_response_json = {
+            "stream_output": {
+                "latest_group_tables": {
+                    "sheet|group-a": {
+                        "data": {"rows": [{"athlete_key": "ax", "place": 2}]}
+                    }
+                }
+            }
+        }
+        run.save(
+            update_fields=[
+                "telegram_publish_enabled",
+                "telegram_channel",
+                "external_response_json",
+                "updated_at",
+            ]
+        )
+
+        result_event = WebhookEvent.objects.create(
+            stream_id="remote-tg-last-post",
+            event_type="result_updated",
+            payload_json={
+                "payload": {
+                    "data": {
+                        "updated_results": [
+                            {"athlete_key": "ax", "full_name": "Петров Петр", "club": "Клуб", "run1": "20.10", "run2": "-", "total": "20.10"}
+                        ]
+                    }
+                }
+            },
+            payload_hash="f" * 63 + "2",
+        )
+        process_online_results_webhook_event(result_event.id)
+
+        group_event = WebhookEvent.objects.create(
+            stream_id="remote-tg-last-post",
+            event_type="group_table_updated",
+            payload_json={
+                "payload": {
+                    "group_key": "sheet|group-b",
+                    "group_name": "group-b",
+                    "data": {
+                        "rows": [
+                            {"athlete_key": "ax", "place": 1, "start_number": 7, "full_name": "Петров Петр", "run1": "20.10", "run2": "-", "total": "20.10", "interval": "+0.00"}
+                        ]
+                    },
+                }
+            },
+            payload_hash="f" * 63 + "3",
+        )
+        process_online_results_webhook_event(group_event.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.telegram_active_message_id, 902)
+        self.assertEqual(run.telegram_finisher_message_id, 903)
+        self.assertEqual(send_mock.call_count, 3)
+
+    @patch("api.telegram_streaming._send_message")
+    @patch("api.telegram_streaming._edit_message")
+    def test_telegram_publication_edits_active_message_for_same_group(self, edit_mock, send_mock):
+        channel = TelegramChat.objects.create(
+            chat_id=-100333000111,
+            type=TelegramChat.ChatType.CHANNEL,
+            title="Result Channel",
+        )
+        send_mock.return_value = SimpleNamespace(message_id=700)
+        run = self._create_run(stream_id="remote-tg-edit")
+        run.telegram_publish_enabled = True
+        run.telegram_channel = channel
+        run.save(update_fields=["telegram_publish_enabled", "telegram_channel", "updated_at"])
+
+        first_event = WebhookEvent.objects.create(
+            stream_id="remote-tg-edit",
+            event_type="group_table_updated",
+            payload_json={
+                "payload": {
+                    "group_key": "sheet|group-x",
+                    "group_name": "group-x",
+                    "data": {"rows": [{"place": 1, "start_number": 11, "full_name": "Петров Петр", "run1": "22.11", "run2": "-", "total": "22.11", "interval": "+0.00"}]},
+                }
+            },
+            payload_hash="d" * 63 + "e",
+        )
+        process_online_results_webhook_event(first_event.id)
+        run.refresh_from_db()
+
+        second_event = WebhookEvent.objects.create(
+            stream_id="remote-tg-edit",
+            event_type="group_table_updated",
+            payload_json={
+                "payload": {
+                    "group_key": "sheet|group-x",
+                    "group_name": "group-x",
+                    "data": {"rows": [{"place": 1, "start_number": 11, "full_name": "Петров Петр", "run1": "21.95", "run2": "-", "total": "21.95", "interval": "+0.00"}]},
+                }
+            },
+            payload_hash="e" * 63 + "f",
+        )
+        process_online_results_webhook_event(second_event.id)
+        run.refresh_from_db()
+
+        self.assertEqual(run.telegram_active_message_id, 700)
+        self.assertEqual(run.telegram_active_group_key, "sheet|group-x")
+        self.assertEqual(run.telegram_active_run_stage, 1)
+        self.assertEqual(send_mock.call_count, 1)
+        edit_mock.assert_called_once()
 
     def test_stop_stream_marks_run_stopped(self):
         run = self._create_run(stream_id="remote-stop")

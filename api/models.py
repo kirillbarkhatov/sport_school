@@ -48,6 +48,21 @@ class StreamRun(models.Model):
         blank=True,
         related_name="online_results_stream_runs",
     )
+    telegram_publish_enabled = models.BooleanField(default=False, db_index=True)
+    telegram_channel = models.ForeignKey(
+        "bot.TelegramChat",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="online_results_stream_runs",
+    )
+    telegram_active_message_id = models.BigIntegerField(null=True, blank=True)
+    telegram_active_group_key = models.CharField(max_length=255, blank=True, default="")
+    telegram_active_run_stage = models.PositiveSmallIntegerField(null=True, blank=True)
+    telegram_last_message_hash = models.CharField(max_length=64, blank=True, default="")
+    telegram_finisher_message_id = models.BigIntegerField(null=True, blank=True)
+    telegram_finisher_last_hash = models.CharField(max_length=64, blank=True, default="")
+    telegram_last_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 

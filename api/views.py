@@ -739,6 +739,8 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
             return redirect("online-results-stream-runs")
 
         protocol_link: str = form.cleaned_data["protocol_link"].strip()
+        telegram_publish_enabled: bool = bool(form.cleaned_data.get("telegram_publish_enabled"))
+        telegram_channel = form.cleaned_data.get("telegram_channel")
         callback_url = _build_online_results_callback_url(request)
 
         stream_run = StreamRun.objects.create(
@@ -746,13 +748,19 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
             protocol_link=protocol_link,
             callback_url=callback_url,
             created_by=request.user,
+            telegram_publish_enabled=telegram_publish_enabled,
+            telegram_channel=telegram_channel if telegram_publish_enabled else None,
         )
         public_access = _create_public_stream_access(stream_run)
         transaction.on_commit(lambda: launch_online_results_stream_task.delay(stream_run.id))
+        channel_note = ""
+        if telegram_publish_enabled and telegram_channel is not None:
+            channel_title = telegram_channel.title or telegram_channel.username or str(telegram_channel.chat_id)
+            channel_note = f" Публикация в Telegram: {channel_title}."
         messages.success(
             request,
             f"Поток поставлен в очередь. Публичная ссылка активна до "
-            f"{timezone.localtime(public_access.expires_at).strftime('%d.%m.%Y %H:%M')}.",
+            f"{timezone.localtime(public_access.expires_at).strftime('%d.%m.%Y %H:%M')}.{channel_note}",
         )
         return redirect("online-results-stream-runs")
 

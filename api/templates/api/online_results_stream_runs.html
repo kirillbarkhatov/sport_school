@@ -24,6 +24,25 @@
                 <label class="form-label" for="{{ form.protocol_link.id_for_label }}">Ссылка на онлайн-результаты</label>
                 {{ form.protocol_link }}
                 <div class="form-text">Остальные параметры запуска будут переданы во внешний сервис автоматически.</div>
+                {% if form.protocol_link.errors %}
+                    <div class="text-danger small mt-1">{{ form.protocol_link.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+            <div class="col-md-12">
+                <div class="form-check">
+                    {{ form.telegram_publish_enabled }}
+                    <label class="form-check-label" for="{{ form.telegram_publish_enabled.id_for_label }}">
+                        {{ form.telegram_publish_enabled.label }}
+                    </label>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="{{ form.telegram_channel.id_for_label }}">Канал для публикации</label>
+                {{ form.telegram_channel }}
+                <div class="form-text">{{ form.telegram_channel.help_text }}</div>
+                {% if form.telegram_channel.errors %}
+                    <div class="text-danger small mt-1">{{ form.telegram_channel.errors|join:", " }}</div>
+                {% endif %}
             </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-primary">Запустить поток</button>
