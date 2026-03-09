@@ -228,7 +228,8 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
                 selected_group = maybe
 
     current_group = {}
-    current_group_key = str(output.get("current_group_key") or "")
+    focus_state = output.get("focus_state") if isinstance(output.get("focus_state"), dict) else {}
+    current_group_key = str(focus_state.get("group_key") or output.get("current_group_key") or "")
     if current_group_key:
         maybe = latest_group_tables.get(current_group_key)
         if isinstance(maybe, dict):
