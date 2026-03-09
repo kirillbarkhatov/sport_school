@@ -1131,12 +1131,13 @@ def _run1_snapshot_sort_key(row: dict[str, object]) -> tuple[int, int, int]:
     run1_text = str(row.get("run1") or "-").strip().upper()
     run1_seconds = _parse_display_time_to_seconds(run1_text)
     start_number = _safe_int(row.get("start_number"), 0)
-    if run1_seconds is not None:
-        return (0, int(round(run1_seconds * 1000.0)), start_number)
 
     note_text = str(row.get("judge_note") or "").strip().upper()
     if note_text and note_text not in {"DNS", "DNF", "DSQ"}:
         return (1, int(zlib.crc32(note_text.encode("utf-8"))), start_number)
+
+    if run1_seconds is not None:
+        return (0, int(round(run1_seconds * 1000.0)), start_number)
 
     status_value = str(row.get("total") or row.get("run1") or "").strip().upper()
     if status_value in {"DNS", "DNF", "DSQ"}:

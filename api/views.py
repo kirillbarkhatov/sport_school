@@ -35,7 +35,12 @@ from api.tasks import (
     process_online_results_webhook_event_task,
     stop_online_results_stream_task,
 )
-from api.services import launch_online_results_stream, normalize_source_id, reset_online_results_stream_state
+from api.services import (
+    _build_run1_group_table_snapshot,
+    launch_online_results_stream,
+    normalize_source_id,
+    reset_online_results_stream_state,
+)
 from api.telegram_streaming import disable_stream_telegram_publication, enable_stream_telegram_publication
 from api.telemetry import log_event
 from bot.models import TelegramChat, TelegramParticipant
@@ -151,6 +156,29 @@ def _extract_competition_title(stream_output: dict[str, object]) -> str:
     return ""
 
 
+def _normalize_run1_selected_group_block(block: dict[str, object]) -> dict[str, object]:
+    if not isinstance(block, dict):
+        return {}
+    run_stage = int(block.get("run_stage") or 0)
+    if run_stage != 1:
+        return block
+    data = block.get("data")
+    if not isinstance(data, dict):
+        return block
+    normalized = _build_run1_group_table_snapshot(data)
+    if not isinstance(normalized, dict) or not normalized:
+        return block
+    result = dict(block)
+    result["data"] = {"group_table": normalized}
+    lines_plain = normalized.get("lines_plain")
+    if isinstance(lines_plain, list):
+        normalized_lines = [str(item) for item in lines_plain if str(item).strip()]
+        if normalized_lines:
+            result["table_lines_plain"] = normalized_lines
+            result["table_lines"] = normalized_lines
+    return result
+
+
 def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, object]:
     output = run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
     if not isinstance(output, dict):
@@ -225,7 +253,7 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
         if not selected_group:
             maybe = completed_groups_raw.get(group_key)
             if isinstance(maybe, dict):
-                selected_group = maybe
+                selected_group = _normalize_run1_selected_group_block(maybe)
 
     current_group = {}
     focus_state = output.get("focus_state") if isinstance(output.get("focus_state"), dict) else {}
