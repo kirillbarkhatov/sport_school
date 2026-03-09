@@ -252,6 +252,36 @@ class OnlineResultsPagesTests(APITestCase):
         data = response.json()
         self.assertEqual(data["stream"]["stream_id"], run.stream_id)
 
+    def test_live_state_includes_completed_group_table_data(self):
+        run = StreamRun.objects.create(
+            stream_id="stream-live-completed-data",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            external_response_json={
+                "stream_output": {
+                    "completed_groups": {
+                        "sheet|group-a|run2": {
+                            "group_key": "sheet|group-a",
+                            "sheet_name": "sheet",
+                            "group_name": "group-a",
+                            "run_stage": 2,
+                            "data": {"headers": ["Ст.№"], "rows": [{"start_number": 1}]},
+                            "table_lines_plain": ["line 1"],
+                        }
+                    }
+                }
+            },
+        )
+        response = self.client.get(
+            reverse("online-results-live-state"),
+            data={"stream_id": run.stream_id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["completed_groups"][0]["run_stage"], 2)
+        self.assertEqual(payload["completed_groups"][0]["data"]["headers"], ["Ст.№"])
+        self.assertEqual(payload["completed_groups"][0]["table_lines"], ["line 1"])
+
     @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"})
     def test_soft_refresh_endpoint_returns_payload(self, _probe_mock):
         run = StreamRun.objects.create(
