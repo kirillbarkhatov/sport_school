@@ -213,6 +213,8 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
                 "run_stage": run_stage,
                 "run_label": run_label,
                 "option_label": option_label,
+                "table_lines": value.get("table_lines_plain") or value.get("table_lines") or [],
+                "data": value.get("data") if isinstance(value.get("data"), dict) else {},
             }
         )
     completed_items.sort(
