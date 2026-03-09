@@ -218,7 +218,7 @@
 <div class="card mb-3" id="stream-connect-card">
     <div class="card-body">
         <form method="get" class="row g-2">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <input type="text" class="form-control" name="stream_id" placeholder="stream_id" value="{{ stream_id }}" {% if is_public %}readonly{% endif %}>
             </div>
             <div class="col-md-2">
@@ -227,7 +227,10 @@
             <div class="col-md-2">
                 <button id="soft-refresh-btn" type="button" class="btn btn-outline-secondary w-100">Мягкий refresh</button>
             </div>
-            <div class="col-md-4 d-flex align-items-center">
+            <div class="col-md-2">
+                <button id="hard-refresh-btn" type="button" class="btn btn-outline-danger w-100">Сбросить и переподключить</button>
+            </div>
+            <div class="col-md-3 d-flex align-items-center">
                 <small class="text-muted" id="live-meta">Ожидание данных...</small>
             </div>
         </form>
@@ -322,6 +325,7 @@
   if (!streamId) return;
   const stateUrl = "{{ state_url|escapejs }}";
   const softRefreshUrl = "{% if not is_public %}{% url 'online-results-soft-refresh' %}{% else %}{% endif %}";
+  const hardRefreshUrl = "{% if not is_public %}{% url 'online-results-hard-refresh' %}{% else %}{% endif %}";
   const isPublic = {{ is_public|yesno:"true,false" }};
 
   const streamInputEl = document.querySelector('input[name="stream_id"]');
@@ -358,6 +362,7 @@
   const groupsBrowserNextBtn = document.getElementById("groups-browser-next");
   const openGroupsBrowserBtn = document.getElementById("open-groups-browser");
   const softRefreshBtn = document.getElementById("soft-refresh-btn");
+  const hardRefreshBtn = document.getElementById("hard-refresh-btn");
 
   let selectedGroupKey = "";
   let selectedTeams = new Set();
@@ -808,6 +813,7 @@
 
     const overallLines = Array.isArray(data.overall_stats_lines) ? data.overall_stats_lines : [];
     const competitionPhase = String(data.competition_phase || "");
+    const competitionFormat = String(data.competition_format || "two_run");
     const hasOverallData = overallLines.length > 0;
     const isCompletedPhase = competitionPhase === "completed" || (stream.status === "success" && hasOverallData);
     const forecastRowsRaw = (((data.start_forecast || {}).rows) || []);
@@ -836,7 +842,7 @@
             "ст.№": String(item.start_number || "-"),
             "ФИО": String(item.full_name || "-"),
             "клуб": String(item.club || "-"),
-            "Заезд": String(item.run_number || "-"),
+            "Заезд": competitionFormat === "single_run" ? "1" : String(item.run_number || "-"),
             "Прогноз (МСК)": formatMoscowTime(item.eta),
           })),
         };
@@ -900,6 +906,42 @@
       await refresh();
     } catch (error) {
       if (metaEl) metaEl.textContent = `Soft refresh ошибка: ${error}`;
+    } finally {
+      softRefreshInFlight = false;
+    }
+  }
+
+  async function triggerHardRefresh() {
+    if (!hardRefreshUrl || isPublic || softRefreshInFlight) return;
+    const confirmed = window.confirm("Очистить кэш и результаты и переподключить поток?");
+    if (!confirmed) return;
+    softRefreshInFlight = true;
+    try {
+      const body = new URLSearchParams({stream_id: streamId});
+      const resp = await fetch(hardRefreshUrl, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": getCsrfToken(),
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        body,
+      });
+      if (!resp.ok) {
+        if (metaEl) metaEl.textContent = `Сервисный сброс не выполнен (${resp.status})`;
+        return;
+      }
+      const data = await resp.json();
+      const resolvedStreamId = String(data.resolved_stream_id || "");
+      if (resolvedStreamId) {
+        streamId = resolvedStreamId;
+        if (streamInputEl) streamInputEl.value = resolvedStreamId;
+      }
+      if (metaEl) metaEl.textContent = "Сброс выполнен, поток переподключен";
+      await refresh();
+    } catch (error) {
+      if (metaEl) metaEl.textContent = `Сервисный сброс ошибка: ${error}`;
     } finally {
       softRefreshInFlight = false;
     }
@@ -993,6 +1035,11 @@
     softRefreshBtn.addEventListener("click", () => {
       lastSoftRefreshAt = Date.now();
       triggerSoftRefresh("manual").catch(() => {});
+    });
+  }
+  if (hardRefreshBtn) {
+    hardRefreshBtn.addEventListener("click", () => {
+      triggerHardRefresh().catch(() => {});
     });
   }
   setInterval(() => {

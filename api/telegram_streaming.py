@@ -102,6 +102,8 @@ def publish_stream_event_to_telegram(run: StreamRun, event: WebhookEvent) -> Non
 
     if event_type in FINISHER_EVENT_TYPES:
         finisher_payload = _build_finisher_payload(run=run)
+        if finisher_payload is None and _is_upcoming_phase(run=run):
+            finisher_payload = _upcoming_finisher_payload()
         if finisher_payload is None and table_created_new:
             finisher_payload = _placeholder_finisher_payload()
         if finisher_payload is not None:
@@ -558,6 +560,12 @@ def _placeholder_finisher_payload() -> FinisherPayload:
     return FinisherPayload(message_text=message_text, message_hash=message_hash)
 
 
+def _upcoming_finisher_payload() -> FinisherPayload:
+    message_text = "Соревнование скоро начнется"
+    message_hash = hashlib.sha256(message_text.encode("utf-8")).hexdigest()
+    return FinisherPayload(message_text=message_text, message_hash=message_hash)
+
+
 def _publish_finisher_message(
     *,
     run: StreamRun,
@@ -794,13 +802,19 @@ def _publish_bootstrap_state(*, run: StreamRun) -> None:
     stream_output = run.external_response_json.get("stream_output") if isinstance(run.external_response_json, dict) else {}
     if not isinstance(stream_output, dict):
         stream_output = {}
-    table_payload = _build_bootstrap_group_table_payload(stream_output=stream_output)
+    upcoming_phase = str(stream_output.get("competition_phase") or "").strip().lower() == "upcoming"
+    table_payload = _build_bootstrap_group_table_payload(stream_output=stream_output) if not upcoming_phase else None
     bot = Bot(token=settings.BOT_TOKEN)
     created_any = False
     if table_payload is not None:
         created_any = _publish_table_message(run=run, bot=bot, table_payload=table_payload) or created_any
-    finisher_payload = _placeholder_finisher_payload()
-    created_any = _publish_finisher_message(run=run, bot=bot, finisher_payload=finisher_payload) or created_any
+    finisher_payload: FinisherPayload | None
+    if upcoming_phase:
+        finisher_payload = _upcoming_finisher_payload()
+    else:
+        finisher_payload = _build_finisher_payload(run=run) or _placeholder_finisher_payload()
+    if finisher_payload is not None:
+        created_any = _publish_finisher_message(run=run, bot=bot, finisher_payload=finisher_payload) or created_any
     link_payload = _build_link_payload(run=run)
     if link_payload is not None:
         _publish_link_message(run=run, bot=bot, link_payload=link_payload, force_new=created_any)
@@ -845,3 +859,12 @@ def _build_bootstrap_group_table_payload(*, stream_output: dict[str, object]) ->
         if table_payload is not None:
             return table_payload
     return None
+
+
+def _is_upcoming_phase(*, run: StreamRun) -> bool:
+    if not isinstance(run.external_response_json, dict):
+        return False
+    stream_output = run.external_response_json.get("stream_output")
+    if not isinstance(stream_output, dict):
+        return False
+    return str(stream_output.get("competition_phase") or "").strip().lower() == "upcoming"

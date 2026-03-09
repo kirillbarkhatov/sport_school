@@ -18,6 +18,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from api.views import (
+    OnlineResultsCompetitionHardRefreshView,
     OnlineResultsCompetitionLivePublicStateView,
     OnlineResultsCompetitionLivePublicView,
     OnlineResultsCompetitionLiveStateView,
@@ -66,6 +67,11 @@ urlpatterns = [
         "integrations/online-results/soft-refresh/",
         OnlineResultsCompetitionSoftRefreshView.as_view(),
         name="online-results-soft-refresh",
+    ),
+    path(
+        "integrations/online-results/hard-refresh/",
+        OnlineResultsCompetitionHardRefreshView.as_view(),
+        name="online-results-hard-refresh",
     ),
     path(
         "integrations/online-results/live/public/<str:token>/",

@@ -270,6 +270,35 @@ class OnlineResultsPagesTests(APITestCase):
         self.assertTrue(payload.get("soft_refreshed"))
         self.assertEqual(payload.get("resolved_stream_id"), run.stream_id)
 
+    @patch("api.views.reset_online_results_stream_state")
+    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"})
+    def test_hard_refresh_endpoint_restarts_and_returns_new_stream(self, _probe_mock, reset_mock):
+        run = StreamRun.objects.create(
+            stream_id="stream-hard-refresh-old",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            status=StreamRun.Status.RUNNING,
+            created_by=self.user,
+        )
+        replacement = StreamRun.objects.create(
+            stream_id="stream-hard-refresh-new",
+            protocol_link=run.protocol_link,
+            callback_url=run.callback_url,
+            status=StreamRun.Status.RUNNING,
+            created_by=self.user,
+        )
+        reset_mock.return_value = replacement
+
+        response = self.client.post(
+            reverse("online-results-hard-refresh"),
+            data={"stream_id": run.stream_id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertTrue(payload.get("hard_refreshed"))
+        self.assertEqual(payload.get("previous_stream_id"), run.stream_id)
+        self.assertEqual(payload.get("resolved_stream_id"), replacement.stream_id)
+
     @override_settings(ONLINE_RESULTS_STREAM_RESUME_STALE_SEC=0)
     @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": False})
     @patch("api.views.launch_online_results_stream")
