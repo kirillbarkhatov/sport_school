@@ -35,7 +35,7 @@ from api.tasks import (
     process_online_results_webhook_event_task,
     stop_online_results_stream_task,
 )
-from api.services import launch_online_results_stream, normalize_source_id
+from api.services import launch_online_results_stream, normalize_source_id, reset_online_results_stream_state
 from api.telegram_streaming import disable_stream_telegram_publication, enable_stream_telegram_publication
 from api.telemetry import log_event
 from bot.models import TelegramChat, TelegramParticipant
@@ -163,27 +163,37 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
     if not isinstance(latest_group_tables, dict):
         latest_group_tables = {}
 
+    competition_format = str(output.get("competition_format") or "two_run")
     completed_items: list[dict[str, object]] = []
     for key, value in completed_groups_raw.items():
         if not isinstance(value, dict):
             continue
         run_stage = int(value.get("run_stage") or 1)
         group_name = str(value.get("group_name") or "")
+        run_label = str(value.get("run_label") or ("заезд 1" if competition_format == "single_run" else f"заезд {run_stage}"))
+        option_label = str(value.get("option_label") or (group_name if competition_format == "single_run" else f"{group_name} - {run_label}"))
         completed_items.append(
             {
                 "group_key": key,
                 "base_group_key": str(value.get("group_key") or key),
                 "sheet_name": str(value.get("sheet_name") or ""),
                 "group_name": group_name,
+                "order_index": int(value.get("order_index") or 0),
                 "is_finalized": bool(value.get("is_finalized", True)),
                 "last_updated_at": str(value.get("last_updated_at") or value.get("finalized_at") or ""),
                 "finalized_at": str(value.get("finalized_at") or ""),
                 "run_stage": run_stage,
-                "run_label": str(value.get("run_label") or f"заезд {run_stage}"),
-                "option_label": str(value.get("option_label") or f"{group_name} - заезд {run_stage}"),
+                "run_label": run_label,
+                "option_label": option_label,
             }
         )
-    completed_items.sort(key=lambda item: str(item.get("last_updated_at") or ""), reverse=True)
+    completed_items.sort(
+        key=lambda item: (
+            int(item.get("order_index") or 0),
+            int(item.get("run_stage") or 0),
+            str(item.get("group_name") or "").lower(),
+        )
+    )
     all_groups_items: list[dict[str, object]] = []
     for key, value in latest_group_tables.items():
         if not isinstance(value, dict):
@@ -193,11 +203,19 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
                 "group_key": key,
                 "sheet_name": str(value.get("sheet_name") or ""),
                 "group_name": str(value.get("group_name") or ""),
+                "order_index": int(value.get("order_index") or 0),
                 "is_finalized": bool(value.get("is_finalized")),
                 "last_updated_at": str(value.get("last_updated_at") or ""),
                 "data": value.get("data") if isinstance(value.get("data"), dict) else {},
             }
         )
+    all_groups_items.sort(
+        key=lambda item: (
+            int(item.get("order_index") or 0),
+            str(item.get("sheet_name") or "").lower(),
+            str(item.get("group_name") or "").lower(),
+        )
+    )
 
     selected_group = {}
     if group_key:
@@ -277,6 +295,7 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
         "last_warning": output.get("last_warning") if isinstance(output.get("last_warning"), dict) else {},
         "start_forecast": {"rows": forecast_rows, "updated_at": str(start_forecast.get("updated_at") or "")},
         "competition_phase": competition_phase,
+        "competition_format": competition_format,
         "status_text": status_text,
         "teams": sorted_teams,
         "default_selected_teams": default_teams,
@@ -1002,6 +1021,42 @@ class OnlineResultsCompetitionSoftRefreshView(ApprovedUserRequiredMixin, View):
         payload = _live_payload_from_run(run=run)
         payload["resolved_stream_id"] = run.stream_id
         payload["soft_refreshed"] = True
+        return JsonResponse(payload)
+
+
+class OnlineResultsCompetitionHardRefreshView(ApprovedUserRequiredMixin, View):
+    http_method_names = ["post"]
+
+    def dispatch(self, request, *args, **kwargs):
+        if not _can_manage_online_results(request.user):
+            return HttpResponseForbidden("Недостаточно прав.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        stream_id = (request.POST.get("stream_id") or request.GET.get("stream_id") or "").strip()
+        if not stream_id:
+            return JsonResponse({"detail": "stream_id is required"}, status=400)
+
+        run = _resolve_or_recover_stream_run(
+            request=request,
+            stream_id=stream_id,
+            allow_recover=False,
+            created_by=request.user,
+        )
+        if run is None:
+            return JsonResponse({"detail": "stream not found"}, status=404)
+
+        try:
+            refreshed_run = reset_online_results_stream_state(run_id=run.id, requested_by=request.user)
+        except RuntimeError as exc:
+            return JsonResponse({"detail": str(exc)}, status=502)
+        except ValueError as exc:
+            return JsonResponse({"detail": str(exc)}, status=404)
+
+        payload = _live_payload_from_run(run=refreshed_run)
+        payload["resolved_stream_id"] = refreshed_run.stream_id
+        payload["hard_refreshed"] = True
+        payload["previous_stream_id"] = run.stream_id
         return JsonResponse(payload)
 
 
