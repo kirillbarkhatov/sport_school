@@ -42,9 +42,9 @@
     background: var(--live-table-bg);
   }
   .live-table--stretch {
-    width: 100% !important;
+    width: max-content !important;
     min-width: 100%;
-    table-layout: fixed;
+    table-layout: auto;
   }
   .live-table th, .live-table td {
     border: 1px solid var(--live-table-border);
@@ -528,6 +528,7 @@
 
   function buildAllGroupsColumnPlan(groups, mode) {
     const minWidthBonus = 3;
+    const normalizedReduction = 2;
     const maxByKey = {};
     const updateMax = (key, len) => {
       if (!key) return;
@@ -558,7 +559,9 @@
       });
     });
 
-    const totalLikeWidth = Math.max(8 + minWidthBonus, Number(maxByKey.total || 0));
+    const reduceNormalizedWidth = (width) => Math.max(3, Number(width || 0) - normalizedReduction);
+    const totalLikeBaseWidth = Math.max(8 + minWidthBonus, Number(maxByKey.total || 0));
+    const totalLikeWidth = reduceNormalizedWidth(totalLikeBaseWidth);
 
     const plan = {};
     Object.entries(maxByKey).forEach(([key, maxLen]) => {
@@ -567,22 +570,26 @@
         return;
       }
       if (key === "start_number") {
-        plan[key] = {type: "fixed", ch: 4 + minWidthBonus};
+        plan[key] = {type: "fixed", ch: reduceNormalizedWidth(4 + minWidthBonus)};
         return;
       }
       if (key === "full_name" || key === "club") {
-        plan[key] = {type: "fixed", ch: Math.max(1 + minWidthBonus, maxLen + minWidthBonus)};
+        plan[key] = {type: "fixed", ch: reduceNormalizedWidth(Math.max(1 + minWidthBonus, maxLen + minWidthBonus))};
         return;
       }
-      if (key === "run1" || key === "run2" || key === "total" || key === "interval") {
+      if (key === "run1" || key === "run2" || key === "total") {
+        plan[key] = {type: "fixed", ch: reduceNormalizedWidth(Math.max(8 + minWidthBonus, maxLen))};
+        return;
+      }
+      if (key === "interval") {
         plan[key] = {type: "fixed", ch: Math.max(8 + minWidthBonus, maxLen)};
         return;
       }
       if (key === "judge_note") {
-        plan[key] = {type: "flex", ch: 0};
+        plan[key] = {type: "flex", ch: Math.max(1, maxLen)};
         return;
       }
-      plan[key] = {type: "flex", ch: Math.max(8 + minWidthBonus, maxLen)};
+      plan[key] = {type: "flex", ch: Math.max(1, maxLen)};
     });
     return plan;
   }
@@ -673,7 +680,7 @@
           html.push(`<col style="width:${spec.ch}ch; min-width:${spec.ch}ch;">`);
           return;
         }
-        html.push("<col>");
+        html.push(`<col style="min-width:${Math.max(2, Number(spec.ch || 0))}ch;">`);
       });
       html.push("</colgroup>");
     }
@@ -975,7 +982,25 @@
     }
     currentViewport.style.transform = "scale(1)";
     currentViewport.style.width = "100%";
-    const contentWidth = currentTableEl.scrollWidth + 16;
+    const measureTableWidthUntilInterval = (table) => {
+      if (!table) return 0;
+      const headerCells = Array.from(table.querySelectorAll("thead th"));
+      if (!headerCells.length) return table.scrollWidth || 0;
+      const intervalIndex = headerCells.findIndex((cell) => normalizeHeaderKey(cell.textContent || "") === "interval");
+      if (intervalIndex < 0) return table.scrollWidth || 0;
+      const intervalCell = headerCells[intervalIndex];
+      const left = Number(intervalCell.offsetLeft || 0);
+      const width = Number(intervalCell.offsetWidth || 0);
+      const byOffset = left + width;
+      if (byOffset > 0) return byOffset;
+      const tableRect = table.getBoundingClientRect();
+      const intervalRect = intervalCell.getBoundingClientRect();
+      return Math.max(0, intervalRect.right - tableRect.left);
+    };
+    const contentWidthByInterval = Array.from(currentTableEl.querySelectorAll("table")).reduce((acc, table) => {
+      return Math.max(acc, measureTableWidthUntilInterval(table));
+    }, 0);
+    const contentWidth = Math.max(contentWidthByInterval + 16, 1);
     const availableWidth = currentScroll.clientWidth;
     currentScale = Math.min(1, availableWidth / Math.max(contentWidth, 1));
     if (!Number.isFinite(currentScale) || currentScale <= 0) currentScale = 1;
@@ -989,7 +1014,7 @@
   function setScale(nextScale) {
     currentAutoFit = false;
     const hasTable = !!currentTableEl.querySelector("table");
-    currentScale = Math.min(3, Math.max(0.4, nextScale));
+    currentScale = Math.min(3, Math.max(0.5, nextScale));
     currentViewport.style.width = currentScale < 1 ? `${(100 / currentScale).toFixed(2)}%` : "100%";
     currentViewport.style.transform = `scale(${currentScale})`;
     currentViewport.style.height = hasTable && currentScale < 1 ? `${Math.ceil((currentTableEl.scrollHeight + 8) * currentScale)}px` : "auto";
