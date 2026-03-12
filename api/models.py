@@ -89,6 +89,13 @@ class StreamRun(models.Model):
     telegram_link_message_id = models.BigIntegerField(null=True, blank=True)
     telegram_link_last_hash = models.CharField(max_length=64, blank=True, default="")
     telegram_last_error = models.TextField(blank=True, default="")
+    competition = models.ForeignKey(
+        "school.Competition",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="online_result_stream_runs",
+    )
     last_requested_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)

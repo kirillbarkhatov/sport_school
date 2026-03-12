@@ -23,6 +23,7 @@ from api.views import (
     OnlineResultsCompetitionLivePublicView,
     OnlineResultsCompetitionLiveStateView,
     OnlineResultsCompetitionLiveView,
+    OnlineResultsPublicDocumentView,
     OnlineResultsCompetitionSoftRefreshView,
     OnlineResultsStreamRunsView,
     OnlineResultsWebhookEventsView,
@@ -82,5 +83,10 @@ urlpatterns = [
         "integrations/online-results/live/public/<str:token>/state/",
         OnlineResultsCompetitionLivePublicStateView.as_view(),
         name="online-results-live-public-state",
+    ),
+    path(
+        "integrations/online-results/live/public/<str:token>/documents/<int:document_id>/",
+        OnlineResultsPublicDocumentView.as_view(),
+        name="online-results-live-public-document",
     ),
 ]

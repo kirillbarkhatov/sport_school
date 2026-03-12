@@ -15,7 +15,7 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db import IntegrityError
 from django.db.models import Count, Max
-from django.http import HttpResponseForbidden, JsonResponse
+from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -44,7 +44,7 @@ from api.services import (
 from api.telegram_streaming import disable_stream_telegram_publication, enable_stream_telegram_publication
 from api.telemetry import log_event
 from bot.models import TelegramChat, TelegramParticipant
-from school.models import Person
+from school.models import Competition, CompetitionDocument, Person
 from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.models import User
@@ -124,6 +124,29 @@ def _ensure_active_public_stream_access(stream_run: StreamRun) -> PublicStreamAc
     if active is not None:
         return active
     return _create_public_stream_access(stream_run)
+
+
+def _public_documents_payload_for_run(*, run: StreamRun, token: str) -> list[dict[str, object]]:
+    if run.competition_id is None:
+        return []
+    links = (
+        CompetitionDocument.objects.select_related("document")
+        .filter(competition_id=run.competition_id)
+        .order_by("-created_at")
+    )
+    payload: list[dict[str, object]] = []
+    for link in links:
+        filename = str(link.document.original_name or link.document.file.name.rsplit("/", 1)[-1] or "Документ").strip()
+        payload.append(
+            {
+                "title": filename,
+                "url": reverse(
+                    "online-results-live-public-document",
+                    kwargs={"token": token, "document_id": link.document_id},
+                ),
+            }
+        )
+    return payload
 
 
 def _extract_competition_title_from_athlete_key(athlete_key: object) -> str:
@@ -457,6 +480,7 @@ def _create_and_start_recovery_run(
         launch_payload_json=source_run.launch_payload_json or {},
         callback_url=callback_url,
         created_by=created_by if created_by and created_by.is_authenticated else None,
+        competition=source_run.competition,
     )
     launch_online_results_stream(stream_run.id)
     stream_run.refresh_from_db()
@@ -741,7 +765,10 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
         status_filter = (request.GET.get("status") or "").strip()
         stream_filter = (request.GET.get("stream_id") or "").strip()
 
-        queryset = StreamRun.objects.select_related("created_by", "telegram_channel").order_by("-last_requested_at", "-created_at")
+        queryset = StreamRun.objects.select_related("created_by", "telegram_channel", "competition").order_by(
+            "-last_requested_at",
+            "-created_at",
+        )
         if status_filter:
             queryset = queryset.filter(status=status_filter)
         if stream_filter:
@@ -797,6 +824,7 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                 "stream_filter": stream_filter,
                 "status_choices": StreamRun.Status.choices,
                 "telegram_channels": telegram_channels,
+                "competitions": Competition.objects.order_by("-start_date", "-date", "-id"),
             },
         )
 
@@ -857,12 +885,42 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
             messages.success(request, "Telegram-публикация включена с текущего состояния соревнований.")
             return redirect("online-results-stream-runs")
 
+        if action == "bind_competition":
+            run_id_raw = (request.POST.get("run_id") or "").strip()
+            if not run_id_raw.isdigit():
+                messages.error(request, "Некорректный идентификатор потока.")
+                return redirect("online-results-stream-runs")
+            run = StreamRun.objects.filter(id=int(run_id_raw)).first()
+            if run is None:
+                messages.error(request, "Поток не найден.")
+                return redirect("online-results-stream-runs")
+
+            competition_id_raw = (request.POST.get("competition_id") or "").strip()
+            if competition_id_raw:
+                if not competition_id_raw.isdigit():
+                    messages.error(request, "Некорректный идентификатор соревнования.")
+                    return redirect("online-results-stream-runs")
+                competition = Competition.objects.filter(id=int(competition_id_raw)).first()
+                if competition is None:
+                    messages.error(request, "Соревнование не найдено.")
+                    return redirect("online-results-stream-runs")
+                run.competition = competition
+                run.save(update_fields=["competition", "updated_at"])
+                messages.success(request, "Привязка соревнования обновлена.")
+                return redirect("online-results-stream-runs")
+
+            run.competition = None
+            run.save(update_fields=["competition", "updated_at"])
+            messages.success(request, "Привязка соревнования снята.")
+            return redirect("online-results-stream-runs")
+
         form = StreamRunLaunchForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Проверьте параметры запуска потока.")
             return redirect("online-results-stream-runs")
 
         protocol_link: str = form.cleaned_data["protocol_link"].strip()
+        competition: Competition | None = form.cleaned_data.get("competition")
         source_id = normalize_source_id(protocol_link)
         callback_url = _build_online_results_callback_url(request)
         with transaction.atomic():
@@ -876,12 +934,14 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                     callback_url=callback_url,
                     created_by=request.user,
                     status=StreamRun.Status.PENDING,
+                    competition=competition,
                     last_requested_at=timezone.now(),
                 )
                 public_access = _create_public_stream_access(stream_run)
             else:
                 stream_run.protocol_link = protocol_link
                 stream_run.callback_url = callback_url
+                stream_run.competition = competition
                 stream_run.last_requested_at = timezone.now()
                 if stream_run.status != StreamRun.Status.RUNNING:
                     stream_run.status = StreamRun.Status.PENDING
@@ -889,6 +949,7 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                     update_fields=[
                         "protocol_link",
                         "callback_url",
+                        "competition",
                         "status",
                         "last_requested_at",
                         "updated_at",
@@ -1105,14 +1166,27 @@ class OnlineResultsCompetitionLivePublicView(View):
             return HttpResponseForbidden("Публичная ссылка не найдена.")
         if access.is_expired:
             return HttpResponseForbidden("Срок действия публичной ссылки истек.")
-        payload = _live_payload_from_run(run=access.stream_run)
+        run = _resolve_or_recover_stream_run(
+            request=request,
+            stream_id=access.stream_run.stream_id,
+            allow_recover=True,
+            created_by=access.stream_run.created_by,
+        )
+        if run is None:
+            return HttpResponseForbidden("Поток не найден.")
+        if run.id != access.stream_run_id:
+            access.stream_run = run
+            access.save(update_fields=["stream_run"])
+
+        payload = _live_payload_from_run(run=run)
         competition_title = str(payload.get("competition_title") or "").strip() or "Текущие соревнования"
+        public_documents = _public_documents_payload_for_run(run=run, token=token)
         return render(
             request,
             self.template_name,
             {
-                "stream_id": access.stream_run.stream_id,
-                "latest_run": access.stream_run,
+                "stream_id": run.stream_id,
+                "latest_run": run,
                 "state_url": reverse("online-results-live-public-state", kwargs={"token": token}),
                 "is_public": True,
                 "public_expires_at": access.expires_at,
@@ -1120,6 +1194,7 @@ class OnlineResultsCompetitionLivePublicView(View):
                 "competition_title": competition_title,
                 "hide_navigation": True,
                 "app_brand_title": "Онлайн протокол",
+                "public_documents": public_documents,
             },
         )
 
@@ -1157,3 +1232,41 @@ class OnlineResultsCompetitionLivePublicStateView(View):
             "is_public": True,
         }
         return JsonResponse(payload)
+
+
+class OnlineResultsPublicDocumentView(View):
+    def get(self, request, token: str, document_id: int, *args, **kwargs):
+        access = (
+            PublicStreamAccess.objects.select_related("stream_run")
+            .filter(token=token, is_active=True)
+            .order_by("-created_at")
+            .first()
+        )
+        if access is None or access.is_expired:
+            raise Http404("Публичная ссылка не найдена.")
+
+        run = access.stream_run
+        if run.competition_id is None:
+            raise Http404("Документ не найден.")
+
+        link = (
+            CompetitionDocument.objects.select_related("document")
+            .filter(
+                competition_id=run.competition_id,
+                document_id=document_id,
+            )
+            .first()
+        )
+        if link is None:
+            raise Http404("Документ не найден.")
+
+        document = link.document
+        file_obj = document.file.open(mode="rb")
+        response = FileResponse(
+            file_obj,
+            as_attachment=False,
+            filename=document.original_name or document.file.name.rsplit("/", 1)[-1],
+            content_type=document.mime_type or "application/octet-stream",
+        )
+        response["Cache-Control"] = "private, max-age=60"
+        return response

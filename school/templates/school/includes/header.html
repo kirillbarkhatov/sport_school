@@ -1,3 +1,25 @@
+<style>
+    @media (max-width: 767px) {
+        .public-docs-dropdown .dropdown-menu {
+            width: min(92vw, 20rem);
+            max-width: min(92vw, 20rem);
+        }
+        .public-docs-dropdown .dropdown-item {
+            font-size: 0.82rem;
+            line-height: 1.25;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+        .public-docs-dropdown .dropdown-item small {
+            font-size: 0.74rem;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+    }
+</style>
+
 <header class="navbar sticky-top bg-dark flex-md-nowrap p-0 shadow" data-bs-theme="dark">
     <a class="navbar-brand col-md-3 col-lg-2 me-0 px-3 fs-6 text-white" href="{% if hide_navigation %}#{% else %}{% url 'school:index' %}{% endif %}">
         {% if app_brand_title %}
@@ -8,6 +30,22 @@
             Центр управления школой
         {% endif %}
     </a>
+    {% if public_documents %}
+    <div class="ms-auto me-3">
+        <div class="dropdown public-docs-dropdown">
+            <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                Документы
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                {% for doc in public_documents %}
+                    <li>
+                        <a class="dropdown-item" href="{{ doc.url }}" target="_blank" rel="noopener">{{ doc.title }}</a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
 
     <!--    Адаптив для мобильных устройств-->
     {% if not hide_navigation %}
