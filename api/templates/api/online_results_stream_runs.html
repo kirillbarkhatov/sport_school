@@ -28,6 +28,13 @@
                     <div class="text-danger small mt-1">{{ form.protocol_link.errors|join:", " }}</div>
                 {% endif %}
             </div>
+            <div class="col-md-6">
+                <label class="form-label" for="{{ form.competition.id_for_label }}">Соревнование</label>
+                {{ form.competition }}
+                {% if form.competition.errors %}
+                    <div class="text-danger small mt-1">{{ form.competition.errors|join:", " }}</div>
+                {% endif %}
+            </div>
             <div class="col-12">
                 <button type="submit" class="btn btn-primary">Запустить поток</button>
             </div>
@@ -137,6 +144,20 @@
                                 <div><small class="text-muted">stream_id: {{ item.run.stream_id|default:"-" }}</small></div>
                                 <div><small class="text-muted">source_id: {{ item.run.source_id|default:"-" }}</small></div>
                                 <div><small class="text-muted">telegram: {% if item.run.telegram_publish_enabled %}on{% else %}off{% endif %}</small></div>
+                                <form method="post" class="mt-2 d-flex flex-column gap-1">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="bind_competition">
+                                    <input type="hidden" name="run_id" value="{{ item.run.id }}">
+                                    <select name="competition_id" class="form-select form-select-sm">
+                                        <option value="">Без привязки</option>
+                                        {% for competition in competitions %}
+                                            <option value="{{ competition.id }}" {% if item.run.competition_id == competition.id %}selected{% endif %}>
+                                                {{ competition.name }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Сохранить привязку</button>
+                                </form>
                                 {% if item.run.last_error %}
                                     <div><small class="text-muted">last_error: {{ item.run.last_error|truncatechars:120 }}</small></div>
                                 {% endif %}

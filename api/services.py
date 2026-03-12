@@ -294,6 +294,7 @@ def reset_online_results_stream_state(run_id: int, *, requested_by=None) -> Stre
         launch_payload_json=launch_payload,
         callback_url=source_run.callback_url,
         created_by=created_by,
+        competition=source_run.competition,
     )
     launch_online_results_stream(replacement.id)
     replacement.refresh_from_db()

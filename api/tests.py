@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from unittest.mock import MagicMock
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
@@ -17,6 +18,7 @@ from api.models import PublicStreamAccess, StreamRun, WebhookEvent
 from api.services import launch_online_results_stream, process_online_results_webhook_event
 from api.telegram_streaming import enable_stream_telegram_publication
 from bot.models import TelegramChat, TelegramParticipant
+from school.models import Competition, CompetitionDocument, Document, DocumentType
 from whatsapp.models import WhatsAppChat, WhatsAppChatMember
 
 
@@ -510,6 +512,120 @@ class OnlineResultsPagesTests(APITestCase):
         self.assertNotContains(response, "Центр управления школой")
         self.assertNotContains(response, '<input type="text" class="form-control" name="stream_id"')
 
+    def test_public_live_page_shows_documents_dropdown_for_bound_competition(self):
+        competition = Competition.objects.create(name="Кубок тест")
+        run = StreamRun.objects.create(
+            stream_id="stream-public-docs",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            competition=competition,
+        )
+        document = Document.objects.create(
+            file=SimpleUploadedFile("reglament.txt", b"reglament-content", content_type="text/plain"),
+            original_name="reglament.txt",
+            mime_type="text/plain",
+        )
+        link = CompetitionDocument.objects.create(
+            competition=competition,
+            document=document,
+            doc_type=DocumentType.REGULATION,
+            title="Регламент",
+            is_public=True,
+        )
+        access = PublicStreamAccess.objects.create(
+            stream_run=run,
+            token="public-token-docs",
+            expires_at=timezone.now() + timedelta(days=2),
+            is_active=True,
+        )
+        self.client.logout()
+        response = self.client.get(reverse("online-results-live-public", kwargs={"token": access.token}))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(response, "Документы")
+        self.assertContains(response, "reglament.txt")
+        self.assertContains(
+            response,
+            reverse(
+                "online-results-live-public-document",
+                kwargs={"token": access.token, "document_id": link.document_id},
+            ),
+        )
+
+    def test_public_live_page_shows_non_public_competition_documents_too(self):
+        competition = Competition.objects.create(name="Кубок все документы")
+        run = StreamRun.objects.create(
+            stream_id="stream-public-all-docs",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            competition=competition,
+        )
+        document = Document.objects.create(
+            file=SimpleUploadedFile("private-note.txt", b"private-note", content_type="text/plain"),
+            original_name="private-note.txt",
+            mime_type="text/plain",
+        )
+        link = CompetitionDocument.objects.create(
+            competition=competition,
+            document=document,
+            doc_type=DocumentType.OTHER,
+            title="Служебный документ",
+            is_public=False,
+        )
+        access = PublicStreamAccess.objects.create(
+            stream_run=run,
+            token="public-token-all-docs",
+            expires_at=timezone.now() + timedelta(days=2),
+            is_active=True,
+        )
+        self.client.logout()
+        response = self.client.get(reverse("online-results-live-public", kwargs={"token": access.token}))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertContains(response, "private-note.txt")
+        self.assertContains(
+            response,
+            reverse(
+                "online-results-live-public-document",
+                kwargs={"token": access.token, "document_id": link.document_id},
+            ),
+        )
+
+    def test_public_document_view_returns_public_competition_document(self):
+        competition = Competition.objects.create(name="Кубок тест")
+        run = StreamRun.objects.create(
+            stream_id="stream-public-doc-file",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            competition=competition,
+        )
+        document = Document.objects.create(
+            file=SimpleUploadedFile("results.txt", b"abc123", content_type="text/plain"),
+            original_name="results.txt",
+            mime_type="text/plain",
+        )
+        CompetitionDocument.objects.create(
+            competition=competition,
+            document=document,
+            doc_type=DocumentType.OFFICIAL_RESULTS,
+            title="Результаты",
+            is_public=True,
+        )
+        access = PublicStreamAccess.objects.create(
+            stream_run=run,
+            token="public-token-doc-file",
+            expires_at=timezone.now() + timedelta(days=2),
+            is_active=True,
+        )
+        self.client.logout()
+        response = self.client.get(
+            reverse(
+                "online-results-live-public-document",
+                kwargs={"token": access.token, "document_id": document.id},
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = b"".join(response.streaming_content)
+        self.assertEqual(body, b"abc123")
+
     @patch("api.views.launch_online_results_stream_task.delay")
     def test_stream_run_create_from_page(self, delay_mock):
         payload = {
@@ -524,6 +640,40 @@ class OnlineResultsPagesTests(APITestCase):
         self.assertTrue(run.stream_id.startswith("pending-"))
         self.assertEqual(PublicStreamAccess.objects.filter(stream_run=run, is_active=True).count(), 1)
         delay_mock.assert_called_once_with(run.id)
+
+    @patch("api.views.launch_online_results_stream_task.delay")
+    def test_stream_run_create_from_page_sets_competition_binding(self, delay_mock):
+        competition = Competition.objects.create(name="Кубок привязки")
+        payload = {
+            "protocol_link": "https://docs.google.com/spreadsheets/d/test",
+            "competition": str(competition.id),
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(reverse("online-results-stream-runs"), data=payload)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        run = StreamRun.objects.get()
+        self.assertEqual(run.competition_id, competition.id)
+        delay_mock.assert_called_once_with(run.id)
+
+    def test_stream_run_bind_competition_action_updates_run(self):
+        competition = Competition.objects.create(name="Кубок action bind")
+        run = StreamRun.objects.create(
+            stream_id="stream-bind-competition",
+            protocol_link="https://docs.google.com/spreadsheets/d/test",
+            callback_url="https://example.com/callback",
+            status=StreamRun.Status.RUNNING,
+        )
+        response = self.client.post(
+            reverse("online-results-stream-runs"),
+            data={
+                "action": "bind_competition",
+                "run_id": str(run.id),
+                "competition_id": str(competition.id),
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        run.refresh_from_db()
+        self.assertEqual(run.competition_id, competition.id)
 
     @patch("api.views.launch_online_results_stream_task.delay")
     def test_stream_run_create_ignores_telegram_fields_on_launch(self, delay_mock):
