@@ -173,15 +173,27 @@
   .sheet-filter-buttons {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
-    flex-wrap: wrap;
-    margin-top: 0.5rem;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    margin-top: 0;
   }
   .sheet-filter-buttons.table-fullscreen-visible {
     justify-content: flex-start;
     margin-top: 0;
-    margin-left: 0.35rem;
+    margin-left: 0;
+  }
+  .sheet-filter-group {
+    display: inline-flex;
+    flex-wrap: nowrap;
+  }
+  .sheet-filter-group .btn {
+    white-space: nowrap;
   }
   .all-groups-section {
     margin-bottom: 1.1rem;
@@ -196,16 +208,11 @@
   .hidden-inline {
     display: none !important;
   }
-  .sheet-filter-label {
-    font-size: 0.85rem;
-    color: var(--bs-secondary-color);
-    margin-right: 0.1rem;
-  }
   #current-fullscreen-controls {
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-end;
   }
   .hidden-block {
@@ -793,13 +800,14 @@
       sheetFilterButtonsEl.innerHTML = "";
       return;
     }
-    const html = ['<span class="sheet-filter-label">Листы:</span>'];
+    const html = ['<div class="btn-group btn-group-sm sheet-filter-group" role="group" aria-label="Фильтр листов">'];
     sheets.forEach((sheet) => {
       const activeClass = selectedSheetName === sheet ? "btn-primary" : "btn-outline-secondary";
       html.push(
         `<button class="btn ${activeClass} btn-sm sheet-filter-btn" type="button" data-sheet-name="${String(sheet)}">${String(sheet)}</button>`
       );
     });
+    html.push("</div>");
     sheetFilterButtonsEl.classList.remove("hidden-inline");
     sheetFilterButtonsEl.innerHTML = html.join("");
     sheetFilterButtonsEl.querySelectorAll(".sheet-filter-btn").forEach((btn) => {
@@ -853,10 +861,26 @@
     renderSheetFilterButtons();
   }
 
-  function chooseCompletedRun2Groups(payload) {
+  function chooseCompletedFinalGroups(payload) {
     const completed = Array.isArray(payload.completed_groups) ? payload.completed_groups : [];
-    const run2 = completed.filter((item) => Number(item.run_stage || 0) === 2 && getTableData(item));
-    run2.sort((a, b) => {
+    const bestByGroup = new Map();
+    completed.forEach((item) => {
+      if (!getTableData(item)) return;
+      const baseGroupKey = String(item.base_group_key || item.group_key || "").trim();
+      if (!baseGroupKey) return;
+      const existing = bestByGroup.get(baseGroupKey);
+      if (!existing) {
+        bestByGroup.set(baseGroupKey, item);
+        return;
+      }
+      const existingStage = Number(existing.run_stage || 0);
+      const currentStage = Number(item.run_stage || 0);
+      if (currentStage > existingStage) {
+        bestByGroup.set(baseGroupKey, item);
+      }
+    });
+    const selected = Array.from(bestByGroup.values());
+    selected.sort((a, b) => {
       const ao = Number(a.order_index || 0);
       const bo = Number(b.order_index || 0);
       if (ao !== bo) return ao - bo;
@@ -865,13 +889,13 @@
       if (as !== bs) return as.localeCompare(bs);
       return String(a.group_name || "").toLowerCase().localeCompare(String(b.group_name || "").toLowerCase());
     });
-    return run2;
+    return selected;
   }
 
   function getAllGroupsForCurrentView(payload) {
     if (currentPhaseMode === "completed") {
-      const run2 = chooseCompletedRun2Groups(payload);
-      if (run2.length) return run2;
+      const finalized = chooseCompletedFinalGroups(payload);
+      if (finalized.length) return finalized;
     }
     return Array.isArray(payload.all_groups) ? payload.all_groups : [];
   }
