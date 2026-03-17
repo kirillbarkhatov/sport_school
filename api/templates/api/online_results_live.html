@@ -10,6 +10,10 @@
     --live-table-border: var(--bs-border-color);
     --live-table-head-bg: var(--bs-tertiary-bg);
     --live-highlight-bg: rgba(13, 110, 253, 0.18);
+    --live-disabled-text: #6c757d;
+    --live-disabled-head-bg: #e9ecef;
+    --live-disabled-cell-bg: #f1f3f5;
+    --live-disabled-stripe: rgba(108, 117, 125, 0.16);
   }
   [data-bs-theme="dark"] {
     --live-table-bg: #1f2630;
@@ -17,6 +21,10 @@
     --live-table-border: #3a4554;
     --live-table-head-bg: #2a3442;
     --live-highlight-bg: rgba(13, 110, 253, 0.28);
+    --live-disabled-text: #adb5bd;
+    --live-disabled-head-bg: #343f4d;
+    --live-disabled-cell-bg: #2b3542;
+    --live-disabled-stripe: rgba(173, 181, 189, 0.14);
   }
   .live-scroll {
     overflow: auto;
@@ -55,6 +63,23 @@
   }
   .live-table th {
     background: var(--live-table-head-bg);
+  }
+  .live-table th.run2-disabled-header {
+    color: var(--live-disabled-text);
+    background: var(--live-disabled-head-bg);
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+  }
+  .live-table td.run2-disabled-cell {
+    color: var(--live-disabled-text);
+    background-color: var(--live-disabled-cell-bg) !important;
+    background-image: repeating-linear-gradient(
+      135deg,
+      transparent 0,
+      transparent 8px,
+      var(--live-disabled-stripe) 8px,
+      var(--live-disabled-stripe) 16px
+    );
   }
   .team-highlight td {
     background: var(--live-highlight-bg);
@@ -459,8 +484,11 @@
 
   function toStartListTableData(tableData) {
     if (!tableData || typeof tableData !== "object" || !Array.isArray(tableData.rows)) return null;
+    const sourceRows = Array.isArray(tableData.rows) ? tableData.rows : [];
+    const isSingleRun = sourceRows.length > 0 && sourceRows.every((row) => Number((row && row.runs_count) || 2) <= 1);
     return {
       headers: ["Ст№", "ФИО", "Клуб", "1 заезд", "2 заезд", "итог", "Пометка судьи"],
+      isSingleRun,
       rows: tableData.rows.map((row) => ({
         start_number: row.start_number ?? row["ст.№"] ?? row["Ст№"] ?? row["Ст.№"] ?? "-",
         full_name: row.full_name ?? row["ФИО"] ?? row["фио"] ?? "-",
@@ -606,6 +634,8 @@
     const sourceHeaders = Array.isArray(tableData.headers) ? [...tableData.headers] : [];
     const sourceRows = Array.isArray(tableData.rows) ? tableData.rows : [];
     if (!sourceHeaders.length) return null;
+    const isSingleRun = Boolean(tableData.isSingleRun)
+      || (sourceRows.length > 0 && sourceRows.every((row) => Number((row && row.runs_count) || 2) <= 1));
 
     const canonicalKeys = ["place", "start_number", "full_name", "club", "run1", "run2", "total", "interval", "delta_place"];
     const fallbackLabelByKey = {
@@ -651,7 +681,7 @@
       });
       return nextRow;
     });
-    return {headers, rows};
+    return {headers, rows, isSingleRun};
   }
 
   function renderTable(container, tableData, options = {}) {
@@ -661,6 +691,7 @@
     }
     const rows = tableData.rows || [];
     const headers = Array.isArray(tableData.headers) ? [...tableData.headers] : [];
+    const isSingleRun = Boolean(tableData.isSingleRun);
     const hasJudgeNotes = rows.some((row) => String((row && row.judge_note) || "").trim().length > 0);
     if (hasJudgeNotes && !headers.some((h) => String(h).toLowerCase() === "пометка судьи")) {
       headers.push("Пометка судьи");
@@ -692,7 +723,11 @@
       html.push("</colgroup>");
     }
     html.push("<thead><tr>");
-    headers.forEach((h) => html.push(`<th>${String(h)}</th>`));
+    headers.forEach((h) => {
+      const headerKey = normalizeHeaderKey(h);
+      const headerClass = isSingleRun && headerKey === "run2" ? ' class="run2-disabled-header"' : "";
+      html.push(`<th${headerClass}>${String(h)}</th>`);
+    });
     html.push("</tr></thead><tbody>");
 
     rows.forEach((row) => {
@@ -704,7 +739,11 @@
       const rowClass = classes.join(" ");
       html.push(`<tr class="${rowClass}">`);
       headers.forEach((header) => {
-        html.push(`<td>${resolveCellValue(row, header)}</td>`);
+        const headerKey = normalizeHeaderKey(header);
+        const isDisabledRun2Cell = isSingleRun && headerKey === "run2";
+        const cellClass = isDisabledRun2Cell ? ' class="run2-disabled-cell"' : "";
+        const cellValue = isDisabledRun2Cell ? "n/a" : resolveCellValue(row, header);
+        html.push(`<td${cellClass}>${cellValue}</td>`);
       });
       html.push("</tr>");
     });

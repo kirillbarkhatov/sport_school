@@ -33,6 +33,7 @@ class GroupTablePayload:
     group_key: str
     group_name: str
     run_stage: int
+    is_single_run: bool
     rows: list[dict[str, object]]
     message_text: str
     message_hash: str
@@ -398,12 +399,19 @@ def _build_group_table_payload(payload: dict[str, object]) -> GroupTablePayload 
         group_name = str(data.get("group_name") or "").strip()
 
     run_stage = _detect_run_stage(payload=payload, rows=rows)
-    message_text = _render_table_message(group_name=group_name, run_stage=run_stage, rows=rows)
+    is_single_run = all(int((row.get("runs_count") or 2)) <= 1 for row in rows)
+    message_text = _render_table_message(
+        group_name=group_name,
+        run_stage=run_stage,
+        is_single_run=is_single_run,
+        rows=rows,
+    )
     message_hash = hashlib.sha256(message_text.encode("utf-8")).hexdigest()
     return GroupTablePayload(
         group_key=group_key,
         group_name=group_name,
         run_stage=run_stage,
+        is_single_run=is_single_run,
         rows=rows,
         message_text=message_text,
         message_hash=message_hash,
@@ -421,19 +429,20 @@ def _detect_run_stage(*, payload: dict[str, object], rows: list[dict[str, object
     return 1
 
 
-def _render_table_message(*, group_name: str, run_stage: int, rows: list[dict[str, object]]) -> str:
+def _render_table_message(*, group_name: str, run_stage: int, is_single_run: bool, rows: list[dict[str, object]]) -> str:
     # Compact fixed-width view for Telegram channel posts.
     limits = (2, 3, 5, 5, 5, 7, 5)
-    headers = ("Мс", "Ст№", "ФамИ", "Run 1", "Run 2", "Итог", "Инт.")
+    headers = ("Мс", "Ст№", "ФамИ", "Run 1", _strike_text("Run 2") if is_single_run else "Run 2", "Итог", "Инт.")
     table_rows: list[tuple[str, ...]] = []
     for row in rows:
+        run2_value = "n/a" if is_single_run else str(row.get("run2") or "-")
         table_rows.append(
             (
                 _normalize(_clip(str(row.get("place") or "-"), limits[0]), limits[0], align="right"),
                 _normalize(_clip(str(row.get("start_number") or "-"), limits[1]), limits[1], align="right"),
                 _normalize(_clip(_short_name(str(row.get("full_name") or "")), limits[2]), limits[2], align="left"),
                 _normalize(_clip(str(row.get("run1") or "-"), limits[3]), limits[3], align="right"),
-                _normalize(_clip(str(row.get("run2") or "-"), limits[4]), limits[4], align="right"),
+                _normalize(_clip(run2_value, limits[4]), limits[4], align="right"),
                 _normalize(_clip(str(row.get("total") or "-"), limits[5]), limits[5], align="right"),
                 _normalize(_clip(str(row.get("interval") or "-"), limits[6]), limits[6], align="right"),
             )
@@ -476,6 +485,10 @@ def _normalize(value: str, width: int, *, align: str) -> str:
     if align == "right":
         return value.rjust(width)
     return value.ljust(width)
+
+
+def _strike_text(value: str) -> str:
+    return "".join(f"{char}\u0336" if char != " " else char for char in value)
 
 
 def _update_table_state(run: StreamRun, *, message_id: int, group_key: str, run_stage: int, message_hash: str) -> None:
