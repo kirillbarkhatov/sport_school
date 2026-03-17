@@ -539,11 +539,6 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
             forecast_current_group_key = str(payload.get("current_group_key") or "").strip()
             if forecast_current_group_key:
                 stream_output["current_group_key"] = forecast_current_group_key
-                _initialize_focus_from_current_group(
-                    stream_output=stream_output,
-                    event_time=event_time,
-                    force=True,
-                )
         elif event_type == "tick":
             stream_output["last_tick"] = {
                 "ts": str(payload.get("ts") or ""),
@@ -555,11 +550,6 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
             tick_current_group_key = str(payload.get("current_group_key") or "").strip()
             if tick_current_group_key:
                 stream_output["current_group_key"] = tick_current_group_key
-                _initialize_focus_from_current_group(
-                    stream_output=stream_output,
-                    event_time=event_time,
-                    force=True,
-                )
         elif event_type == "result_updated":
             lines = _payload_lines(payload.get("lines"))
             if lines:
@@ -1057,15 +1047,33 @@ def _reconcile_focus_state(*, stream_output: dict[str, object], event_time: date
     sheet_name = str(focus.get("sheet_name") or "").strip()
     group_key = str(focus.get("group_key") or "").strip()
     run_stage = _safe_int(focus.get("run_stage"), 0)
+    current_closed = False
     if run_stage in {1, 2} and sheet_name:
         if (
             group_key
             and _is_single_run_group_in_stream(stream_output, group_key=group_key)
             and _is_group_run_closed(stream_output, group_key=group_key, run_stage=run_stage)
         ):
-            _clear_focus_to_break(stream_output=stream_output, event_time=event_time)
+            current_closed = True
         elif _is_sheet_run_closed(stream_output, sheet_name=sheet_name, run_stage=run_stage):
-            _clear_focus_to_break(stream_output=stream_output, event_time=event_time)
+            current_closed = True
+
+    if current_closed:
+        deferred = stream_output.get("focus_deferred_candidate")
+        if isinstance(deferred, dict):
+            candidate_stage = _safe_int(deferred.get("run_stage"), 0)
+            candidate_sheet = str(deferred.get("sheet_name") or "").strip()
+            candidate_group = str(deferred.get("group_key") or "").strip()
+            if candidate_stage in {1, 2} and candidate_sheet and candidate_group:
+                _set_focus(
+                    stream_output=stream_output,
+                    sheet_name=candidate_sheet,
+                    group_key=candidate_group,
+                    run_stage=candidate_stage,
+                    event_time=event_time,
+                )
+                stream_output.pop("focus_deferred_candidate", None)
+        return
 
     focus = _focus_state(stream_output)
     if _safe_int(focus.get("run_stage"), 0) in {1, 2}:
@@ -1090,14 +1098,9 @@ def _reconcile_focus_state(*, stream_output: dict[str, object], event_time: date
     stream_output.pop("focus_deferred_candidate", None)
 
 
-def _initialize_focus_from_current_group(
-    *,
-    stream_output: dict[str, object],
-    event_time: datetime,
-    force: bool = False,
-) -> None:
+def _initialize_focus_from_current_group(*, stream_output: dict[str, object], event_time: datetime) -> None:
     focus = _focus_state(stream_output)
-    if not force and _safe_int(focus.get("run_stage"), 0) in {1, 2}:
+    if _safe_int(focus.get("run_stage"), 0) in {1, 2}:
         return
     current_group_key = str(stream_output.get("current_group_key") or "").strip()
     if not current_group_key:
@@ -1115,8 +1118,6 @@ def _initialize_focus_from_current_group(
         return
     rows = data.get("rows")
     if not isinstance(rows, list):
-        return
-    if not force and str(focus.get("group_key") or "").strip() == current_group_key:
         return
     run_stage = 2 if any(_is_time_value(row.get("run2")) for row in rows if isinstance(row, dict)) else 1
     _set_focus(
