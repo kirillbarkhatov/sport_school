@@ -911,6 +911,47 @@ def _clear_focus_to_break(*, stream_output: dict[str, object], event_time: datet
     stream_output["current_run_stage"] = 0
 
 
+def _group_rows_from_stream_output(stream_output: dict[str, object], *, group_key: str) -> list[dict[str, object]]:
+    tables = stream_output.get("latest_group_tables")
+    if not isinstance(tables, dict):
+        return []
+    block = tables.get(group_key)
+    if not isinstance(block, dict):
+        return []
+    data = block.get("data")
+    if isinstance(data, dict) and isinstance(data.get("group_table"), dict):
+        data = data.get("group_table")
+    rows = data.get("rows") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _is_single_run_group_in_stream(stream_output: dict[str, object], *, group_key: str) -> bool:
+    rows = _group_rows_from_stream_output(stream_output, group_key=group_key)
+    return bool(rows) and all(_safe_int(row.get("runs_count"), 2) <= 1 for row in rows)
+
+
+def _is_group_run_closed(stream_output: dict[str, object], *, group_key: str, run_stage: int) -> bool:
+    rows = _group_rows_from_stream_output(stream_output, group_key=group_key)
+    if not rows:
+        return False
+    for row in rows:
+        run1 = row.get("run1")
+        run2 = row.get("run2")
+        total = row.get("total")
+        if run_stage == 1:
+            if _is_status_or_empty(total):
+                if _is_status_or_empty(run1):
+                    return False
+            elif _is_status_or_empty(run1):
+                return False
+        else:
+            if _is_status_or_empty(total) and _is_status_or_empty(run2):
+                return False
+    return True
+
+
 def _is_sheet_run_closed(stream_output: dict[str, object], *, sheet_name: str, run_stage: int) -> bool:
     tables = stream_output.get("latest_group_tables")
     if not isinstance(tables, dict):
@@ -1004,9 +1045,16 @@ def _update_focus_from_result_data(*, stream_output: dict[str, object], data: di
 def _reconcile_focus_state(*, stream_output: dict[str, object], event_time: datetime) -> None:
     focus = _focus_state(stream_output)
     sheet_name = str(focus.get("sheet_name") or "").strip()
+    group_key = str(focus.get("group_key") or "").strip()
     run_stage = _safe_int(focus.get("run_stage"), 0)
     if run_stage in {1, 2} and sheet_name:
-        if _is_sheet_run_closed(stream_output, sheet_name=sheet_name, run_stage=run_stage):
+        if (
+            group_key
+            and _is_single_run_group_in_stream(stream_output, group_key=group_key)
+            and _is_group_run_closed(stream_output, group_key=group_key, run_stage=run_stage)
+        ):
+            _clear_focus_to_break(stream_output=stream_output, event_time=event_time)
+        elif _is_sheet_run_closed(stream_output, sheet_name=sheet_name, run_stage=run_stage):
             _clear_focus_to_break(stream_output=stream_output, event_time=event_time)
 
     focus = _focus_state(stream_output)
