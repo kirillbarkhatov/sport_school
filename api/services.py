@@ -537,8 +537,13 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
             stream_output["competition_format"] = str(payload.get("competition_format") or stream_output.get("competition_format") or "two_run")
             stream_output["status_text"] = str(payload.get("status_text") or stream_output.get("status_text") or "")
             forecast_current_group_key = str(payload.get("current_group_key") or "").strip()
-            if forecast_current_group_key and not str(stream_output.get("current_group_key") or "").strip():
+            if forecast_current_group_key:
                 stream_output["current_group_key"] = forecast_current_group_key
+                _initialize_focus_from_current_group(
+                    stream_output=stream_output,
+                    event_time=event_time,
+                    force=True,
+                )
         elif event_type == "tick":
             stream_output["last_tick"] = {
                 "ts": str(payload.get("ts") or ""),
@@ -548,8 +553,13 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
             stream_output["competition_format"] = str(payload.get("competition_format") or stream_output.get("competition_format") or "two_run")
             stream_output["status_text"] = str(payload.get("status_text") or stream_output.get("status_text") or "")
             tick_current_group_key = str(payload.get("current_group_key") or "").strip()
-            if tick_current_group_key and not str(stream_output.get("current_group_key") or "").strip():
+            if tick_current_group_key:
                 stream_output["current_group_key"] = tick_current_group_key
+                _initialize_focus_from_current_group(
+                    stream_output=stream_output,
+                    event_time=event_time,
+                    force=True,
+                )
         elif event_type == "result_updated":
             lines = _payload_lines(payload.get("lines"))
             if lines:
@@ -1080,9 +1090,14 @@ def _reconcile_focus_state(*, stream_output: dict[str, object], event_time: date
     stream_output.pop("focus_deferred_candidate", None)
 
 
-def _initialize_focus_from_current_group(*, stream_output: dict[str, object], event_time: datetime) -> None:
+def _initialize_focus_from_current_group(
+    *,
+    stream_output: dict[str, object],
+    event_time: datetime,
+    force: bool = False,
+) -> None:
     focus = _focus_state(stream_output)
-    if _safe_int(focus.get("run_stage"), 0) in {1, 2}:
+    if not force and _safe_int(focus.get("run_stage"), 0) in {1, 2}:
         return
     current_group_key = str(stream_output.get("current_group_key") or "").strip()
     if not current_group_key:
@@ -1100,6 +1115,8 @@ def _initialize_focus_from_current_group(*, stream_output: dict[str, object], ev
         return
     rows = data.get("rows")
     if not isinstance(rows, list):
+        return
+    if not force and str(focus.get("group_key") or "").strip() == current_group_key:
         return
     run_stage = 2 if any(_is_time_value(row.get("run2")) for row in rows if isinstance(row, dict)) else 1
     _set_focus(
