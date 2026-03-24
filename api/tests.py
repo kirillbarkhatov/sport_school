@@ -1047,7 +1047,7 @@ class OnlineResultsServicesTests(APITestCase):
         self.assertIn("sheet|group-c", output.get("latest_group_tables", {}))
         self.assertIn("sheet|group-c|run1", output.get("completed_groups", {}))
 
-    def test_group_completed_clears_focus_when_next_candidate_is_missing(self):
+    def test_group_completed_keeps_focus_when_next_candidate_is_missing(self):
         run = self._create_run(stream_id="remote-focus-clear")
         result_event = WebhookEvent.objects.create(
             stream_id="remote-focus-clear",
@@ -1100,12 +1100,12 @@ class OnlineResultsServicesTests(APITestCase):
 
         run.refresh_from_db()
         output = run.external_response_json.get("stream_output", {})
-        self.assertEqual(output.get("current_group_key"), "")
-        self.assertEqual(output.get("current_run_stage"), 0)
-        self.assertEqual(output.get("focus_state", {}).get("group_key"), "")
-        self.assertEqual(output.get("focus_state", {}).get("run_stage"), 0)
+        self.assertEqual(output.get("current_group_key"), "sheet-a|group-a")
+        self.assertEqual(output.get("current_run_stage"), 1)
+        self.assertEqual(output.get("focus_state", {}).get("group_key"), "sheet-a|group-a")
+        self.assertEqual(output.get("focus_state", {}).get("run_stage"), 1)
 
-    def test_group_table_updated_switches_focus_to_run2_without_result_updated(self):
+    def test_result_updated_switches_focus_to_run2_after_group_completed(self):
         run = self._create_run(stream_id="remote-focus-run2")
         events = [
             WebhookEvent.objects.create(
@@ -1154,18 +1154,18 @@ class OnlineResultsServicesTests(APITestCase):
             ),
             WebhookEvent.objects.create(
                 stream_id="remote-focus-run2",
-                event_type="group_table_updated",
+                event_type="result_updated",
                 payload_json={
                     "payload": {
-                        "group_key": "sheet-a|group-b",
-                        "sheet_name": "sheet-a",
-                        "group_name": "group-b",
                         "data": {
-                            "rows": [
-                                {"run1": "20.50", "run2": "19.90", "total": "40.40"},
-                                {"run1": "-", "run2": "-", "total": "-"},
+                            "updated_results": [
+                                {
+                                    "sheet_name": "sheet-a",
+                                    "group_name": "group-b",
+                                    "run2": "19.90",
+                                }
                             ]
-                        },
+                        }
                     }
                 },
                 payload_hash="1" * 63 + "c",
@@ -1182,7 +1182,7 @@ class OnlineResultsServicesTests(APITestCase):
         self.assertEqual(output.get("focus_state", {}).get("group_key"), "sheet-a|group-b")
         self.assertEqual(output.get("focus_state", {}).get("run_stage"), 2)
 
-    def test_group_table_updated_switches_focus_to_other_sheet_run1_without_result_updated(self):
+    def test_group_table_updated_does_not_switch_focus_without_significant_results(self):
         run = self._create_run(stream_id="remote-focus-other-sheet")
         events = [
             WebhookEvent.objects.create(
@@ -1254,10 +1254,10 @@ class OnlineResultsServicesTests(APITestCase):
 
         run.refresh_from_db()
         output = run.external_response_json.get("stream_output", {})
-        self.assertEqual(output.get("current_group_key"), "sheet-b|group-b")
-        self.assertEqual(output.get("current_run_stage"), 1)
-        self.assertEqual(output.get("focus_state", {}).get("group_key"), "sheet-b|group-b")
-        self.assertEqual(output.get("focus_state", {}).get("run_stage"), 1)
+        self.assertEqual(output.get("current_group_key"), "sheet-a|group-a")
+        self.assertEqual(output.get("current_run_stage"), 2)
+        self.assertEqual(output.get("focus_state", {}).get("group_key"), "sheet-a|group-a")
+        self.assertEqual(output.get("focus_state", {}).get("run_stage"), 2)
 
     def test_result_updated_uses_group_key_without_group_name_for_focus(self):
         run = self._create_run(stream_id="remote-focus-group-key")
