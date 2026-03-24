@@ -1047,6 +1047,248 @@ class OnlineResultsServicesTests(APITestCase):
         self.assertIn("sheet|group-c", output.get("latest_group_tables", {}))
         self.assertIn("sheet|group-c|run1", output.get("completed_groups", {}))
 
+    def test_group_completed_clears_focus_when_next_candidate_is_missing(self):
+        run = self._create_run(stream_id="remote-focus-clear")
+        result_event = WebhookEvent.objects.create(
+            stream_id="remote-focus-clear",
+            event_type="result_updated",
+            payload_json={
+                "payload": {
+                    "data": {
+                        "updated_results": [
+                            {
+                                "sheet_name": "sheet-a",
+                                "group_name": "group-a",
+                                "run1": "21.10",
+                            }
+                        ]
+                    }
+                }
+            },
+            payload_hash="c" * 64,
+        )
+        table_event = WebhookEvent.objects.create(
+            stream_id="remote-focus-clear",
+            event_type="group_table_updated",
+            payload_json={
+                "payload": {
+                    "group_key": "sheet-a|group-a",
+                    "sheet_name": "sheet-a",
+                    "group_name": "group-a",
+                    "data": {"rows": [{"run1": "21.10", "run2": "-", "total": "21.10"}]},
+                }
+            },
+            payload_hash="d" * 64,
+        )
+        completed_event = WebhookEvent.objects.create(
+            stream_id="remote-focus-clear",
+            event_type="group_completed",
+            payload_json={
+                "payload": {
+                    "group_key": "sheet-a|group-a",
+                    "sheet_name": "sheet-a",
+                    "group_name": "group-a",
+                    "data": {"group_table": {"rows": [{"run1": "21.10", "run2": "-", "total": "21.10"}]}},
+                }
+            },
+            payload_hash="e" * 64,
+        )
+
+        process_online_results_webhook_event(result_event.id)
+        process_online_results_webhook_event(table_event.id)
+        process_online_results_webhook_event(completed_event.id)
+
+        run.refresh_from_db()
+        output = run.external_response_json.get("stream_output", {})
+        self.assertEqual(output.get("current_group_key"), "")
+        self.assertEqual(output.get("current_run_stage"), 0)
+        self.assertEqual(output.get("focus_state", {}).get("group_key"), "")
+        self.assertEqual(output.get("focus_state", {}).get("run_stage"), 0)
+
+    def test_group_table_updated_switches_focus_to_run2_without_result_updated(self):
+        run = self._create_run(stream_id="remote-focus-run2")
+        events = [
+            WebhookEvent.objects.create(
+                stream_id="remote-focus-run2",
+                event_type="result_updated",
+                payload_json={
+                    "payload": {
+                        "data": {
+                            "updated_results": [
+                                {
+                                    "sheet_name": "sheet-a",
+                                    "group_name": "group-a",
+                                    "run1": "21.10",
+                                }
+                            ]
+                        }
+                    }
+                },
+                payload_hash="f" * 64,
+            ),
+            WebhookEvent.objects.create(
+                stream_id="remote-focus-run2",
+                event_type="group_table_updated",
+                payload_json={
+                    "payload": {
+                        "group_key": "sheet-a|group-a",
+                        "sheet_name": "sheet-a",
+                        "group_name": "group-a",
+                        "data": {"rows": [{"run1": "21.10", "run2": "-", "total": "21.10"}]},
+                    }
+                },
+                payload_hash="1" * 63 + "a",
+            ),
+            WebhookEvent.objects.create(
+                stream_id="remote-focus-run2",
+                event_type="group_completed",
+                payload_json={
+                    "payload": {
+                        "group_key": "sheet-a|group-a",
+                        "sheet_name": "sheet-a",
+                        "group_name": "group-a",
+                        "data": {"group_table": {"rows": [{"run1": "21.10", "run2": "-", "total": "21.10"}]}},
+                    }
+                },
+                payload_hash="1" * 63 + "b",
+            ),
+            WebhookEvent.objects.create(
+                stream_id="remote-focus-run2",
+                event_type="group_table_updated",
+                payload_json={
+                    "payload": {
+                        "group_key": "sheet-a|group-b",
+                        "sheet_name": "sheet-a",
+                        "group_name": "group-b",
+                        "data": {
+                            "rows": [
+                                {"run1": "20.50", "run2": "19.90", "total": "40.40"},
+                                {"run1": "-", "run2": "-", "total": "-"},
+                            ]
+                        },
+                    }
+                },
+                payload_hash="1" * 63 + "c",
+            ),
+        ]
+
+        for event in events:
+            process_online_results_webhook_event(event.id)
+
+        run.refresh_from_db()
+        output = run.external_response_json.get("stream_output", {})
+        self.assertEqual(output.get("current_group_key"), "sheet-a|group-b")
+        self.assertEqual(output.get("current_run_stage"), 2)
+        self.assertEqual(output.get("focus_state", {}).get("group_key"), "sheet-a|group-b")
+        self.assertEqual(output.get("focus_state", {}).get("run_stage"), 2)
+
+    def test_group_table_updated_switches_focus_to_other_sheet_run1_without_result_updated(self):
+        run = self._create_run(stream_id="remote-focus-other-sheet")
+        events = [
+            WebhookEvent.objects.create(
+                stream_id="remote-focus-other-sheet",
+                event_type="result_updated",
+                payload_json={
+                    "payload": {
+                        "data": {
+                            "updated_results": [
+                                {
+                                    "sheet_name": "sheet-a",
+                                    "group_name": "group-a",
+                                    "run2": "41.10",
+                                }
+                            ]
+                        }
+                    }
+                },
+                payload_hash="1" * 63 + "d",
+            ),
+            WebhookEvent.objects.create(
+                stream_id="remote-focus-other-sheet",
+                event_type="group_table_updated",
+                payload_json={
+                    "payload": {
+                        "group_key": "sheet-a|group-a",
+                        "sheet_name": "sheet-a",
+                        "group_name": "group-a",
+                        "data": {"rows": [{"run1": "20.50", "run2": "20.60", "total": "41.10"}]},
+                    }
+                },
+                payload_hash="1" * 63 + "e",
+            ),
+            WebhookEvent.objects.create(
+                stream_id="remote-focus-other-sheet",
+                event_type="group_completed",
+                payload_json={
+                    "payload": {
+                        "group_key": "sheet-a|group-a",
+                        "sheet_name": "sheet-a",
+                        "group_name": "group-a",
+                        "data": {"group_table": {"rows": [{"run1": "20.50", "run2": "20.60", "total": "41.10"}]}},
+                    }
+                },
+                payload_hash="1" * 63 + "f",
+            ),
+            WebhookEvent.objects.create(
+                stream_id="remote-focus-other-sheet",
+                event_type="group_table_updated",
+                payload_json={
+                    "payload": {
+                        "group_key": "sheet-b|group-b",
+                        "sheet_name": "sheet-b",
+                        "group_name": "group-b",
+                        "data": {
+                            "rows": [
+                                {"run1": "22.10", "run2": "-", "total": "22.10"},
+                                {"run1": "-", "run2": "-", "total": "-"},
+                            ]
+                        },
+                    }
+                },
+                payload_hash="2" * 63 + "a",
+            ),
+        ]
+
+        for event in events:
+            process_online_results_webhook_event(event.id)
+
+        run.refresh_from_db()
+        output = run.external_response_json.get("stream_output", {})
+        self.assertEqual(output.get("current_group_key"), "sheet-b|group-b")
+        self.assertEqual(output.get("current_run_stage"), 1)
+        self.assertEqual(output.get("focus_state", {}).get("group_key"), "sheet-b|group-b")
+        self.assertEqual(output.get("focus_state", {}).get("run_stage"), 1)
+
+    def test_result_updated_uses_group_key_without_group_name_for_focus(self):
+        run = self._create_run(stream_id="remote-focus-group-key")
+        event = WebhookEvent.objects.create(
+            stream_id="remote-focus-group-key",
+            event_type="result_updated",
+            payload_json={
+                "payload": {
+                    "data": {
+                        "updated_results": [
+                            {
+                                "sheet_name": "sheet-a",
+                                "group_key": "sheet-a|group-z",
+                                "run2": "19.87",
+                            }
+                        ]
+                    }
+                }
+            },
+            payload_hash="2" * 63 + "b",
+        )
+
+        process_online_results_webhook_event(event.id)
+
+        run.refresh_from_db()
+        output = run.external_response_json.get("stream_output", {})
+        self.assertEqual(output.get("current_group_key"), "sheet-a|group-z")
+        self.assertEqual(output.get("current_run_stage"), 2)
+        self.assertEqual(output.get("focus_state", {}).get("group_key"), "sheet-a|group-z")
+        self.assertEqual(output.get("focus_state", {}).get("run_stage"), 2)
+
     def test_start_forecast_event_is_saved(self):
         run = self._create_run(stream_id="remote-forecast")
         event = WebhookEvent.objects.create(

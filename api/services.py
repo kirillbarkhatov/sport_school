@@ -668,6 +668,11 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                                 event_time=event_time,
                                 competition_format=competition_format,
                             )
+                _update_focus_from_group_table_payload(
+                    stream_output=stream_output,
+                    payload=payload,
+                    event_time=event_time,
+                )
                 _reconcile_focus_state(stream_output=stream_output, event_time=event_time)
         elif event_type == "group_completed":
             group_key = str(payload.get("group_key") or "")
@@ -854,8 +859,11 @@ def _extract_significant_time_updates(data: dict[str, object]) -> list[dict[str,
         if not isinstance(item, dict):
             continue
         sheet_name = str(item.get("sheet_name") or "").strip()
+        group_key = str(item.get("group_key") or "").strip()
         group_name = str(item.get("group_name") or "").strip()
-        if not sheet_name or not group_name:
+        if not group_key and sheet_name and group_name:
+            group_key = f"{sheet_name}|{group_name}"
+        if not sheet_name or not group_key:
             continue
         run2 = item.get("run2")
         run1 = item.get("run1")
@@ -870,7 +878,7 @@ def _extract_significant_time_updates(data: dict[str, object]) -> list[dict[str,
             {
                 "sheet_name": sheet_name,
                 "group_name": group_name,
-                "group_key": f"{sheet_name}|{group_name}",
+                "group_key": group_key,
                 "run_stage": run_stage,
             }
         )
@@ -904,11 +912,69 @@ def _set_focus(
 
 def _clear_focus_to_break(*, stream_output: dict[str, object], event_time: datetime) -> None:
     focus = _focus_state(stream_output)
+    focus["sheet_name"] = ""
     focus["group_key"] = ""
     focus["run_stage"] = 0
     focus["updated_at"] = event_time.isoformat()
     stream_output["current_group_key"] = ""
     stream_output["current_run_stage"] = 0
+
+
+def _update_focus_from_candidates(
+    *,
+    stream_output: dict[str, object],
+    candidates: list[dict[str, object]],
+    event_time: datetime,
+) -> None:
+    if not candidates:
+        return
+
+    focus = _focus_state(stream_output)
+    current_sheet = str(focus.get("sheet_name") or "").strip()
+    current_group = str(focus.get("group_key") or "").strip()
+    current_stage = _safe_int(focus.get("run_stage"), 0)
+
+    for candidate in candidates:
+        candidate_sheet = str(candidate.get("sheet_name") or "").strip()
+        candidate_group = str(candidate.get("group_key") or "").strip()
+        candidate_stage = _safe_int(candidate.get("run_stage"), 0)
+        if candidate_stage not in {1, 2} or not candidate_sheet or not candidate_group:
+            continue
+
+        if current_stage not in {1, 2}:
+            _set_focus(
+                stream_output=stream_output,
+                sheet_name=candidate_sheet,
+                group_key=candidate_group,
+                run_stage=candidate_stage,
+                event_time=event_time,
+            )
+            current_sheet = candidate_sheet
+            current_group = candidate_group
+            current_stage = candidate_stage
+            continue
+
+        if candidate_sheet == current_sheet and candidate_stage == current_stage:
+            if candidate_group != current_group:
+                _set_focus(
+                    stream_output=stream_output,
+                    sheet_name=candidate_sheet,
+                    group_key=candidate_group,
+                    run_stage=candidate_stage,
+                    event_time=event_time,
+                )
+                current_group = candidate_group
+            continue
+
+        deferred = {
+            "sheet_name": candidate_sheet,
+            "group_key": candidate_group,
+            "run_stage": candidate_stage,
+            "updated_at": event_time.isoformat(),
+        }
+        stream_output["focus_deferred_candidate"] = deferred
+
+    _reconcile_focus_state(stream_output=stream_output, event_time=event_time)
 
 
 def _group_rows_from_stream_output(stream_output: dict[str, object], *, group_key: str) -> list[dict[str, object]]:
@@ -991,55 +1057,31 @@ def _is_sheet_run_closed(stream_output: dict[str, object], *, sheet_name: str, r
 
 def _update_focus_from_result_data(*, stream_output: dict[str, object], data: dict[str, object], event_time: datetime) -> None:
     updates = _extract_significant_time_updates(data)
-    if not updates:
+    _update_focus_from_candidates(stream_output=stream_output, candidates=updates, event_time=event_time)
+
+
+def _update_focus_from_group_table_payload(
+    *,
+    stream_output: dict[str, object],
+    payload: dict[str, object],
+    event_time: datetime,
+) -> None:
+    group_key = str(payload.get("group_key") or "").strip()
+    sheet_name = str(payload.get("sheet_name") or "").strip()
+    run_stage = _detect_run_stage_from_payload(payload)
+    if not group_key or not sheet_name or run_stage not in {1, 2}:
         return
-
-    focus = _focus_state(stream_output)
-    current_sheet = str(focus.get("sheet_name") or "").strip()
-    current_group = str(focus.get("group_key") or "").strip()
-    current_stage = _safe_int(focus.get("run_stage"), 0)
-
-    for candidate in updates:
-        candidate_sheet = str(candidate.get("sheet_name") or "")
-        candidate_group = str(candidate.get("group_key") or "")
-        candidate_stage = _safe_int(candidate.get("run_stage"), 0)
-        if candidate_stage not in {1, 2}:
-            continue
-
-        if current_stage not in {1, 2}:
-            _set_focus(
-                stream_output=stream_output,
-                sheet_name=candidate_sheet,
-                group_key=candidate_group,
-                run_stage=candidate_stage,
-                event_time=event_time,
-            )
-            current_sheet = candidate_sheet
-            current_group = candidate_group
-            current_stage = candidate_stage
-            continue
-
-        if candidate_sheet == current_sheet and candidate_stage == current_stage:
-            if candidate_group != current_group:
-                _set_focus(
-                    stream_output=stream_output,
-                    sheet_name=candidate_sheet,
-                    group_key=candidate_group,
-                    run_stage=candidate_stage,
-                    event_time=event_time,
-                )
-                current_group = candidate_group
-            continue
-
-        deferred = {
-            "sheet_name": candidate_sheet,
-            "group_key": candidate_group,
-            "run_stage": candidate_stage,
-            "updated_at": event_time.isoformat(),
-        }
-        stream_output["focus_deferred_candidate"] = deferred
-
-    _reconcile_focus_state(stream_output=stream_output, event_time=event_time)
+    _update_focus_from_candidates(
+        stream_output=stream_output,
+        candidates=[
+            {
+                "sheet_name": sheet_name,
+                "group_key": group_key,
+                "run_stage": run_stage,
+            }
+        ],
+        event_time=event_time,
+    )
 
 
 def _reconcile_focus_state(*, stream_output: dict[str, object], event_time: datetime) -> None:
@@ -1073,6 +1115,8 @@ def _reconcile_focus_state(*, stream_output: dict[str, object], event_time: date
                     event_time=event_time,
                 )
                 stream_output.pop("focus_deferred_candidate", None)
+                return
+        _clear_focus_to_break(stream_output=stream_output, event_time=event_time)
         return
 
     focus = _focus_state(stream_output)
