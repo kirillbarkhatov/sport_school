@@ -668,11 +668,6 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                                 event_time=event_time,
                                 competition_format=competition_format,
                             )
-                _update_focus_from_group_table_payload(
-                    stream_output=stream_output,
-                    payload=payload,
-                    event_time=event_time,
-                )
                 _reconcile_focus_state(stream_output=stream_output, event_time=event_time)
         elif event_type == "group_completed":
             group_key = str(payload.get("group_key") or "")
@@ -1060,30 +1055,6 @@ def _update_focus_from_result_data(*, stream_output: dict[str, object], data: di
     _update_focus_from_candidates(stream_output=stream_output, candidates=updates, event_time=event_time)
 
 
-def _update_focus_from_group_table_payload(
-    *,
-    stream_output: dict[str, object],
-    payload: dict[str, object],
-    event_time: datetime,
-) -> None:
-    group_key = str(payload.get("group_key") or "").strip()
-    sheet_name = str(payload.get("sheet_name") or "").strip()
-    run_stage = _detect_run_stage_from_payload(payload)
-    if not group_key or not sheet_name or run_stage not in {1, 2}:
-        return
-    _update_focus_from_candidates(
-        stream_output=stream_output,
-        candidates=[
-            {
-                "sheet_name": sheet_name,
-                "group_key": group_key,
-                "run_stage": run_stage,
-            }
-        ],
-        event_time=event_time,
-    )
-
-
 def _reconcile_focus_state(*, stream_output: dict[str, object], event_time: datetime) -> None:
     focus = _focus_state(stream_output)
     sheet_name = str(focus.get("sheet_name") or "").strip()
@@ -1116,7 +1087,6 @@ def _reconcile_focus_state(*, stream_output: dict[str, object], event_time: date
                 )
                 stream_output.pop("focus_deferred_candidate", None)
                 return
-        _clear_focus_to_break(stream_output=stream_output, event_time=event_time)
         return
 
     focus = _focus_state(stream_output)
