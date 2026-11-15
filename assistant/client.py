@@ -45,6 +45,8 @@ class AssistantClient:
     """HTTP клиент для обмена данными с AI-помощником."""
 
     def __init__(self, *, service_account: ServiceAccount | None = None):
+        if getattr(settings, "STAGING_MODE", False):
+            raise AssistantIntegrationDisabled("STAGING_MODE: обращения к AI-ассистенту отключены.")
         if not is_integration_enabled():
             raise AssistantIntegrationDisabled("Интеграция с AI ассистентом отключена настройками.")
 

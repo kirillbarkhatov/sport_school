@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 @app.on_after_finalize.connect
 def bootstrap_schedule(sender, **kwargs):
+    from django.conf import settings
+
+    if getattr(settings, "STAGING_MODE", False):
+        logger.info("STAGING_MODE: стартовые задачи по расписанию не ставятся")
+        return
     try:
         from classes.tasks import ensure_weekly_schedule_task
 

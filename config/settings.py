@@ -35,6 +35,12 @@ def env_list(name: str) -> list[str]:
     return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
 
 
+# STAGING_MODE: копия прода для репетиции релизов. Отключает все внешние каналы: Telegram, почту,
+# расписание Celery, AI-анализатор и ассистента, запись в S3. Каналы глушатся здесь и дополнительно
+# проверяются в точках вызова (см. tests/test_staging_mode.py).
+STAGING_MODE = env_bool("STAGING_MODE")
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
@@ -174,7 +180,11 @@ USE_TZ = True
 _email_user = os.getenv("EMAIL_HOST_USER", "")
 MAILERS = {
     "default": {
-        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "BACKEND": (
+            "django.core.mail.backends.console.EmailBackend"
+            if STAGING_MODE
+            else "django.core.mail.backends.smtp.EmailBackend"
+        ),
         "OPTIONS": {
             "host": "smtp.mail.ru",
             "port": 465,
@@ -216,7 +226,7 @@ def require_setting(name: str) -> str:
 
 
 # Хранилище файлов: локально (по умолчанию) или S3-совместимое (Yandex Object Storage)
-STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "filesystem").lower()
+STORAGE_BACKEND = "filesystem" if STAGING_MODE else os.getenv("STORAGE_BACKEND", "filesystem").lower()
 
 if STORAGE_BACKEND == "s3":
     AWS_ACCESS_KEY_ID = require_setting("AWS_ACCESS_KEY_ID")
@@ -255,7 +265,7 @@ else:
 
 # Настройки для телеграмма
 BOT_NAME = os.getenv("BOT_NAME")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = "" if STAGING_MODE else os.getenv("BOT_TOKEN")
 SITE_BASE_URL = require_setting("SITE_BASE_URL").rstrip("/")
 
 
@@ -542,7 +552,7 @@ WHATSAPP_SYNC_TOKEN = os.getenv("WHATSAPP_SYNC_TOKEN", "")
 
 # Старая интеграция online_results_script выводится из эксплуатации: запуск новых потоков закрыт,
 # история и действующие публичные ссылки остаются доступны на чтение.
-LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED = env_bool("LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED")
+LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED = env_bool("LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED") and not STAGING_MODE
 
 # Онлайн-результаты (приложение results)
 RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(
@@ -571,3 +581,14 @@ AI_ASSISTANT_SERVICE_ACCOUNT_SLUG = os.getenv("AI_ASSISTANT_SERVICE_ACCOUNT_SLUG
 AI_ASSISTANT_ENDPOINT_MEMBERS = os.getenv("AI_ASSISTANT_ENDPOINT_MEMBERS", "/api/v1/sync/members/")
 AI_ASSISTANT_ENDPOINT_TAXONOMY = os.getenv("AI_ASSISTANT_ENDPOINT_TAXONOMY", "/api/v1/sync/taxonomy/")
 AI_ASSISTANT_ENDPOINT_TRAININGS = os.getenv("AI_ASSISTANT_ENDPOINT_TRAININGS", "/api/v1/sync/trainings/")
+
+
+if STAGING_MODE:
+    # Последний рубеж: даже если в .env staging попали боевые значения, внешние каналы выключены.
+    CELERY_BEAT_SCHEDULE = {}
+    AI_ASSISTANT_ENABLED = False
+    DOCS_AI_ORCHESTRATOR_ENABLED = False
+    DOCS_SYNC_ON_STARTUP = False
+    TELEGRAM_DOC_IMPORT_ENABLED = False
+    TELEGRAM_LOG_CHAT_ID = None
+    RESULTS_TELEGRAM_SYNC = False

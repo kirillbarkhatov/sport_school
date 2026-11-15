@@ -218,7 +218,9 @@ class OnlineResultsWebhookViewTests(APITestCase):
         self.assertEqual(WebhookEvent.objects.count(), 1)
 
 
-@override_settings(LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED=True)  # проверяем старое поведение запуска при включённом флаге
+@override_settings(
+    LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED=True
+)  # проверяем старое поведение запуска при включённом флаге
 class OnlineResultsPagesTests(APITestCase):
     def setUp(self):
         user_model = get_user_model()

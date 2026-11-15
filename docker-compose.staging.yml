@@ -1,0 +1,29 @@
+# Staging: репетиция релизов на копии прода, изолированно от прода.
+#   scripts/staging_compose.sh up -d        (обёртка: проект sport_school_staging + этот файл)
+# Отличия от прода:
+#   - имя проекта sport_school_staging → свои контейнеры, тома (postgres18_data, redis_data) и сеть;
+#   - веб только на 127.0.0.1:8020 (порт прода 8010 не публикуется: !override заменяет список, а не дополняет);
+#   - STAGING_MODE=True во всех сервисах приложения: Telegram, почта, расписание Celery, AI, S3 выключены;
+#   - бот не запускается (профиль, который никогда не включается).
+services:
+  migrate:
+    environment:
+      STAGING_MODE: "True"
+  web:
+    environment:
+      STAGING_MODE: "True"
+    ports: !override
+      - "127.0.0.1:8020:8000"
+  bot:
+    profiles: ["never-on-staging"]
+    environment:
+      STAGING_MODE: "True"
+  celery_worker_docs:
+    environment:
+      STAGING_MODE: "True"
+  celery_worker_default:
+    environment:
+      STAGING_MODE: "True"
+  results_worker:
+    environment:
+      STAGING_MODE: "True"
