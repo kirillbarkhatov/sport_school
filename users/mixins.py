@@ -8,18 +8,37 @@ from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
 from django.urls import reverse
 
+from organizations.alumni import can_read_history, history_family_ids
 from organizations.permissions import authorize, has_site_access
 
 
 class ApprovedUserRequiredMixin(LoginRequiredMixin):
-    """Вошёл и подтверждён (legacy: is_approved или staff; memberships: активное членство)."""
+    """Вошёл и подтверждён (legacy: is_approved или staff; memberships: активное членство).
+
+    history_read_allowed = True — страница собственной истории: выпускник (право history.read) проходит
+    только на чтение с request.history_only = True, а представление ограничивает записи своими семьями
+    (restrict_to_history). Остальные страницы клуба выпускнику закрыты (D17).
+    """
+
+    history_read_allowed = False
 
     def dispatch(self, request, *args, **kwargs):
+        request.history_only = False
         if not request.user.is_authenticated:
             return super().dispatch(request, *args, **kwargs)
         if not has_site_access(request.user):
+            if can_read_history(request.user):
+                if self.history_read_allowed and request.method in ("GET", "HEAD"):
+                    request.history_only = True
+                    return super().dispatch(request, *args, **kwargs)
+                return redirect(reverse("members:family_list"))  # выпускнику — к своей истории
             return redirect(reverse("users:awaiting_approval"))
         return super().dispatch(request, *args, **kwargs)
+
+    def restrict_to_history(self, queryset):
+        if getattr(self.request, "history_only", False):
+            return queryset.filter(pk__in=history_family_ids(self.request.user))
+        return queryset
 
 
 class StaffAreaRequiredMixin(ApprovedUserRequiredMixin):

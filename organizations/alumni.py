@@ -28,11 +28,20 @@ def history_access_enabled(organization) -> bool:
     return bool(organization is not None and (organization.settings or {}).get(HISTORY_SETTING, True))
 
 
-def _in_family_with_status(status: str) -> Q:
+def _in_family_with_status(status: str | None, organization) -> Q:
+    """Пользователь связан с семьёй (статус status или любой при None) ТОЛЬКО этой организации (D18).
+    Условия на одну связь в одном Q — один JOIN, поэтому статус и организация относятся к одной семье."""
+
+    def family(prefix):
+        conditions = {f"{prefix}__organization": organization}
+        if status is not None:
+            conditions[f"{prefix}__status"] = status
+        return Q(**conditions)
+
     return (
-        Q(person__familymember__family__status=status)
-        | Q(person__families__status=status)
-        | Q(athlete_links__athlete__family_profiles__family__status=status)
+        family("person__familymember__family")
+        | family("person__families")
+        | family("athlete_links__athlete__family_profiles__family")
     )
 
 
@@ -43,15 +52,20 @@ def candidate_memberships(organization=None):
     from .models import Membership, PlatformRole, RoleAssignment
 
     organization = organization or default_organization()
+    if organization is None:
+        return Membership.objects.none()
     User = get_user_model()
-    alumni_users = User.objects.filter(_in_family_with_status(ALUMNI)).values("pk")
-    keep = User.objects.filter(
-        _in_family_with_status(ACTIVE)
-        | Q(groups__isnull=False)
-        | Q(is_staff=True)
+    alumni_users = User.objects.filter(_in_family_with_status(ALUMNI, organization)).values("pk")
+    basis = (
+        _in_family_with_status(ACTIVE, organization)
+        | Q(person__coach__organization=organization)
+        | Q(is_staff=True)  # глобальные флаги — консервативно сохраняем активность
         | Q(is_superuser=True)
-        | Q(person__coach__isnull=False)
-    ).values("pk")
+    )
+    if organization.slug == _default_slug():
+        basis |= Q(groups__isnull=False)  # группы Django — роли старой схемы организации по умолчанию
+    keep = User.objects.filter(basis).values("pk")
+    # роли только ЭТОЙ организации: активная роль в другом клубе не мешает «ушёл» здесь (D18)
     with_roles = RoleAssignment.objects.filter(membership__organization=organization).values("membership__user_id")
     platform = PlatformRole.objects.values("user_id")
     return (
@@ -60,7 +74,27 @@ def candidate_memberships(organization=None):
         .exclude(user_id__in=keep)
         .exclude(user_id__in=with_roles)
         .exclude(user_id__in=platform)
+        .exclude(approved_by__isnull=False)  # явное решение администратора о членстве сохраняется
+        .exclude(pk__in=_reverted_by_admin(organization))
     )
+
+
+def _default_slug() -> str:
+    from .migration_utils import default_slug
+
+    return default_slug()
+
+
+def _reverted_by_admin(organization) -> set[int]:
+    """Членства, которые уже переводились в «ушёл», но сейчас активны, — их вернул администратор."""
+    from .models import AuditLog
+
+    ids: set[int] = set()
+    for payload in AuditLog.objects.filter(organization=organization, action="alumni_marked").values_list(
+        "payload", flat=True
+    ):
+        ids.update((payload or {}).get("membership_ids", []))
+    return ids
 
 
 @dataclass
@@ -82,10 +116,10 @@ def mark_alumni(*, apply: bool, organization=None, actor=None) -> AlumniReport:
     from .models import AuditLog, Membership
 
     organization = organization or default_organization()
-    report = AlumniReport(alumni_families=Family.all_objects.filter(status=ALUMNI).count())
+    report = AlumniReport(alumni_families=Family.all_objects.filter(status=ALUMNI, organization=organization).count())
     candidates = list(candidate_memberships(organization).select_related("user"))
     report.candidates = len(candidates)
-    linked = get_user_model().objects.filter(_in_family_with_status(ALUMNI)).distinct().count()
+    linked = get_user_model().objects.filter(_in_family_with_status(ALUMNI, organization)).distinct().count()
     report.kept_with_basis = max(linked - report.candidates, 0)
     if not apply:
         return report
@@ -99,7 +133,11 @@ def mark_alumni(*, apply: bool, organization=None, actor=None) -> AlumniReport:
             organization=organization,
             actor=actor,
             action="alumni_marked",
-            payload={"marked": report.marked, "kept_with_basis": report.kept_with_basis},
+            payload={
+                "marked": report.marked,
+                "kept_with_basis": report.kept_with_basis,
+                "membership_ids": report.membership_ids,
+            },
         )
     return report
 
@@ -131,9 +169,25 @@ def is_history_only(user, organization=None) -> bool:
     )
 
 
+# Публичные маршруты, открытые выпускнику (и любому посетителю): здоровье, публичные трансляции.
+HISTORY_PUBLIC_URL_NAMES = frozenset(
+    {
+        "healthz",
+        "public_live",
+        "public_fragment",
+        "online-results-live-public",
+        "online-results-live-public-state",
+        "online-results-live-public-document",
+    }
+)
+
+
 class HistoryReadOnlyMiddleware:
-    """Выпускник (членство «ушёл») видит свою историю, но ничего не меняет: изменяющие запросы → 403.
-    Вход и выход (пространство имён users) не ограничиваются."""
+    """Выпускник (членство «ушёл», право history.read) — D17:
+    - изменяющие запросы → 403 (кроме входа и выхода, пространство имён users);
+    - GET: публичные маршруты, вход и выход, а также страницы с ApprovedUserRequiredMixin — они сами
+      пускают только history_read_allowed-страницы со своими семьями; остальное → к своим семьям.
+    """
 
     SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -141,14 +195,46 @@ class HistoryReadOnlyMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if request.method not in self.SAFE_METHODS and is_history_only(getattr(request, "user", None)):
-            from django.http import HttpResponseForbidden
-            from django.urls import Resolver404, resolve
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False) or not is_history_only(user):
+            return self.get_response(request)
+        from django.http import HttpResponseForbidden
+        from django.shortcuts import redirect
+        from django.urls import Resolver404, resolve
 
-            try:
-                namespace = resolve(request.path_info).namespace
-            except Resolver404:
-                namespace = ""
-            if namespace != "users":
-                return HttpResponseForbidden("Доступ только для просмотра истории.")
-        return self.get_response(request)
+        try:
+            match = resolve(request.path_info)
+        except Resolver404:
+            return self.get_response(request)
+        if match.namespace == "users":
+            return self.get_response(request)
+        if request.method not in self.SAFE_METHODS:
+            return HttpResponseForbidden("Доступ только для просмотра истории.")
+        if match.url_name in HISTORY_PUBLIC_URL_NAMES:
+            return self.get_response(request)
+        from users.mixins import ApprovedUserRequiredMixin
+
+        view_class = getattr(match.func, "view_class", None)
+        if view_class is not None and issubclass(view_class, ApprovedUserRequiredMixin):
+            return self.get_response(request)  # решает сама страница (history_read_allowed)
+        return redirect("members:family_list")
+
+
+def can_read_history(user, organization=None) -> bool:
+    """Право history.read: выпускник видит только свои семейные записи (D17). Это не доступ к сайту."""
+    return is_history_only(user, organization)
+
+
+def history_family_ids(user, organization=None) -> list[int]:
+    """Семьи этой организации, с которыми связан пользователь: участник, контактное лицо, родитель спортсмена."""
+    from school.models import Family
+
+    from .scoping import scope_organization
+
+    organization = organization or scope_organization()
+    if organization is None or not getattr(user, "is_authenticated", False):
+        return []
+    q = Q(athlete_profiles__athlete__user_links__user=user)
+    if user.person_id:
+        q |= Q(members__person_id=user.person_id) | Q(contact_person_id=user.person_id)
+    return list(Family.all_objects.filter(organization=organization).filter(q).values_list("pk", flat=True).distinct())

@@ -111,7 +111,8 @@ class Command(BaseCommand):
             )
 
         left = Membership.objects.filter(status=Membership.Status.LEFT)
-        left_with_basis = left.filter(user_id__in=RoleAssignment.objects.values("membership__user_id")).count()
+        # роль в ТОМ ЖЕ членстве — расхождение; активная роль в другом клубе совместима с «ушёл» здесь (D18)
+        left_with_basis = left.filter(pk__in=RoleAssignment.objects.values("membership_id")).count()
         left_staff = get_user_model().objects.filter(pk__in=left.values("user_id")).filter(is_staff=True).count()
         notes.append(f"выпускников («ушёл»): {left.count()}")
         if left_with_basis or left_staff:

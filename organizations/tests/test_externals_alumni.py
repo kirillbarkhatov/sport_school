@@ -2,6 +2,7 @@
 """T06 (R2-5, R2-7, D15, D16): внешние спортсмены, выпускники, наследие трансляций, глобальные учётки."""
 
 from datetime import date, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -265,7 +266,8 @@ def test_alumni_in_memberships_mode_read_only_history(families, client, settings
     client.force_login(graduate)
     assert client.get(reverse("members:family_list")).status_code == 200
     assert client.post(reverse("groups:group_create"), {"name": "x"}).status_code == 403
-    assert client.get(reverse("groups:group_create")).status_code == 403  # роли сотрудника нет
+    response = client.get(reverse("groups:group_create"))  # страница клуба закрыта: к своей истории (D17)
+    assert response.status_code == 302 and response["Location"] == reverse("members:family_list")
 
 
 # --- D15: наследие трансляций только в ksclub -------------------------------------------------------------
@@ -419,3 +421,169 @@ def test_stage4_check_r2_fails_on_left_with_role(capsys, families):
     RoleAssignment.objects.create(membership=m, role=OrgRole.objects.get(code=OrgRole.COACH), source="manual")
     with pytest.raises(CommandError):
         _check(capsys)
+
+
+# --- D17: выпускник видит только свою историю -----------------------------------------------------------------
+
+
+@pytest.fixture
+def graduate_world(families):
+    from results.models import ResultsEvent
+
+    stranger = FamilyFactory(family_name="ЧужаяСемья", status="active")
+    event = ResultsEvent.objects.create(title="Публичный эфир", source_kind="manual", status="running")
+    mark_alumni(apply=True)
+    return {
+        "graduate": User.objects.get(pk=families["graduate"].pk),
+        "own": families["alumni"],
+        "stranger": stranger,
+        "event": event,
+    }
+
+
+CLUB_PAGES = [
+    "school:index",
+    "school:athlete_list",
+    "school:competition_list",
+    "groups:group_list",
+    "classes:class_list",
+    "members:members_list",
+    "notifications:notification_list",
+]
+
+
+@pytest.mark.parametrize("roles", ["legacy", "memberships"])
+def test_d17_graduate_reads_only_own_family_history(graduate_world, client, settings, roles):
+    settings.ORGS_ROLES_SOURCE = roles
+    g = graduate_world
+    client.force_login(g["graduate"])
+    page = client.get(reverse("members:family_list"))
+    assert page.status_code == 200
+    assert "Выпускники" in page.content.decode() and "ЧужаяСемья" not in page.content.decode()
+    assert client.get(reverse("members:family_detail", kwargs={"pk": g["own"].pk})).status_code == 200
+    assert client.get(reverse("members:family_finance", kwargs={"pk": g["own"].pk})).status_code == 200
+    assert client.get(reverse("members:family_detail", kwargs={"pk": g["stranger"].pk})).status_code == 404
+    assert client.get(reverse("members:family_finance", kwargs={"pk": g["stranger"].pk})).status_code == 404
+    for name in CLUB_PAGES:
+        response = client.get(reverse(name))
+        assert response.status_code == 302 and response["Location"] == reverse("members:family_list"), name
+    # действия с внешними эффектами: изменения и заявки
+    competition = CompetitionFactory()
+    from school.models import CompetitionApplicationLink
+
+    link = CompetitionApplicationLink.objects.create(competition=competition, token="grad-token")
+    apply_url = reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
+    assert client.get(apply_url).status_code == 302
+    assert client.post(apply_url, {}).status_code == 403
+    assert client.post(reverse("members:family_update", kwargs={"pk": g["own"].pk}), {}).status_code == 403
+    # публичные страницы и выход доступны
+    public = reverse("results:public_live", kwargs={"token": g["event"].public_token})
+    assert client.get(public).status_code != 302
+    assert client.get(reverse("healthz")).status_code == 200
+
+
+@pytest.mark.parametrize("roles", ["legacy", "memberships"])
+def test_d17_history_setting_off_closes_everything(families, client, settings, roles):
+    settings.ORGS_ROLES_SOURCE = roles
+    org = ksclub()
+    org.settings = {**(org.settings or {}), "alumni_history_access": False}
+    org.save(update_fields=["settings"])
+    mark_alumni(apply=True)
+    graduate = User.objects.get(pk=families["graduate"].pk)
+    client.force_login(graduate)
+    for name in ("members:family_list", "school:index"):
+        response = client.get(reverse(name))
+        assert response.status_code == 302 and reverse("users:awaiting_approval") in response["Location"]
+    response = client.get(reverse("members:family_detail", kwargs={"pk": families["alumni"].pk}))
+    assert response.status_code == 302
+
+
+def test_d17_active_parent_unaffected(families, client):
+    mark_alumni(apply=True)
+    client.force_login(families["active_only"])
+    for name in ("school:athlete_list", "school:competition_list", "members:family_list"):
+        assert client.get(reverse(name)).status_code == 200, name
+
+
+# --- D18: кандидаты в выпускники — только связи текущей организации --------------------------------------
+
+
+@pytest.fixture
+def two_clubs(two_orgs):
+    ks, ot = two_orgs.orgs["KS"], two_orgs.orgs["OT"]
+
+    def family(org, status, name):
+        with organization_context(org):
+            return FamilyFactory(family_name=name, status=status)
+
+    def member(email, links, roles_in=()):
+        person = PersonFactory()
+        user = User.objects.create(email=email, is_approved=True, person=person)
+        Membership.objects.filter(user=user).delete()
+        for org in (ks, ot):
+            m = Membership.objects.create(user=user, organization=org, status=Membership.Status.ACTIVE)
+            if org in roles_in:
+                RoleAssignment.objects.create(
+                    membership=m, role=OrgRole.objects.get(code=OrgRole.COACH), source="manual"
+                )
+        for fam in links:
+            FamilyMember.objects.create(family=fam, person=person, relation="parent", organization=fam.organization)
+        return user
+
+    fam = {
+        "ks_alumni": family(ks, "alumni", "KS-выпуск"),
+        "ks_active": family(ks, "active", "KS-действ"),
+        "ot_alumni": family(ot, "alumni", "OT-выпуск"),
+        "ot_active": family(ot, "active", "OT-действ"),
+    }
+    users = {
+        # выпускник в KS, активная семья и роль тренера в OT — независимо
+        "ks_grad_ot_active": member("d18-a@example.com", [fam["ks_alumni"], fam["ot_active"]], roles_in=[ot]),
+        # выпускник только в OT, активен в KS
+        "ot_grad_ks_active": member("d18-b@example.com", [fam["ot_alumni"], fam["ks_active"]]),
+    }
+    return SimpleNamespace(ks=ks, ot=ot, fam=fam, users=users)
+
+
+def _status(user, org):
+    return Membership.objects.get(user=user, organization=org).status
+
+
+def test_d18_alumni_decided_per_organization(two_clubs):
+    c = two_clubs
+    ks_report = mark_alumni(apply=True, organization=c.ks)
+    ot_report = mark_alumni(apply=True, organization=c.ot)
+    assert ks_report.marked == 1 and ot_report.marked == 1
+    a, b = c.users["ks_grad_ot_active"], c.users["ot_grad_ks_active"]
+    assert _status(a, c.ks) == Membership.Status.LEFT  # активная семья и роль в OT не держат в KS
+    assert _status(a, c.ot) == Membership.Status.ACTIVE
+    assert RoleAssignment.objects.filter(membership__user=a, membership__organization=c.ot).exists()
+    assert _status(b, c.ks) == Membership.Status.ACTIVE  # история OT не меняет KS
+    assert _status(b, c.ot) == Membership.Status.LEFT
+
+
+def test_d18_history_family_ids_limited_to_organization(two_clubs):
+    from organizations.alumni import history_family_ids
+
+    a = two_clubs.users["ks_grad_ot_active"]
+    assert set(history_family_ids(a, two_clubs.ks)) == {two_clubs.fam["ks_alumni"].pk}
+    assert set(history_family_ids(a, two_clubs.ot)) == {two_clubs.fam["ot_active"].pk}
+
+
+def test_d18_admin_decisions_preserved(two_clubs):
+    c = two_clubs
+    a = c.users["ks_grad_ot_active"]
+    mark_alumni(apply=True, organization=c.ks)
+    Membership.objects.filter(user=a, organization=c.ks).update(status=Membership.Status.ACTIVE)  # вернул админ
+    assert mark_alumni(apply=True, organization=c.ks).marked == 0
+    assert _status(a, c.ks) == Membership.Status.ACTIVE
+    b = c.users["ot_grad_ks_active"]
+    Membership.objects.filter(user=b, organization=c.ot).update(approved_by=a)  # явное решение о членстве
+    assert mark_alumni(apply=True, organization=c.ot).marked == 0
+
+
+def test_d18_stage4_check_accepts_left_here_with_role_elsewhere(two_clubs, capsys):
+    mark_alumni(apply=True, organization=two_clubs.ks)
+    call_command("stage4_check", "--release", "r2")
+    out = capsys.readouterr().out
+    assert "✓ stage4_check r2" in out and "выпускников («ушёл»): 1" in out

@@ -709,6 +709,7 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
 class FamilyListView(ApprovedUserRequiredMixin, ListView):
     model = Family
     template_name = "members/family_list.html"
+    history_read_allowed = True  # выпускник видит только свои семьи (D17)
 
     def get_queryset(self):
         base_qs = Family.objects.prefetch_related("members__person")
@@ -718,7 +719,7 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
         if is_privileged(self.request.user):
             return base_qs.order_by("family_name")
         family_ids = self.request.user.get_accessible_family_ids()
-        return base_qs.filter(id__in=family_ids).order_by("family_name")
+        return self.restrict_to_history(base_qs.filter(id__in=family_ids)).order_by("family_name")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -821,6 +822,7 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
 
 
 class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
+    history_read_allowed = True  # выпускник: только свои семьи этой организации (D17)
     model = Family
     template_name = "members/family_detail.html"
 
@@ -828,7 +830,7 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
         base = Family.objects.prefetch_related("members__person")
         if is_privileged(self.request.user):
             return base
-        return base.filter(id__in=self.request.user.get_accessible_family_ids())
+        return self.restrict_to_history(base.filter(id__in=self.request.user.get_accessible_family_ids()))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1011,6 +1013,7 @@ class FamilyUpdateView(ApprovedUserRequiredMixin, UpdateView):
 
 
 class FamilyFinanceView(ApprovedUserRequiredMixin, DetailView):
+    history_read_allowed = True  # выпускник: только свои семьи этой организации (D17)
     model = Family
     template_name = "members/family_finance.html"
 
@@ -1018,7 +1021,7 @@ class FamilyFinanceView(ApprovedUserRequiredMixin, DetailView):
         base = Family.objects.prefetch_related("services__payments", "athlete_profiles__athlete__person")
         if is_privileged(self.request.user):
             return base
-        return base.filter(id__in=self.request.user.get_accessible_family_ids())
+        return self.restrict_to_history(base.filter(id__in=self.request.user.get_accessible_family_ids()))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
