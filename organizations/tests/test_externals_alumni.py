@@ -587,3 +587,32 @@ def test_d18_stage4_check_accepts_left_here_with_role_elsewhere(two_clubs, capsy
     call_command("stage4_check", "--release", "r2")
     out = capsys.readouterr().out
     assert "✓ stage4_check r2" in out and "выпускников («ушёл»): 1" in out
+
+
+# --- Участник только другой организации не попадает в ksclub (двойная запись R1, найдено на staging) --------
+
+
+def test_other_org_only_user_is_not_auto_joined_to_ksclub(two_orgs, settings, capsys):
+    from organizations.legacy import import_legacy
+
+    user = _only_member_of("ot-only@example.com", two_orgs.orgs["OT"], OrgRole.OWNER)
+    user.first_name = "Сохранён"
+    user.save()  # синхронизация R1 раньше создавала членство в ksclub
+    report = import_legacy()  # и импорт при старте контейнера — тоже
+    assert report.other_only >= 1
+    assert not Membership.objects.filter(user=user, organization=ksclub()).exists()
+    call_command("stage4_check", "--release", "r2")
+    assert "только в других организациях" in capsys.readouterr().out
+
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    response = client_for(user, "KS").get(reverse("groups:group_list"))
+    assert response.status_code == 302 and reverse("users:awaiting_approval") in response["Location"]
+    assert client_for(user, "OT").get(reverse("groups:group_list")).status_code == 200
+
+
+def test_ksclub_user_still_synced(two_orgs):
+    user = User.objects.create(email="ks-sync@example.com", is_approved=False)
+    assert Membership.objects.get(user=user, organization=ksclub()).status == Membership.Status.PENDING
+    user.is_approved = True
+    user.save()
+    assert Membership.objects.get(user=user, organization=ksclub()).status == Membership.Status.ACTIVE

@@ -11,7 +11,7 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Пользователей: {report.users}; создано членств: {report.memberships_created}, "
             f"назначений ролей: {report.roles_created}, отозвано: {report.roles_revoked}, "
-            f"глобальных ролей: {report.platform_roles_created}"
+            f"глобальных ролей: {report.platform_roles_created}; только в других организациях: {report.other_only}"
         )
         self.stdout.write(f"Членства по статусам: {report.by_status}")
         self.stdout.write(f"Роли: {report.by_role}")

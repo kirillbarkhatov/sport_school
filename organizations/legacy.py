@@ -63,6 +63,7 @@ class ImportReport:
     memberships_created: int = 0
     roles_created: int = 0
     roles_revoked: int = 0
+    other_only: int = 0
     platform_roles_created: int = 0
     users: int = 0
     by_status: dict[str, int] = field(default_factory=dict)
@@ -150,6 +151,9 @@ def import_legacy() -> ImportReport:
     User = get_user_model()
     with transaction.atomic(), _sync_guard():
         for user in User.objects.prefetch_related("groups"):
+            if belongs_only_elsewhere(user, organization):
+                report.other_only += 1  # участник только другой организации — в ksclub не переносится
+                continue
             report.users += 1
             membership, created = Membership.objects.get_or_create(
                 user=user,
@@ -232,7 +236,19 @@ def push_roles_to_legacy(membership: Membership) -> None:
 # --- Двойная запись: старые поля → новая модель (только до переключения источника) --------------------
 
 
-def _ensure_membership(user, organization) -> tuple[Membership, bool]:
+def belongs_only_elsewhere(user, organization) -> bool:
+    """Пользователь состоит в другой организации и не состоит в этой: в организацию по умолчанию его не
+    добавляют автоматически (двойная запись R1 считала всех участниками ksclub; T06, вторая организация)."""
+    memberships = Membership.objects.filter(user=user)
+    return (
+        memberships.exclude(organization=organization).exists()
+        and not memberships.filter(organization=organization).exists()
+    )
+
+
+def _ensure_membership(user, organization) -> tuple[Membership | None, bool]:
+    if belongs_only_elsewhere(user, organization):
+        return None, False
     return Membership.objects.get_or_create(
         user=user, organization=organization, defaults={"status": _membership_status_for(user), "source": Source.SYNC}
     )
@@ -247,6 +263,8 @@ def pull_user_to_membership(user) -> None:
         return
     with _sync_guard():
         membership, created = _ensure_membership(user, organization)
+        if membership is None:
+            return  # участник только другой организации
         if not created and membership.status in (Membership.Status.ACTIVE, Membership.Status.PENDING):
             wanted = _membership_status_for(user)
             if membership.status != wanted:
@@ -296,7 +314,8 @@ def find_discrepancies() -> Discrepancies:
     for user in User.objects.prefetch_related("groups"):
         membership = memberships.get(user.pk)
         if membership is None:
-            result.users_without_membership += 1
+            if not belongs_only_elsewhere(user, organization):
+                result.users_without_membership += 1
             continue
         approved = user.is_approved or user.is_staff or user.is_superuser
         if membership.status in (Membership.Status.ACTIVE, Membership.Status.PENDING) and approved != (

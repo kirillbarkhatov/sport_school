@@ -26,9 +26,15 @@ class Command(BaseCommand):
                     errors.append(f"домен {host} не привязан к ksclub")
                 if organization_for_host(host) != organization:
                     errors.append(f"{host} не разрешается в ksclub")
-            users = get_user_model().objects.count()
+            all_users = get_user_model().objects.all()
+            # участники только других организаций в ksclub не входят (T06)
+            other_only = all_users.exclude(memberships__organization=organization).filter(memberships__isnull=False)
+            users = all_users.count() - other_only.distinct().count()
             memberships = Membership.objects.filter(organization=organization).count()
-            notes.append(f"пользователей {users}, членств {memberships}")
+            notes.append(
+                f"пользователей {users}, членств {memberships}"
+                + (f", только в других организациях {other_only.distinct().count()}" if other_only.exists() else "")
+            )
             if users != memberships:
                 errors.append(f"членств ({memberships}) не равно числу пользователей ({users})")
             diff = find_discrepancies()
