@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import timedelta
 
 from django.db import close_old_connections
@@ -31,6 +32,7 @@ class EventRunner(threading.Thread):
         self.event_id = event_id
         self.stop_event = threading.Event()
         self._source = None
+        self._source_revision: int | None = None
         self._failures = 0
 
     def stop(self) -> None:
@@ -43,12 +45,20 @@ class EventRunner(threading.Thread):
             self.stop()
             return 0
         try:
-            if self._source is None:
+            if self._source is None or self._source_revision != event.source_revision:
+                # новый файл/ссылка/разметка — источник пересоздаётся без перезапуска воркера
                 self._source = build_source(event) or "manual"
+                self._source_revision = event.source_revision
             if self._source == "manual":
                 result = recompute(self.event_id)
             else:
-                result = ingest_snapshot(self.event_id, self._source.fetch())
+                fetched_at = timezone.now()
+                sheets = self._source.fetch()
+                result = ingest_snapshot(
+                    self.event_id, sheets, source_revision=self._source_revision, fetched_at=fetched_at
+                )
+                if result.stale:
+                    return 0  # источник сменился во время чтения — сразу читаем новый
         except SourceConfigError as exc:
             self._source = None  # настройки могли поправить — пересоздадим источник
             record_error(self.event_id, str(exc))
@@ -79,6 +89,22 @@ class EventRunner(threading.Thread):
         recent = event.last_changed_at and timezone.now() - event.last_changed_at < ACTIVE_WINDOW
         return max(0.5, event.poll_interval_sec if recent else event.idle_interval_sec)
 
+    def wait(self, pause: float) -> None:
+        """Пауза между опросами; прерывается раньше, если источник сменили или трансляцию остановили."""
+        deadline = time.monotonic() + pause
+        while not self.stop_event.is_set():
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return
+            if self.stop_event.wait(min(1.0, left)):
+                return
+            if self._source_revision is not None and pause > 1.5:
+                revision = (
+                    ResultsEvent.objects.filter(pk=self.event_id).values_list("source_revision", flat=True).first()
+                )
+                if revision is not None and revision != self._source_revision:
+                    return
+
     def run(self) -> None:
         logger.info("results: трансляция %s запущена", self.event_id)
         while not self.stop_event.is_set():
@@ -94,7 +120,7 @@ class EventRunner(threading.Thread):
                 except Exception:
                     logger.exception("results: не удалось записать ошибку event=%s", self.event_id)
                 pause = 10
-            self.stop_event.wait(pause)
+            self.wait(pause)
         close_old_connections()
         logger.info("results: трансляция %s остановлена", self.event_id)
 

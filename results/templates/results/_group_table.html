@@ -1,39 +1,51 @@
-{# rows, single_run, show_analytics #}
+{# rows, single_run, show_analytics. На телефоне колонки заездов и примечаний сворачиваются в строку под именем. #}
 <div class="table-responsive">
 <table class="table table-sm table-hover align-middle mb-0 results-table">
     <thead class="table-light">
     <tr>
-        <th class="text-end">М</th>
-        <th class="text-end">№</th>
-        <th>Участник</th>
-        <th class="d-none d-md-table-cell">Клуб</th>
-        <th class="text-end">1 з.</th>
-        {% if not single_run %}<th class="text-end">2 з.</th>{% endif %}
-        <th class="text-end">Итог</th>
-        <th class="text-end">Отст.</th>
-        {% if show_analytics %}<th class="d-none d-lg-table-cell">Примечание</th>{% endif %}
+        <th class="text-end" scope="col">М</th>
+        <th class="text-end d-none d-sm-table-cell" scope="col">№</th>
+        <th scope="col">Участник</th>
+        <th class="d-none d-md-table-cell" scope="col">Клуб</th>
+        <th class="text-end d-none d-sm-table-cell" scope="col">1 з.</th>
+        {% if not single_run %}<th class="text-end d-none d-sm-table-cell" scope="col">2 з.</th>{% endif %}
+        <th class="text-end" scope="col">Итог<span class="d-sm-none"> / отст.</span></th>
+        <th class="text-end d-none d-sm-table-cell" scope="col">Отст.</th>
+        {% if show_analytics %}<th class="d-none d-lg-table-cell" scope="col">Примечание</th>{% endif %}
     </tr>
     </thead>
     <tbody>
     {% for row in rows %}
     <tr class="{% if row.highlight %}table-primary{% endif %}{% if row.waiting %} text-body-secondary{% endif %}">
         <td class="text-end fw-semibold">{% if not row.waiting %}{{ row.place }}{% endif %}</td>
-        <td class="text-end">{{ row.start_number }}</td>
-        <td>
+        <td class="text-end d-none d-sm-table-cell">{{ row.start_number }}</td>
+        <td class="results-name">
+            <span class="d-sm-none text-body-secondary small">№{{ row.start_number }}</span>
             {{ row.full_name }}{% if row.birth_year %} <span class="text-body-secondary small">{{ row.birth_year }}</span>{% endif %}
             <div class="d-md-none small text-body-secondary">{{ row.club }}</div>
+            <div class="d-sm-none small font-monospace">1 з. {{ row.run1 }}{% if not single_run %} · 2 з. {{ row.run2 }}{% endif %}</div>
+            {% if row.rank_note or row.note %}
+            <div class="d-lg-none small">
+                {% if row.note %}<span class="{% if row.auto_finalized %}text-body-secondary fst-italic{% else %}text-warning-emphasis{% endif %}">{{ row.note }}</span>{% endif %}
+                {% if row.rank_note %}<span class="text-body-secondary">· {{ row.rank_note }}</span>{% endif %}
+            </div>
+            {% endif %}
         </td>
         <td class="d-none d-md-table-cell small">{{ row.club }}</td>
-        <td class="text-end font-monospace{% if row.best_run1 %} fw-bold text-success{% endif %}">{{ row.run1 }}</td>
-        {% if not single_run %}<td class="text-end font-monospace{% if row.best_run2 %} fw-bold text-success{% endif %}">{{ row.run2 }}</td>{% endif %}
-        <td class="text-end font-monospace fw-semibold">{% if not row.waiting %}{{ row.total }}{% endif %}</td>
-        <td class="text-end font-monospace small">{{ row.gap }}</td>
+        <td class="text-end font-monospace d-none d-sm-table-cell{% if row.best_run1 %} fw-bold text-success{% endif %}">{{ row.run1 }}</td>
+        {% if not single_run %}<td class="text-end font-monospace d-none d-sm-table-cell{% if row.best_run2 %} fw-bold text-success{% endif %}">{{ row.run2 }}</td>{% endif %}
+        <td class="text-end font-monospace fw-semibold">
+            {% if not row.waiting %}{{ row.total }}{% endif %}
+            {% if row.gap %}<div class="d-sm-none small fw-normal text-body-secondary">{{ row.gap }}</div>{% endif %}
+        </td>
+        <td class="text-end font-monospace small d-none d-sm-table-cell">{{ row.gap }}</td>
         {% if show_analytics %}
         <td class="d-none d-lg-table-cell small">
             {% if row.delta is not None and row.delta != 0 %}<span class="badge {% if row.delta > 0 %}text-bg-success{% else %}text-bg-danger{% endif %}">{% if row.delta > 0 %}+{% endif %}{{ row.delta }}</span>{% endif %}
             {% if row.outlook %}<span class="text-body-secondary">{{ row.outlook }}</span>{% endif %}
             {% if row.eta %}<span class="text-body-secondary">≈ {{ row.eta }}</span>{% endif %}
             {% if row.note %}<span class="{% if row.auto_finalized %}text-body-secondary fst-italic{% else %}text-warning-emphasis{% endif %}">{{ row.note }}</span>{% endif %}
+            {% if row.rank_note %}<span class="text-body-secondary">· {{ row.rank_note }}</span>{% endif %}
         </td>
         {% endif %}
     </tr>

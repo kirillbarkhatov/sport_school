@@ -5,6 +5,7 @@
     <a class="btn btn-sm btn-outline-secondary" href="{% url 'results:event_detail' event.pk %}"><i class="bi bi-sliders"></i> Пульт</a>
     {% if event.public_enabled %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'results:public_live' event.public_token %}" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Публичная страница</a>{% endif %}
 </div>
+<div id="live-stale" class="alert alert-warning py-2 small" role="status" hidden>Нет связи с сервером — данные могут быть устаревшими (последнее обновление <span data-last></span>). Продолжаем попытки…</div>
 <div id="live-root" data-version="{{ event.version }}" data-url="{{ fragment_url }}">
     {% include "results/_live_body.html" %}
 </div>

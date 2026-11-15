@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.http import Http404, HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, ListView, UpdateView
 
@@ -12,6 +13,7 @@ from users.mixins import ApprovedUserRequiredMixin
 
 from . import services
 from .core.parsing import detect_columns, parse_protocol
+from .core.values import InvalidResult, validate_manual
 from .forms import ColumnMappingsForm, EventForm, ManualResultForm
 from .linking import link_event_entries
 from .models import ResultEntry, ResultsEvent
@@ -64,6 +66,16 @@ class EventUpdateView(ResultsManagerMixin, UpdateView):
     form_class = EventForm
     template_name = "results/event_form.html"
 
+    def form_valid(self, form):
+        if set(form.changed_data) & set(ResultsEvent.SOURCE_FIELDS):
+            form.instance.bump_source_revision()
+            response = super().form_valid(form)
+            services.log_message(self.object.pk, "Источник протокола изменён", self.request.user)
+            if self.object.status == ResultsEvent.Status.RUNNING:
+                messages.info(self.request, "Источник изменён: воркер переключится на него при следующем опросе.")
+            return response
+        return super().form_valid(form)
+
     def get_success_url(self):
         return reverse("results:event_detail", kwargs={"pk": self.object.pk})
 
@@ -72,7 +84,19 @@ class EventDetailView(ResultsManagerMixin, View):
     """Пульт трансляции: статус, источник, предпросмотр разбора, разметка колонок, участники, журнал."""
 
     template_name = "results/event_detail.html"
-    actions = ("start", "pause", "finish", "reopen", "sync", "preview", "link", "mappings", "publish")
+    actions = (
+        "start",
+        "pause",
+        "finish",
+        "reopen",
+        "sync",
+        "preview",
+        "link",
+        "mappings",
+        "publish",
+        "add_entry",
+        "add_bulk",
+    )
 
     def get(self, request, pk, preview=None, mappings_form=None):
         event = get_object_or_404(ResultsEvent.objects.select_related("competition", "telegram_channel"), pk=pk)
@@ -94,6 +118,8 @@ class EventDetailView(ResultsManagerMixin, View):
             "public_url": public_url(event),
             "telegram": getattr(event, "telegram", None),
             "linked_count": entries.exclude(athlete=None).count(),
+            "entries_count": entries.count(),
+            "roster_groups": event.groups.filter(removed=False).order_by("order_index"),
         }
         return render(request, self.template_name, context)
 
@@ -108,6 +134,11 @@ class EventDetailView(ResultsManagerMixin, View):
         return redirect("results:event_detail", pk=event.pk)
 
     def _start(self, request, event):
+        if event.source_kind == ResultsEvent.SourceKind.MANUAL and not event.entries.filter(removed=False).exists():
+            messages.error(
+                request, "Ручной эфир без участников запустить нельзя: добавьте группу и участников в «Состав»."
+            )
+            return self._back(event)
         services.set_status(event.pk, ResultsEvent.Status.RUNNING, request.user)
         messages.success(request, "Трансляция запущена: воркер начнёт опрос источника в течение нескольких секунд.")
         return self._back(event)
@@ -138,9 +169,13 @@ class EventDetailView(ResultsManagerMixin, View):
             return None
 
     def _sync(self, request, event):
+        revision, fetched_at = event.source_revision, timezone.now()
         sheets = self._fetch(request, event)
         if sheets is not None:
-            result = services.ingest_snapshot(event.pk, sheets)
+            result = services.ingest_snapshot(event.pk, sheets, source_revision=revision, fetched_at=fetched_at)
+            if result.stale:
+                messages.warning(request, "Источник изменили во время чтения — данные не применены, повторите.")
+                return self._back(event)
             messages.success(request, f"Источник прочитан, изменений: {len(result.changes)}.")
             if result.changed or result.focus_changed:
                 enqueue_publication(event.pk)
@@ -164,7 +199,8 @@ class EventDetailView(ResultsManagerMixin, View):
         if not form.is_valid():
             return self.get(request, event.pk, mappings_form=form)
         event.column_mappings = form.cleaned_data["mappings"]
-        event.save(update_fields=["column_mappings", "updated_at"])
+        event.bump_source_revision()
+        event.save(update_fields=["column_mappings", "source_revision", "updated_at"])
         messages.success(request, "Разметка колонок сохранена. Она применится при следующем изменении источника.")
         return self._back(event)
 
@@ -177,10 +213,72 @@ class EventDetailView(ResultsManagerMixin, View):
         )
         return self._back(event)
 
+    def _add_entry(self, request, event):
+        data = request.POST
+        try:
+            number = int(data.get("start_number") or 0)
+            year = int(data["birth_year"]) if data.get("birth_year") else None
+        except ValueError:
+            messages.error(request, "Стартовый номер и год рождения — числа.")
+            return self._back(event)
+        row = {
+            "group_name": (data.get("group_name") or "").strip(),
+            "start_number": number,
+            "full_name": " ".join((data.get("full_name") or "").split()),
+            "club": (data.get("club") or "").strip(),
+            "birth_year": year,
+            "runs_count": 1 if data.get("runs_count") == "1" else 2,
+        }
+        if not row["group_name"]:
+            messages.error(request, "Укажите группу.")
+            return self._back(event)
+        try:
+            services.add_manual_entries(event.pk, [row], request.user)
+        except services.RosterError as exc:
+            messages.error(request, str(exc))
+            return self._back(event)
+        messages.success(request, f"Добавлен: {row['start_number']} {row['full_name']} ({row['group_name']})")
+        return self._back(event)
+
+    def _add_bulk(self, request, event):
+        runs = 1 if request.POST.get("runs_count") == "1" else 2
+        try:
+            count = services.add_manual_entries(
+                event.pk, services.parse_roster(request.POST.get("bulk", ""), runs), request.user
+            )
+        except services.RosterError as exc:
+            messages.error(request, f"{exc}. Список не добавлен.")
+            return self._back(event)
+        messages.success(request, f"Добавлено участников: {count}")
+        return self._back(event)
+
     def _publish(self, request, event):
         enqueue_publication(event.pk)
         messages.info(request, "Публикация в Telegram поставлена в очередь.")
         return self._back(event)
+
+
+class PanelFragmentView(ResultsManagerMixin, View):
+    """Автообновляемые части пульта: статус (?part=status) и журнал (?part=log)."""
+
+    def get(self, request, pk):
+        event = get_object_or_404(ResultsEvent.objects.select_related("telegram_channel"), pk=pk)
+        if request.GET.get("part") == "log":
+            response = render(request, "results/_panel_log.html", {"log": event.log.order_by("-seq")[:50]})
+        else:
+            entries = event.entries.filter(removed=False)
+            response = render(
+                request,
+                "results/_panel_status.html",
+                {
+                    "event": event,
+                    "state": build_state(event),
+                    "entries_count": entries.count(),
+                    "linked_count": entries.exclude(athlete=None).count(),
+                },
+            )
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class EntryResultView(ResultsManagerMixin, View):
@@ -188,21 +286,47 @@ class EntryResultView(ResultsManagerMixin, View):
 
     def post(self, request, pk, entry_id):
         entry = get_object_or_404(ResultEntry, pk=entry_id, event_id=pk)
+        if request.POST.get("remove"):
+            try:
+                services.remove_manual_entry(entry.pk, request.user)
+            except services.RosterError as exc:
+                messages.error(request, str(exc))
+            else:
+                messages.success(request, f"Убран: {entry.start_number} {entry.full_name}")
+            return redirect("results:event_detail", pk=pk)
         form = ManualResultForm(request.POST)
         if not form.is_valid():
             messages.error(request, "Некорректные данные")
             return redirect("results:event_detail", pk=pk)
-        for run in (1, 2):
-            if form.cleaned_data["reset"]:
+        anchor = f"{reverse('results:event_detail', kwargs={'pk': pk})}#entry-{entry.pk}"
+        if form.cleaned_data["reset"]:
+            for run in (1, 2):
                 if getattr(entry, f"run{run}_manual") is not None:
                     services.set_manual_result(entry.pk, run, None, request.user)
+            enqueue_publication(pk)
+            messages.success(request, f"Правка снята, значения из протокола: {entry.start_number} {entry.full_name}")
+            return redirect(anchor)
+        # Сначала проверяем оба значения, и только потом сохраняем — чтобы ошибка не оставила полуправку.
+        runs = (1, 2) if entry.runs_count > 1 else (1,)
+        planned = {}
+        for run in runs:
+            raw = form.cleaned_data[f"run{run}"].strip()
+            if raw == entry.effective_raw(run):
                 continue
-            value = form.cleaned_data[f"run{run}"].strip()
+            try:
+                planned[run] = validate_manual(raw)
+            except InvalidResult as exc:
+                messages.error(
+                    request, f"{entry.start_number} {entry.full_name}, {run} заезд: {exc} Изменения не сохранены."
+                )
+                return redirect(anchor)
+        for run, value in planned.items():
             if value != entry.effective_raw(run):
                 services.set_manual_result(entry.pk, run, value, request.user)
-        enqueue_publication(pk)
-        messages.success(request, f"Сохранено: {entry.start_number} {entry.full_name}")
-        return redirect(f"{reverse('results:event_detail', kwargs={'pk': pk})}#entry-{entry.pk}")
+        if planned:
+            enqueue_publication(pk)
+            messages.success(request, f"Сохранено: {entry.start_number} {entry.full_name}")
+        return redirect(anchor)
 
 
 # --- Live-страницы --------------------------------------------------------------------------------
@@ -236,21 +360,38 @@ class LiveFragmentView(ResultsManagerMixin, View):
         return _fragment(request, event, reverse("results:live_fragment", kwargs={"pk": pk}), public=False)
 
 
-def _public_event(token: str) -> ResultsEvent:
-    event = get_object_or_404(ResultsEvent, public_token=token)
-    if not event.public_enabled or event.status == ResultsEvent.Status.DRAFT:
-        raise Http404
-    return event
+def _public_available(event: ResultsEvent) -> bool:
+    return event.public_enabled and event.status != ResultsEvent.Status.DRAFT
+
+
+def _unavailable(request, status: int) -> HttpResponse:
+    response = render(request, "results/_unavailable.html", status=status)
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 class PublicLiveView(View):
     def get(self, request, token):
-        event = _public_event(token)
+        event = get_object_or_404(ResultsEvent, public_token=token)
         url = reverse("results:public_fragment", kwargs={"token": token})
+        if not _public_available(event):
+            # 410: страница остаётся живой и опрашивает фрагмент — если доступ вернут, результаты появятся сами
+            response = render(
+                request,
+                "results/public_live.html",
+                {"event": event, "fragment_url": url, "unavailable": True},
+                status=410,
+            )
+            response["Cache-Control"] = "no-store"
+            return response
         return render(request, "results/public_live.html", _live_context(event, url, public=True))
 
 
 class PublicFragmentView(View):
     def get(self, request, token):
-        event = _public_event(token)
+        event = ResultsEvent.objects.filter(public_token=token).first()
+        if event is None:
+            return _unavailable(request, 404)
+        if not _public_available(event):
+            return _unavailable(request, 410)
         return _fragment(request, event, reverse("results:public_fragment", kwargs={"token": token}), public=True)

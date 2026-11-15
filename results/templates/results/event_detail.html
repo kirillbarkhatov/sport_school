@@ -1,41 +1,9 @@
 {% extends 'school/base.html' %}
 {% block title %}{{ event.title }} — пульт{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between flex-wrap align-items-center pt-3 pb-2 mb-3 border-bottom gap-2">
-    <div>
-        <h2 class="mb-0">{{ event.title }}</h2>
-        <div class="small text-body-secondary">
-            {{ event.get_source_kind_display }}{% if event.protocol_title %} · {{ event.protocol_title }}{% endif %}{% if event.protocol_date %} · {{ event.protocol_date }}{% endif %}
-            {% if event.competition %} · <a href="{% url 'school:competition_edit' event.competition.pk %}">{{ event.competition }}</a>{% endif %}
-        </div>
-    </div>
-    <div class="d-flex flex-wrap gap-2">
-        <form method="post">{% csrf_token %}
-            {% if event.status == 'running' %}
-                <button class="btn btn-warning" name="action" value="pause"><i class="bi bi-pause-fill"></i> Пауза</button>
-                <button class="btn btn-outline-secondary" name="action" value="finish">Завершить</button>
-            {% elif event.status == 'finished' %}
-                <button class="btn btn-outline-secondary" name="action" value="reopen">Вернуть в черновик</button>
-            {% else %}
-                <button class="btn btn-success" name="action" value="start"><i class="bi bi-play-fill"></i> Старт</button>
-                {% if event.status == 'paused' %}<button class="btn btn-outline-secondary" name="action" value="finish">Завершить</button>{% endif %}
-            {% endif %}
-        </form>
-        <a class="btn btn-outline-primary" href="{% url 'results:live' event.pk %}"><i class="bi bi-display"></i> Live</a>
-        <a class="btn btn-outline-secondary" href="{% url 'results:event_update' event.pk %}"><i class="bi bi-gear"></i> Настройки</a>
-    </div>
+<div id="panel-status" data-url="{% url 'results:panel_fragment' event.pk %}?part=status">
+{% include "results/_panel_status.html" %}
 </div>
-
-<div class="row g-3 mb-3">
-    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Статус</div><strong>{{ event.get_status_display }}</strong></div></div>
-    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Сейчас</div>{% if state.focus_group %}<strong>{{ state.focus_group.name }}</strong>{% if not state.focus_group.is_single_run %}, {{ state.focus_run }} з.{% endif %}{% else %}—{% endif %}</div></div>
-    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Последний опрос / изменение</div>{{ event.last_polled_at|time:"H:i:s"|default:"—" }} / {{ event.last_changed_at|time:"H:i:s"|default:"—" }}</div></div>
-    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Участников / связано со школой</div>{{ entries|length }} / {{ linked_count }}</div></div>
-</div>
-
-{% if event.last_error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ event.last_error }}</div>{% endif %}
-{% for warning in event.parse_warnings %}<div class="alert alert-warning py-2 small">{{ warning }}</div>{% endfor %}
-
 <div class="d-flex flex-wrap gap-2 mb-3">
     <form method="post" class="d-flex flex-wrap gap-2">{% csrf_token %}
         <button class="btn btn-sm btn-outline-secondary" name="action" value="preview"><i class="bi bi-eye"></i> Проверить источник</button>
@@ -75,6 +43,41 @@
     </div>
 </details>
 
+{% if event.source_kind == 'manual' %}
+<details class="card mb-3" {% if not entries_count %}open{% endif %} data-key="roster">
+    <summary class="card-header">Состав (ручной ввод)</summary>
+    <div class="card-body d-flex flex-column gap-3">
+        <form method="post" class="row g-2 align-items-end">{% csrf_token %}
+            <input type="hidden" name="action" value="add_entry">
+            <div class="col-md-3"><label class="form-label small" for="roster-group">Группа</label>
+                <input class="form-control form-control-sm" id="roster-group" name="group_name" list="roster-groups" required placeholder="Девочки 2014–2015">
+                <datalist id="roster-groups">{% for g in roster_groups %}<option value="{{ g.name }}">{% endfor %}</datalist></div>
+            <div class="col-md-1"><label class="form-label small" for="roster-number">Ст. №</label>
+                <input class="form-control form-control-sm" id="roster-number" name="start_number" type="number" min="1" required></div>
+            <div class="col-md-3"><label class="form-label small" for="roster-name">Фамилия Имя</label>
+                <input class="form-control form-control-sm" id="roster-name" name="full_name" required></div>
+            <div class="col-md-2"><label class="form-label small" for="roster-club">Клуб</label>
+                <input class="form-control form-control-sm" id="roster-club" name="club"></div>
+            <div class="col-md-1"><label class="form-label small" for="roster-year">Г.р.</label>
+                <input class="form-control form-control-sm" id="roster-year" name="birth_year" type="number" min="1940" max="2030"></div>
+            <div class="col-md-1"><label class="form-label small" for="roster-runs">Заездов</label>
+                <select class="form-select form-select-sm" id="roster-runs" name="runs_count"><option value="2">2</option><option value="1">1</option></select></div>
+            <div class="col-md-1"><button class="btn btn-sm btn-primary w-100">Добавить</button></div>
+        </form>
+        <form method="post" class="d-flex flex-column gap-2">{% csrf_token %}
+            <input type="hidden" name="action" value="add_bulk">
+            <label class="form-label small mb-0" for="roster-bulk">Или списком: группа в строке-заголовке, участники строками «номер; Фамилия Имя; клуб; год рождения»</label>
+            <textarea class="form-control form-control-sm font-monospace" id="roster-bulk" name="bulk" rows="6" placeholder="Девочки 2014–2015&#10;1; Иванова Анна; СШ Север; 2014&#10;2; Петрова Вера; СШ Юг; 2015&#10;&#10;Мальчики 2014–2015&#10;11; Сидоров Егор; СШ Юг; 2014"></textarea>
+            <div class="d-flex gap-2 align-items-center">
+                <label class="small" for="roster-bulk-runs">Заездов:</label>
+                <select class="form-select form-select-sm w-auto" id="roster-bulk-runs" name="runs_count"><option value="2">2</option><option value="1">1</option></select>
+                <button class="btn btn-sm btn-outline-primary">Добавить список</button>
+            </div>
+        </form>
+    </div>
+</details>
+{% endif %}
+
 <details class="card mb-3">
     <summary class="card-header">Участники и ручные правки</summary>
     <div class="card-body p-0">
@@ -93,6 +96,7 @@
                     <input class="form-control form-control-sm font-monospace{% if entry.run1_manual is not None %} border-warning{% endif %}" name="run1" value="{{ entry.effective_raw_1 }}" placeholder="—" title="Источник: {{ entry.run1_raw|default:'—' }}">
                     {% if entry.runs_count > 1 %}<input class="form-control form-control-sm font-monospace{% if entry.run2_manual is not None %} border-warning{% endif %}" name="run2" value="{{ entry.effective_raw_2 }}" placeholder="—" title="Источник: {{ entry.run2_raw|default:'—' }}">{% endif %}
                     <button class="btn btn-sm btn-outline-primary" title="Сохранить правку"><i class="bi bi-check"></i></button>
+                    {% if event.source_kind == 'manual' %}<button class="btn btn-sm btn-outline-danger" name="remove" value="1" title="Убрать участника" aria-label="Убрать участника"><i class="bi bi-x"></i></button>{% endif %}
                     {% if entry.run1_manual is not None or entry.run2_manual is not None %}<button class="btn btn-sm btn-outline-warning" name="reset" value="1" title="Вернуть значения источника"><i class="bi bi-arrow-counterclockwise"></i></button>{% endif %}
                 </form>
             </td>
@@ -106,14 +110,29 @@
     </div>
 </details>
 
-<div class="card mb-4">
-    <div class="card-header">Журнал (последние 50)</div>
-    <ul class="list-group list-group-flush small">
-        {% for item in log %}
-        <li class="list-group-item d-flex gap-2"><span class="text-body-secondary font-monospace">{{ item.created_at|time:"H:i:s" }}</span><span class="badge text-bg-light">{{ item.get_kind_display }}</span><span>{{ item.message }}</span></li>
-        {% empty %}
-        <li class="list-group-item text-body-secondary">Пока пусто.</li>
-        {% endfor %}
-    </ul>
+<div id="panel-log" data-url="{% url 'results:panel_fragment' event.pk %}?part=log">
+{% include "results/_panel_log.html" %}
 </div>
+<div id="panel-stale" class="alert alert-warning py-2 small" hidden>Нет связи с сервером — статус может быть устаревшим. Продолжаем попытки…</div>
+<script>
+(function () {
+    // Обновляем только статус и журнал: формы правок, разметки и раскрытые секции не трогаем.
+    const parts = ["panel-status", "panel-log"].map((id) => document.getElementById(id)).filter(Boolean);
+    const stale = document.getElementById("panel-stale");
+    async function refresh() {
+        if (document.hidden) return;
+        for (const el of parts) {
+            if (el.contains(document.activeElement) && document.activeElement.tagName !== "BODY") continue;
+            try {
+                const response = await fetch(el.dataset.url, {cache: "no-store", credentials: "same-origin"});
+                if (!response.ok) throw new Error(response.status);
+                el.innerHTML = await response.text();
+                stale.hidden = true;
+            } catch (e) { stale.hidden = false; }
+        }
+    }
+    setInterval(refresh, 3000);
+    document.addEventListener("visibilitychange", refresh);
+})();
+</script>
 {% endblock %}

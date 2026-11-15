@@ -1,0 +1,10 @@
+<div class="card mb-4">
+    <div class="card-header">Журнал (последние 50)</div>
+    <ul class="list-group list-group-flush small">
+        {% for item in log %}
+        <li class="list-group-item d-flex flex-wrap gap-2"><span class="text-body-secondary font-monospace">{{ item.created_at|time:"H:i:s" }}</span><span class="badge {% if item.kind == 'error' %}text-bg-danger{% else %}text-bg-light{% endif %}">{{ item.get_kind_display }}</span><span>{{ item.message }}</span></li>
+        {% empty %}
+        <li class="list-group-item text-body-secondary">Пока пусто.</li>
+        {% endfor %}
+    </ul>
+</div>

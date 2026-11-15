@@ -91,6 +91,27 @@ def parse_value(raw: object) -> RunValue:
     return RunValue.of_status(text, raw=text)
 
 
+MANUAL_STATUSES = (*TERMINAL_STATUSES, "МВ")
+
+
+class InvalidResult(ValueError):
+    """Значение нельзя внести вручную (не время и не известный статус)."""
+
+
+def validate_manual(raw: object) -> str:
+    """Проверка ручного ввода. Пусто — очистить заезд; иначе время (34.56, 1:02.30) или DNS/DNF/DSQ/МВ
+    (в том числе судейские коды 100/150/200). Возвращает нормализованное значение для хранения."""
+    text = ("" if raw is None else str(raw)).strip()
+    if not text:
+        return ""
+    value = parse_value(text)
+    if value.is_time:
+        return format_ms(value.ms)
+    if value.is_status and value.status in MANUAL_STATUSES:
+        return value.status
+    raise InvalidResult(f"«{text}» — не время и не статус. Введите время (34.56 или 1:02.30) либо DNS, DNF, DSQ.")
+
+
 def format_ms(ms: int | None) -> str:
     """34560 → «34.56», 62300 → «1:02.30»."""
     if ms is None:

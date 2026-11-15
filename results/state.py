@@ -16,7 +16,7 @@ from .services import effective_protocol
 PHASE_LABELS = {
     engine.Phase.NOT_STARTED: "Не началась",
     engine.Phase.RUN1: "1 заезд",
-    engine.Phase.BREAK: "Перерыв после 1 заезда",
+    engine.Phase.BREAK: "1 заезд закрыт · перерыв",
     engine.Phase.RUN2: "2 заезд",
     engine.Phase.COMPLETED: "Завершена",
 }
@@ -42,6 +42,7 @@ class Row:
     best_run2: bool = False
     outlook: str = ""
     eta: str = ""
+    rank_note: str = ""  # почему место ниже, чем по времени (пометка судьи / статус)
 
 
 @dataclass
@@ -54,8 +55,14 @@ class GroupView:
     is_single_run: bool
     rows: list[Row]
     run1_rows: list[Row] = field(default_factory=list)  # места после 1-го заезда (во время 2-го)
-    finished: int = 0
+    finishers: int = 0  # показали итоговое время
+    out: int = 0  # итог — статус (DNS/DNF/DSQ…)
+    waiting: int = 0  # исход ещё не зафиксирован
     total: int = 0
+
+    @property
+    def decided(self) -> int:
+        return self.finishers + self.out
 
 
 @dataclass
@@ -80,6 +87,8 @@ class LiveState:
     finisher: Finisher | None
     club_stats: list[engine.ClubStats]
     completed: bool
+    finished: bool  # трансляция завершена или все группы закончили — показываем итоги
+    started: bool  # есть хотя бы один результат
     generated_at: datetime
 
 
@@ -122,10 +131,21 @@ def _rows(
                 best_run1=e.key in best1,
                 best_run2=e.key in best2,
                 outlook=outlook[e.key].label if e.key in outlook else "",
+                rank_note=_rank_note(s),
                 eta=timezone.localtime(eta).strftime("%H:%M") if eta else "",
             )
         )
     return rows
+
+
+def _rank_note(standing: engine.Standing) -> str:
+    """Объяснение порядка: результат с пометкой судьи стоит после всех чистых времён."""
+    entry = standing.entry
+    if standing.waiting or not entry.judge_note or entry.auto_finalized:
+        return ""
+    if standing.value.is_time:
+        return "ниже чистых времён: пометка судьи"
+    return ""
 
 
 def _group_view(group: Group, *, highlight: str, etas=None) -> GroupView:
@@ -138,7 +158,9 @@ def _group_view(group: Group, *, highlight: str, etas=None) -> GroupView:
         phase_label=PHASE_LABELS[phase],
         is_single_run=group.is_single_run,
         rows=_rows(group, engine.standings(group), highlight=highlight, etas=etas),
-        finished=sum(e.is_finished() for e in group.entries),
+        finishers=sum(e.is_finished() and e.effective_total().is_time for e in group.entries),
+        out=sum(e.is_finished() and not e.effective_total().is_time for e in group.entries),
+        waiting=sum(not e.is_finished() for e in group.entries),
         total=len(group.entries),
     )
     if phase is engine.Phase.RUN2 or (phase is engine.Phase.COMPLETED and not group.is_single_run):
@@ -199,6 +221,7 @@ def build_state(event: ResultsEvent, now: datetime | None = None) -> LiveState:
         if focus and group.key == focus.group_key:
             focus_view = view
     completed = bool(protocol.groups) and all(g.completed() for g in protocol.groups)
+    finished = completed or event.status == ResultsEvent.Status.FINISHED
     return LiveState(
         event=event,
         title=event.title or protocol.title,
@@ -208,7 +231,9 @@ def build_state(event: ResultsEvent, now: datetime | None = None) -> LiveState:
         focus_run=focus.run_number if focus else 0,
         groups=groups,
         finisher=_finisher(event, protocol),
-        club_stats=engine.club_stats(protocol.groups) if completed else [],
+        club_stats=engine.club_stats(protocol.groups) if finished else [],
         completed=completed,
+        finished=finished,
+        started=protocol.has_progress(),
         generated_at=now,
     )

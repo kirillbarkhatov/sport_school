@@ -57,16 +57,22 @@ class Entry:
         return self.runs_count > 1 and not self.run1.is_status
 
     def effective_total(self) -> RunValue:
-        """Итог: статус любого заезда доминирует; иначе явный итог; иначе сумма двух времён."""
-        for value in (self.run2, self.run1, self.total):
+        """Итог считается из заездов, чтобы ручная правка заезда сразу меняла итог и место.
+
+        Порядок: статус любого заезда → один заезд: его время → два времени: сумма → колонка «Результат»
+        протокола (только если заездов не хватает для расчёта, например итог внесён без раскладки).
+        """
+        for value in (self.run2, self.run1):
             if value.is_status:
                 return value
-        if self.total.is_time:
-            return self.total
         if self.runs_count <= 1 and self.run1.is_time:
             return self.run1
         if self.run1.is_time and self.run2.is_time:
             return RunValue.time(self.run1.ms + self.run2.ms)
+        if self.total.is_status:
+            return self.total
+        if self.total.is_time and (self.runs_count <= 1 or not self.run2.is_empty or self.run1.is_empty):
+            return self.total
         return EMPTY
 
     def ranking_value(self) -> RunValue:

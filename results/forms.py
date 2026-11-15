@@ -1,13 +1,14 @@
 import json
 
 from django import forms
+from django.core.files.uploadedfile import UploadedFile
 
 from bot.models import TelegramChat
 from school.forms import StyleFormMixin
 
 from .core.parsing import ColumnMap
 from .models import ResultsEvent
-from .sources import SourceConfigError, extract_file_id
+from .sources import SourceConfigError, SourceError, extract_file_id, read_xlsx
 
 
 class EventForm(StyleFormMixin, forms.ModelForm):
@@ -38,6 +39,20 @@ class EventForm(StyleFormMixin, forms.ModelForm):
         self.fields["telegram_channel"].queryset = TelegramChat.objects.filter(
             type__in=[TelegramChat.ChatType.CHANNEL, TelegramChat.ChatType.SUPERGROUP, TelegramChat.ChatType.GROUP]
         ).order_by("title")
+
+    def clean_source_file(self):
+        upload = self.cleaned_data.get("source_file")
+        if isinstance(upload, UploadedFile):
+            # Проверяем файл до сохранения: битый XLSX не должен заменить последний корректный протокол.
+            try:
+                sheets = read_xlsx(upload.read())
+            except SourceError as exc:
+                raise forms.ValidationError(str(exc)) from exc
+            finally:
+                upload.seek(0)
+            if not any(rows for rows in sheets.values()):
+                raise forms.ValidationError("В файле нет ни одного непустого листа.")
+        return upload
 
     def clean(self):
         data = super().clean()

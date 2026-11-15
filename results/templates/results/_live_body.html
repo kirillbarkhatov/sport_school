@@ -3,14 +3,16 @@
     <div>
         <h1 class="h4 mb-1">{{ state.title }}</h1>
         <div class="text-body-secondary small">
-            {% if state.date %}{{ state.date }} · {% endif %}{{ state.status_label }}
-            {% if fg %} · сейчас: <strong>{{ fg.name }}</strong>{% if not fg.is_single_run %}, {{ state.focus_run }} заезд{% endif %}{% endif %}
+            {% if state.date %}{{ state.date }} · {% endif %}
+            {% if state.finished %}<strong>Итоговые результаты</strong>
+            {% else %}{{ state.status_label }}{% if fg %} · сейчас: <strong>{{ fg.name }}</strong>{% if not fg.is_single_run %}, {{ state.focus_run }} заезд{% endif %}{% endif %}
+            {% endif %}
         </div>
     </div>
     <div class="small text-body-secondary">обновлено {{ state.generated_at|time:"H:i:s" }}</div>
 </div>
 
-{% if state.finisher %}
+{% if state.finisher and not state.finished %}
 <div class="alert alert-light border d-flex flex-wrap gap-3 align-items-center py-2">
     <span class="badge text-bg-dark">Финиш</span>
     <span>№{{ state.finisher.start_number }} <strong>{{ state.finisher.full_name }}</strong> <span class="text-body-secondary">{{ state.finisher.club }}</span></span>
@@ -19,11 +21,15 @@
 </div>
 {% endif %}
 
-{% if fg %}
+{% if not state.groups %}
+<div class="alert alert-secondary">Протокол ещё не загружен.</div>
+{% elif state.finished %}
+<div class="alert alert-success py-2">Соревнование завершено. Итоговые результаты по всем группам — ниже.</div>
+{% elif fg %}
 <div class="card mb-4 border-primary">
-    <div class="card-header d-flex justify-content-between">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-1">
         <span><strong>{{ fg.name }}</strong> <span class="text-body-secondary">{{ fg.sheet_name }}</span></span>
-        <span class="small">{{ fg.phase_label }} · финишировали {{ fg.finished }} из {{ fg.total }}</span>
+        <span class="small">{{ fg.phase_label }} · {% include "results/_progress.html" with group=fg %}</span>
     </div>
     <div class="card-body p-0">
         {% include "results/_group_table.html" with rows=fg.rows single_run=fg.is_single_run show_analytics=True %}
@@ -35,18 +41,18 @@
     </details>
     {% endif %}
 </div>
-{% elif not state.groups %}
-<div class="alert alert-secondary">Протокол ещё не загружен.</div>
+{% elif state.started %}
+<div class="alert alert-secondary">Ожидаем старт следующей группы.</div>
 {% else %}
 <div class="alert alert-secondary">Соревнование скоро начнётся.</div>
 {% endif %}
 
-<h2 class="h6 text-uppercase text-body-secondary">Все группы</h2>
+<h2 class="h6 text-uppercase text-body-secondary">{% if state.finished %}Итоги по группам{% else %}Все группы{% endif %}</h2>
 {% for group in state.groups %}
-<details class="card mb-2" data-key="{{ group.key }}">
-    <summary class="card-header d-flex justify-content-between">
+<details class="card mb-2" data-key="{{ group.key }}"{% if state.finished %} open{% endif %}>
+    <summary class="card-header d-flex flex-wrap justify-content-between gap-1">
         <span>{{ group.name }} <span class="text-body-secondary small">{{ group.sheet_name }}</span></span>
-        <span class="small {% if group.phase == 'completed' %}text-success{% endif %}">{{ group.phase_label }} · {{ group.finished }}/{{ group.total }}</span>
+        <span class="small {% if group.phase == 'completed' %}text-success{% endif %}">{{ group.phase_label }} · {% include "results/_progress.html" %}</span>
     </summary>
     <div class="card-body p-0">
         {% include "results/_group_table.html" with rows=group.rows single_run=group.is_single_run show_analytics=True %}
@@ -54,8 +60,16 @@
 </details>
 {% endfor %}
 
+{% if state.groups %}
+<p class="small text-body-secondary mt-2 mb-3">
+    Порядок мест: сначала чистые времена, затем времена с пометкой судьи, затем DNS / DNF / DSQ, внизу — ещё не стартовавшие.
+    {% if not state.finished %}Отставание считается от лидера текущего заезда.{% endif %}
+</p>
+{% endif %}
+
 {% if state.club_stats %}
 <h2 class="h6 text-uppercase text-body-secondary mt-4">Клубы</h2>
+<div class="table-responsive">
 <table class="table table-sm">
     <thead><tr><th>Клуб</th><th class="text-end">Участников</th><th class="text-end">Финишировали</th><th class="text-end">Подиумы</th><th class="text-end">Топ-10</th></tr></thead>
     <tbody>
@@ -64,5 +78,6 @@
     {% endfor %}
     </tbody>
 </table>
+</div>
 {% endif %}
 {% endwith %}

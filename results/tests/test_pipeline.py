@@ -116,13 +116,13 @@ def test_manual_result_overrides_source_and_can_be_reset(event):
     theta = event.entries.get(start_number=14)
     services.set_manual_result(theta.pk, 1, "35,5")
     theta.refresh_from_db()
-    assert theta.run1_manual == "35,5" and theta.effective_raw(1) == "35,5"
+    assert theta.run1_manual == "35.50" and theta.effective_raw(1) == "35.50"  # ручной ввод нормализуется
     protocol = services.load_protocol(event)
     assert next(e for e in protocol.entries if e.start_number == 14).run1.ms == 35500
     # источник не затирает правку
     services.ingest_snapshot(event.pk, _set(_sheets(), THETA_ROW, RUN1, "36.00"), now=T0 + timedelta(seconds=5))
     theta.refresh_from_db()
-    assert theta.run1_raw == "36.00" and theta.effective_raw(1) == "35,5"
+    assert theta.run1_raw == "36.00" and theta.effective_raw(1) == "35.50"
     services.set_manual_result(theta.pk, 1, None)
     theta.refresh_from_db()
     assert theta.run1_manual is None and theta.effective_raw(1) == "36.00"
@@ -252,6 +252,19 @@ def test_manager_creates_event_and_controls_it(manager_client):
     event = ResultsEvent.objects.get(title="Первенство")
     assert response.status_code == 302 and response.url == reverse("results:event_detail", kwargs={"pk": event.pk})
     assert manager_client.get(response.url).status_code == 200
+    manager_client.post(response.url, {"action": "start"})  # ручной эфир без участников не стартует
+    event.refresh_from_db()
+    assert event.status == ResultsEvent.Status.DRAFT
+    manager_client.post(
+        response.url,
+        {
+            "action": "add_entry",
+            "group_name": "Девочки",
+            "start_number": 1,
+            "full_name": "Анна Альфа",
+            "runs_count": 2,
+        },
+    )
     manager_client.post(response.url, {"action": "start"})
     event.refresh_from_db()
     assert event.status == ResultsEvent.Status.RUNNING
@@ -305,11 +318,13 @@ def test_live_fragment_returns_204_when_version_unchanged(manager_client, event)
 
 def test_public_page_hidden_for_draft_and_when_disabled(client, event):
     url = reverse("results:public_live", kwargs={"token": event.public_token})
-    assert client.get(url).status_code == 404  # черновик
+    assert client.get(url).status_code == 410  # черновик: страница честно говорит, что эфир недоступен
     services.set_status(event.pk, ResultsEvent.Status.RUNNING)
     assert client.get(url).status_code == 200
     ResultsEvent.objects.filter(pk=event.pk).update(public_enabled=False)
-    assert client.get(url).status_code == 404
+    response = client.get(url)
+    assert response.status_code == 410 and "Трансляция недоступна" in response.content.decode()
+    assert client.get(reverse("results:public_live", kwargs={"token": "нет-такого"})).status_code == 404
 
 
 def test_plain_user_cannot_manage(client, event):

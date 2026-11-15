@@ -43,6 +43,9 @@ class ResultsEvent(models.Model):
     )
     source_ref = models.CharField("Ссылка или ID файла", max_length=1024, blank=True)
     source_file = models.FileField("Файл протокола", upload_to="results/protocols/", blank=True)
+    source_revision = models.PositiveIntegerField(
+        "Ревизия источника", default=0, help_text="Растёт при смене файла, ссылки или разметки колонок"
+    )
     column_mappings = models.JSONField(
         "Разметка колонок по листам",
         default=dict,
@@ -62,6 +65,9 @@ class ResultsEvent(models.Model):
     version = models.PositiveBigIntegerField("Версия состояния", default=0)
     seq = models.PositiveBigIntegerField("Последний номер события", default=0)
     last_polled_at = models.DateTimeField(null=True, blank=True)
+    snapshot_fetched_at = models.DateTimeField(
+        null=True, blank=True, help_text="Когда началось чтение последнего применённого снимка"
+    )
     last_changed_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True)
     parse_warnings = models.JSONField(default=list, blank=True)
@@ -94,6 +100,12 @@ class ResultsEvent(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    SOURCE_FIELDS = ("source_kind", "source_ref", "source_file", "column_mappings")
+
+    def bump_source_revision(self) -> None:
+        """Источник сменился: воркер пересоздаст его, а запоздавшие чтения старого источника будут отброшены."""
+        self.source_revision += 1
 
     def next_seq(self) -> int:
         """Атомарно увеличивает счётчик событий (вызывать внутри транзакции с select_for_update)."""
@@ -216,6 +228,7 @@ class RawSnapshot(models.Model):
     event = models.ForeignKey(ResultsEvent, on_delete=models.CASCADE, related_name="snapshots")
     taken_at = models.DateTimeField(default=timezone.now, db_index=True)
     content_hash = models.CharField(max_length=64)
+    source_revision = models.PositiveIntegerField(default=0)
     data = models.BinaryField()
 
     class Meta:
