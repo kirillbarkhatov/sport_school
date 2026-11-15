@@ -44,19 +44,32 @@ def extract_file_id(link_or_id: str) -> str:
     raise SourceConfigError("Не удалось извлечь ID файла Google из ссылки")
 
 
+class CorruptFileError(SourceConfigError):
+    """Файл не читается как XLSX (повреждён или другой формат)."""
+
+
 def read_xlsx(content: bytes) -> Sheets:
     from openpyxl import load_workbook
 
-    workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    if not content:
+        raise CorruptFileError("Файл протокола пустой.")
     try:
-        return {
-            sheet.title: [
-                ["" if value is None else value for value in row] for row in sheet.iter_rows(values_only=True)
-            ]
-            for sheet in workbook.worksheets
-        }
-    finally:
-        workbook.close()
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        try:
+            return {
+                sheet.title: [
+                    ["" if value is None else value for value in row] for row in sheet.iter_rows(values_only=True)
+                ]
+                for sheet in workbook.worksheets
+            }
+        finally:
+            workbook.close()
+    except SourceError:
+        raise
+    except Exception as exc:  # zipfile/openpyxl/xml бросают разные исключения на битом файле
+        raise CorruptFileError(
+            f"Файл повреждён или это не XLSX ({type(exc).__name__}). Сохраните протокол как .xlsx и загрузите заново."
+        ) from exc
 
 
 def _cell_value(value: object) -> object:
@@ -187,8 +200,12 @@ class UploadSource:
     def fetch(self) -> Sheets:
         if not self.event.source_file:
             raise SourceConfigError("Файл протокола не загружен")
-        with self.event.source_file.open("rb") as handle:
-            return _normalize(read_xlsx(handle.read()))
+        try:
+            with self.event.source_file.open("rb") as handle:
+                content = handle.read()
+        except OSError as exc:
+            raise SourceConfigError(f"Файл протокола недоступен: {exc}") from exc
+        return _normalize(read_xlsx(content))
 
 
 def build_source(event: ResultsEvent):

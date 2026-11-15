@@ -10,14 +10,14 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from .core import engine
 from .core.diff import Change, diff, run_changes
 from .core.parsing import ColumnMap, parse_protocol
 from .core.protocol import Entry, Group, Protocol
-from .core.values import parse_value
+from .core.values import parse_value, validate_manual
 from .models import EventLog, RawSnapshot, ResultEntry, ResultGroup, ResultsEvent
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,7 @@ def effective_protocol(event: ResultsEvent, now: datetime | None = None) -> Prot
 
 @dataclass
 class TickResult:
+    stale: bool = False  # снимок отброшен: источник сменился или уже применён более свежий
     changed: bool = False
     changes: list[Change] = field(default_factory=list)
     focus_changed: bool = False
@@ -159,21 +160,44 @@ def _apply_protocol(event: ResultsEvent, protocol: Protocol, changes: list[Chang
         ResultGroup.objects.filter(event=event, key__in=touched_groups).update(last_result_at=now)
 
 
-def ingest_snapshot(event_id: int, sheets: dict, now: datetime | None = None) -> TickResult:
-    """Принять снимок листов источника. Безопасно вызывать на каждом опросе: без изменений — только пересчёт."""
+def ingest_snapshot(
+    event_id: int,
+    sheets: dict,
+    now: datetime | None = None,
+    *,
+    source_revision: int | None = None,
+    fetched_at: datetime | None = None,
+) -> TickResult:
+    """Принять снимок листов источника. Безопасно вызывать на каждом опросе: без изменений — только пересчёт.
+
+    source_revision — ревизия источника, с которой начиналось чтение; fetched_at — когда чтение началось.
+    Снимок отбрасывается (stale), если источник с тех пор сменили или уже применён более свежий снимок:
+    так запоздавшее чтение старого XLSX не перезапишет результаты нового.
+    """
     now = now or timezone.now()
+    fetched_at = fetched_at or now
     with transaction.atomic():
         event = ResultsEvent.objects.select_for_update().get(pk=event_id)
+        if source_revision is not None and source_revision != event.source_revision:
+            return TickResult(stale=True)
+        if event.snapshot_fetched_at and fetched_at < event.snapshot_fetched_at:
+            return TickResult(stale=True)
         previous_poll = event.last_polled_at
         event.last_polled_at = now
         candidates: list[engine.FocusTarget] = []
         content_hash = RawSnapshot.hash_sheets(sheets)
-        last = event.snapshots.order_by("-taken_at", "-id").values_list("content_hash", flat=True).first()
+        last = event.snapshots.order_by("-taken_at", "-id").values("content_hash", "source_revision").first()
         result = TickResult()
-        if content_hash != last:
+        source_changed = last is None or last["source_revision"] != event.source_revision
+        if source_changed or content_hash != last["content_hash"]:
             RawSnapshot.objects.create(
-                event=event, taken_at=now, content_hash=content_hash, data=RawSnapshot.pack(sheets)
+                event=event,
+                taken_at=now,
+                content_hash=content_hash,
+                source_revision=event.source_revision,
+                data=RawSnapshot.pack(sheets),
             )
+            event.snapshot_fetched_at = fetched_at
             protocol = parse_protocol(sheets, column_mappings(event))
             previous = load_protocol(event)
             first_load = not previous.groups
@@ -244,15 +268,17 @@ def recompute(event_id: int, now: datetime | None = None) -> TickResult:
 
 
 def set_manual_result(entry_id: int, run_number: int, value: str | None, user=None) -> ResultEntry:
-    """value=None — снять правку (вернуть значение источника). Пустая строка — явно очистить."""
+    """value=None — снять правку (вернуть значение источника). Пустая строка — явно очистить.
+
+    Некорректное значение (не время и не DNS/DNF/DSQ) — InvalidResult, ничего не сохраняется."""
     if run_number not in (1, 2):
         raise ValueError("run_number must be 1 or 2")
+    normalized = None if value is None else validate_manual(value)
     now = timezone.now()
     with transaction.atomic():
         entry = ResultEntry.objects.select_related("event").get(pk=entry_id)
         event = ResultsEvent.objects.select_for_update().get(pk=entry.event_id)
         before = entry.effective_raw(run_number)
-        normalized = None if value is None else parse_value(value).raw
         setattr(entry, f"run{run_number}_manual", normalized)
         if normalized:
             setattr(entry, f"run{run_number}_seen_at", now)
@@ -295,6 +321,15 @@ def set_status(event_id: int, status: str, user=None) -> ResultsEvent:
     return event
 
 
+def log_message(event_id: int, message: str, user=None) -> None:
+    who = getattr(user, "email", "") or "система"
+    with transaction.atomic():
+        event = ResultsEvent.objects.select_for_update().get(pk=event_id)
+        _log(event, EventLog.Kind.LIFECYCLE, f"{message} ({who})")
+        event.version += 1
+        event.save(update_fields=["seq", "version", "updated_at"])
+
+
 def record_error(event_id: int, message: str) -> None:
     with transaction.atomic():
         event = ResultsEvent.objects.select_for_update().get(pk=event_id)
@@ -306,3 +341,118 @@ def record_error(event_id: int, message: str) -> None:
 
 def clear_error(event_id: int) -> None:
     ResultsEvent.objects.filter(pk=event_id).exclude(last_error="").update(last_error="")
+
+
+# --- Ручной состав (источник «Ручной ввод») -------------------------------------------------------
+
+MANUAL_SHEET = "Протокол"
+
+
+class RosterError(ValueError):
+    """Ошибка подготовки состава (показывается пользователю)."""
+
+
+def parse_roster(text: str, runs_count: int = 2) -> list[dict]:
+    """Список участников: строка без «;» — название группы, далее строки «номер; Фамилия Имя; клуб; год»."""
+    rows, group = [], ""
+    for number, line in enumerate((text or "").splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        parts = [part.strip() for part in line.replace("\t", ";").split(";")]
+        if len(parts) == 1:
+            group = parts[0]
+            continue
+        if not group:
+            raise RosterError(f"Строка {number}: сначала укажите группу отдельной строкой")
+        if not parts[0].isdigit() or len(parts) < 2 or not parts[1]:
+            raise RosterError(f"Строка {number}: ожидается «номер; Фамилия Имя; клуб; год рождения»")
+        year = parts[3] if len(parts) > 3 else ""
+        if year and not (year.isdigit() and len(year) == 4):
+            raise RosterError(f"Строка {number}: год рождения — четыре цифры")
+        rows.append(
+            {
+                "group_name": group,
+                "start_number": int(parts[0]),
+                "full_name": " ".join(parts[1].split()),
+                "club": parts[2] if len(parts) > 2 else "",
+                "birth_year": int(year) if year else None,
+                "runs_count": runs_count,
+            }
+        )
+    if not rows:
+        raise RosterError("Список пуст: добавьте группу и хотя бы одного участника")
+    return rows
+
+
+def add_manual_entries(event_id: int, rows: list[dict], user=None) -> int:
+    """Добавить участников ручного эфира. Стартовые номера в эфире уникальны; всё или ничего."""
+    from .core.protocol import entry_key, group_key
+
+    now = timezone.now()
+    with transaction.atomic():
+        event = ResultsEvent.objects.select_for_update().get(pk=event_id)
+        if event.source_kind != ResultsEvent.SourceKind.MANUAL:
+            raise RosterError("Состав вручную добавляется только при источнике «Ручной ввод»")
+        taken = set(event.entries.filter(removed=False).values_list("start_number", flat=True))
+        seen = set()
+        for row in rows:
+            if row["start_number"] in taken or row["start_number"] in seen:
+                raise RosterError(f"Стартовый номер {row['start_number']} уже занят")
+            if row["start_number"] < 1 or not row["full_name"]:
+                raise RosterError("Нужны стартовый номер и фамилия с именем")
+            seen.add(row["start_number"])
+        groups = {g.name: g for g in event.groups.filter(removed=False)}
+        order = max((g.order_index for g in groups.values()), default=-1)
+        for row in rows:
+            group = groups.get(row["group_name"])
+            if group is None:
+                order += 1
+                group, _ = ResultGroup.objects.update_or_create(
+                    event=event,
+                    key=group_key(MANUAL_SHEET, row["group_name"]),
+                    defaults={
+                        "sheet_name": MANUAL_SHEET,
+                        "name": row["group_name"],
+                        "order_index": order,
+                        "removed": False,
+                    },
+                )
+                groups[group.name] = group
+            row_index = (event.entries.filter(group=group).aggregate(m=models.Max("sheet_row"))["m"] or 0) + 1
+            ResultEntry.objects.update_or_create(
+                event=event,
+                key=entry_key(group.sheet_name, group.name, row["start_number"], row["full_name"]),
+                defaults={
+                    "group": group,
+                    "start_number": row["start_number"],
+                    "full_name": row["full_name"][:255],
+                    "club": (row.get("club") or "")[:255],
+                    "birth_year": row.get("birth_year"),
+                    "runs_count": row.get("runs_count") or 2,
+                    "sheet_row": row_index,
+                    "removed": False,
+                },
+            )
+        who = getattr(user, "email", "") or "—"
+        _log(event, EventLog.Kind.ENTRY, f"Добавлено участников вручную: {len(rows)} ({who})", at=now)
+        event.version += 1
+        event.last_changed_at = now
+        event.save()
+    return len(rows)
+
+
+def remove_manual_entry(entry_id: int, user=None) -> None:
+    with transaction.atomic():
+        entry = ResultEntry.objects.select_related("event").get(pk=entry_id)
+        event = ResultsEvent.objects.select_for_update().get(pk=entry.event_id)
+        if event.source_kind != ResultsEvent.SourceKind.MANUAL:
+            raise RosterError("Убрать участника можно только в ручном эфире — в остальных правьте протокол")
+        entry.removed = True
+        entry.save(update_fields=["removed"])
+        if not event.entries.filter(group=entry.group, removed=False).exists():
+            ResultGroup.objects.filter(pk=entry.group_id).update(removed=True)
+        who = getattr(user, "email", "") or "—"
+        _log(event, EventLog.Kind.ENTRY, f"Убран участник: {entry.start_number} {entry.full_name} ({who})")
+        event.version += 1
+        event.save()

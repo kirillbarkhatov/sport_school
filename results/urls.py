@@ -9,6 +9,7 @@ urlpatterns = [
     path("new/", views.EventCreateView.as_view(), name="event_create"),
     path("<int:pk>/", views.EventDetailView.as_view(), name="event_detail"),
     path("<int:pk>/edit/", views.EventUpdateView.as_view(), name="event_update"),
+    path("<int:pk>/panel/", views.PanelFragmentView.as_view(), name="panel_fragment"),
     path("<int:pk>/entries/<int:entry_id>/result/", views.EntryResultView.as_view(), name="entry_result"),
     path("<int:pk>/live/", views.LiveView.as_view(), name="live"),
     path("<int:pk>/live/fragment/", views.LiveFragmentView.as_view(), name="live_fragment"),

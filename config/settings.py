@@ -540,6 +540,10 @@ AI_ASSISTANT_BASE_URL = os.getenv("AI_ASSISTANT_BASE_URL", "http://109.207.171.2
 # с предупреждением в логе; задайте его здесь и в сервисе, который отправляет данные.
 WHATSAPP_SYNC_TOKEN = os.getenv("WHATSAPP_SYNC_TOKEN", "")
 
+# Старая интеграция online_results_script выводится из эксплуатации: запуск новых потоков закрыт,
+# история и действующие публичные ссылки остаются доступны на чтение.
+LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED = env_bool("LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED")
+
 # Онлайн-результаты (приложение results)
 RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(
     "RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE", str(BASE_DIR / "secrets" / "google-service-account.json")

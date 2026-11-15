@@ -218,6 +218,7 @@ class OnlineResultsWebhookViewTests(APITestCase):
         self.assertEqual(WebhookEvent.objects.count(), 1)
 
 
+@override_settings(LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED=True)  # проверяем старое поведение запуска при включённом флаге
 class OnlineResultsPagesTests(APITestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -826,6 +827,7 @@ class OnlineResultsPagesTests(APITestCase):
     ONLINE_RESULTS_STREAM_FINALIZE_TIMEOUT_SEC=300,
     ONLINE_RESULTS_STREAM_FINALIZE_MAX_MISSING=2,
     ONLINE_RESULTS_STREAM_WORKER_PRINT=False,
+    LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED=True,
 )
 class OnlineResultsServicesTests(APITestCase):
     def _create_run(self, stream_id: str = "pending-123") -> StreamRun:

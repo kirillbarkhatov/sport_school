@@ -87,10 +87,26 @@ def process_online_results_webhook_event(event_id: int) -> None:
     )
 
 
+LEGACY_LAUNCH_DISABLED_MESSAGE = (
+    "Запуск потоков через старую интеграцию Online Results закрыт. Используйте раздел «Онлайн-результаты»."
+)
+
+
+def legacy_launch_enabled() -> bool:
+    return bool(getattr(settings, "LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED", False))
+
+
 def launch_online_results_stream(run_id: int) -> None:
     run = StreamRun.objects.filter(id=run_id).first()
     if run is None:
         logger.warning("StreamRun not found for launch: id=%s", run_id)
+        return
+    if not legacy_launch_enabled():
+        logger.warning("Legacy Online Results launch blocked: run_id=%s", run_id)
+        if run.status in {StreamRun.Status.PENDING, StreamRun.Status.RUNNING} and run.stream_id.startswith("pending-"):
+            run.status = StreamRun.Status.FAILED
+            run.last_error = LEGACY_LAUNCH_DISABLED_MESSAGE
+            run.save(update_fields=["status", "last_error", "updated_at"])
         return
 
     if not run.source_id and run.protocol_link:
@@ -263,6 +279,9 @@ def _safe_json(raw_response: str) -> dict[str, object]:
 
 
 def reset_online_results_stream_state(run_id: int, *, requested_by=None) -> StreamRun:
+    if not legacy_launch_enabled():
+        # Сброс удаляет историю событий и запускает новый поток — при выводе интеграции запрещён.
+        raise PermissionError(LEGACY_LAUNCH_DISABLED_MESSAGE)
     source_run = StreamRun.objects.filter(id=run_id).first()
     if source_run is None:
         raise ValueError("StreamRun not found")

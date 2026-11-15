@@ -2,19 +2,40 @@
 (function () {
     const root = document.getElementById("live-root");
     if (!root) return;
+    const banner = document.getElementById("live-stale");
     let version = root.dataset.version;
+    let lastOk = new Date();
     const url = root.dataset.url;
+    function setStale(show) {
+        if (!banner) return;
+        banner.hidden = !show;
+        if (show) banner.querySelector("[data-last]").textContent = lastOk.toLocaleTimeString("ru-RU");
+    }
     async function refresh() {
         if (document.hidden) return;
+        let response;
         try {
-            const response = await fetch(url + "?v=" + encodeURIComponent(version), {cache: "no-store", credentials: "same-origin"});
-            if (response.status !== 200) return;
-            const html = await response.text();
-            const open = new Set([...root.querySelectorAll("details[open]")].map((el) => el.dataset.key));
-            root.innerHTML = html;
-            root.querySelectorAll("details").forEach((el) => { if (open.has(el.dataset.key)) el.open = true; });
-            version = response.headers.get("X-Results-Version") || version;
-        } catch (e) { /* сеть пропала — попробуем на следующем тике */ }
+            response = await fetch(url + "?v=" + encodeURIComponent(version), {cache: "no-store", credentials: "same-origin"});
+        } catch (e) {
+            setStale(true);  // сеть пропала — показываем, что данные могут быть устаревшими, и продолжаем опрос
+            return;
+        }
+        if (response.status === 204) { lastOk = new Date(); setStale(false); return; }
+        if (response.status === 404 || response.status === 410) {
+            // доступ отозван или эфир вернули в черновик: старые результаты больше не показываем
+            root.innerHTML = await response.text();
+            version = "";
+            setStale(false);
+            return;
+        }
+        if (!response.ok) { setStale(true); return; }
+        const html = await response.text();
+        const open = new Set([...root.querySelectorAll("details[open]")].map((el) => el.dataset.key));
+        root.innerHTML = html;
+        root.querySelectorAll("details").forEach((el) => { if (open.has(el.dataset.key)) el.open = true; });
+        version = response.headers.get("X-Results-Version") || version;
+        lastOk = new Date();
+        setStale(false);
     }
     setInterval(refresh, 3000);
     document.addEventListener("visibilitychange", refresh);

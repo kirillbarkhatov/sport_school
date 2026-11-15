@@ -1,0 +1,2 @@
+{# group: GroupView. Финиши и исходы считаются раздельно: DNS/DNF/DSQ — исход, но не финиш. #}
+<span title="Финишировали / сошли или не стартовали / ждут старта">финиш {{ group.finishers }}{% if group.out %} · DNS/DNF/DSQ {{ group.out }}{% endif %}{% if group.waiting %} · ждут {{ group.waiting }}{% endif %} из {{ group.total }}</span>

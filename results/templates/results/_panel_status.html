@@ -1,0 +1,47 @@
+<div class="d-flex justify-content-between flex-wrap align-items-center pt-3 pb-2 mb-3 border-bottom gap-2">
+    <div>
+        <h2 class="mb-0">{{ event.title }}</h2>
+        <div class="small text-body-secondary">
+            {{ event.get_source_kind_display }}{% if event.protocol_title %} · {{ event.protocol_title }}{% endif %}{% if event.protocol_date %} · {{ event.protocol_date }}{% endif %}
+            {% if event.competition %} · <a href="{% url 'school:competition_edit' event.competition.pk %}">{{ event.competition }}</a>{% endif %}
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <form method="post">{% csrf_token %}
+            {% if event.status == 'running' %}
+                <button class="btn btn-warning" name="action" value="pause"><i class="bi bi-pause-fill"></i> Пауза</button>
+                <button class="btn btn-outline-secondary" name="action" value="finish">Завершить</button>
+            {% elif event.status == 'finished' %}
+                <button class="btn btn-outline-secondary" name="action" value="reopen">Вернуть в черновик</button>
+            {% else %}
+                <button class="btn btn-success" name="action" value="start"><i class="bi bi-play-fill"></i> Старт</button>
+                {% if event.status == 'paused' %}<button class="btn btn-outline-secondary" name="action" value="finish">Завершить</button>{% endif %}
+            {% endif %}
+        </form>
+        <a class="btn btn-outline-primary" href="{% url 'results:live' event.pk %}"><i class="bi bi-display"></i> Live</a>
+        <a class="btn btn-outline-secondary" href="{% url 'results:event_update' event.pk %}"><i class="bi bi-gear"></i> Настройки</a>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Статус</div><strong>{{ event.get_status_display }}</strong></div></div>
+    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Сейчас</div>{% if state.finished %}<strong>Итоги</strong>{% elif state.focus_group %}<strong>{{ state.focus_group.name }}</strong>{% if not state.focus_group.is_single_run %}, {{ state.focus_run }} з.{% endif %}<div class="small text-body-secondary">{{ state.focus_group.phase_label }} · {% include "results/_progress.html" with group=state.focus_group %}</div>{% else %}—{% endif %}</div></div>
+    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Последний опрос / изменение</div>{{ event.last_polled_at|time:"H:i:s"|default:"—" }} / {{ event.last_changed_at|time:"H:i:s"|default:"—" }}</div></div>
+    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Участников / связано со школой</div>{{ entries_count }} / {{ linked_count }}</div></div>
+</div>
+
+{% if event.last_error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ event.last_error }}</div>{% endif %}
+{% for warning in event.parse_warnings %}<div class="alert alert-warning py-2 small">{{ warning }}</div>{% endfor %}
+
+{% if not entries_count %}
+<div class="alert alert-info">
+    <strong>Что нужно для запуска.</strong>
+    {% if event.source_kind == 'manual' %}
+    Ручной эфир: добавьте хотя бы одну группу и участников в разделе «Состав» ниже — по одному или списком.
+    Время заездов вносится в «Участники и ручные правки».
+    {% else %}
+    Нажмите «Проверить источник», чтобы убедиться, что протокол разбирается, затем «Прочитать сейчас» или «Старт».
+    {% endif %}
+</div>
+{% endif %}
+
