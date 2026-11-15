@@ -133,7 +133,7 @@ Redis остаётся на 7; Tailwind пробуем на отдельной �
 
 - [ ] Renovate или Dependabot
 - [ ] CI: lint + тесты на PR, деплой только после зелёных тестов
-- [ ] Деплой: SSH-ключ вместо `sshpass`, без `docker compose down` (меньше простоя)
+- [x] Деплой на сервере через systemd и Git по SSH, без `docker compose down`
 - [ ] Sentry / GlitchTip для ошибок (облачный Sentry может быть недоступен из РФ)
 - [ ] Бэкапы Postgres по расписанию (например, `pg_dump` в Object Storage)
 - [ ] Squash старых миграций `school` (сейчас проходят, но их 50)
@@ -144,9 +144,25 @@ Redis остаётся на 7; Tailwind пробуем на отдельной �
 
 ## Деплой этой ветки (переезд на Postgres 18)
 
-Пуш в `dev` запускает деплой (`.github/workflows/ci.yml`). Workflow проверяет, что рабочая
-база уже переведена на PostgreSQL 18 и содержит миграции, прежде чем пересоздавать контейнеры.
-При первом переходе на 18 запустите скрипт переноса на сервере, затем перезапустите workflow.
+На продакшене таймер systemd проверяет `origin/dev` раз в минуту. Деплой выполняется на
+`home-server-2`, куда GitHub-hosted runner не может подключиться по локальному адресу.
+GitHub Actions отдельно запускает тесты с PostgreSQL 18.
+
+На сервере от пользователя `kb`:
+
+```bash
+install -D -m 0755 scripts/deploy_dev.sh ~/.local/bin/sport-school-deploy
+install -D -m 0644 deploy/systemd/sport-school-deploy.service ~/.config/systemd/user/sport-school-deploy.service
+install -D -m 0644 deploy/systemd/sport-school-deploy.timer ~/.config/systemd/user/sport-school-deploy.timer
+sudo loginctl enable-linger kb
+systemctl --user daemon-reload
+systemctl --user enable --now sport-school-deploy.timer
+journalctl --user -u sport-school-deploy.service -n 30
+```
+
+Скрипт проверяет, что рабочая база PostgreSQL 18 уже инициализирована, прежде чем обновлять
+код и контейнеры. Успешно развёрнутый коммит сохраняется в
+`~/.local/state/sport-school/deployed-dev`.
 
 **До мержа**, на сервере в `/srv/projects/sport_school`:
 
@@ -161,7 +177,7 @@ mv .dockerignore ~/sport_school-dockerignore.bak         # файл теперь
 - `CELERY_RESULT_BACKEND` больше не используется;
 - при необходимости задать `ALLOWED_HOSTS` явно (по умолчанию: `ksclub.ru`, `www.ksclub.ru`, хост вебхука, localhost).
 
-**После мержа** на сервере (первый workflow остановится на проверке версии БД):
+**Для первого перехода на PostgreSQL 18** на сервере:
 
 ```bash
 cd /srv/projects/sport_school

@@ -1,0 +1,9 @@
+[Unit]
+Description=Check sport_school dev for new commits
+
+[Timer]
+OnActiveSec=10s
+OnUnitInactiveSec=60s
+
+[Install]
+WantedBy=timers.target

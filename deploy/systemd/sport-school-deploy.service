@@ -1,0 +1,7 @@
+[Unit]
+Description=Deploy sport_school dev to ksclub.ru
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/sport-school-deploy
+TimeoutStartSec=20min

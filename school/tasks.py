@@ -16,6 +16,7 @@ from celery.utils.log import get_task_logger
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
 
@@ -114,12 +115,11 @@ def reconcile_athlete_certificate_validity() -> dict[str, int]:
         else:
             pending_docs = [doc for doc in docs if doc.needs_valid_until_clarification]
             active_id = pending_docs[0].id if pending_docs else None
-        for doc in docs:
-            should_be_active = active_id is not None and doc.id == active_id
-            if doc.is_actual != should_be_active:
-                doc.is_actual = should_be_active
-                doc.save(update_fields=["is_actual"])
-                updated += 1
+        certificates = AthleteDocument.objects.filter(athlete_id=docs[0].athlete_id, doc_type=DocumentType.MED_CERT)
+        with transaction.atomic():
+            updated += certificates.filter(is_actual=True).exclude(pk=active_id).update(is_actual=False)
+            if active_id is not None:
+                updated += certificates.filter(pk=active_id, is_actual=False).update(is_actual=True)
 
     return {
         "updated": updated,
