@@ -51,6 +51,7 @@ services:
     command: >
       sh -c "/opt/venv/bin/python manage.py check_db_initialized &&
              /opt/venv/bin/python manage.py migrate --noinput &&
+             /opt/venv/bin/python manage.py orgs_import_legacy &&
              /opt/venv/bin/python manage.py collectstatic --noinput"
     volumes:
       - ./logs:/app/logs

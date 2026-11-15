@@ -91,6 +91,9 @@ async def log_unmatched_callback(update: Update, context):
 
 
 def build_application():
+    from organizations.context import activate_default_organization
+
+    activate_default_organization()  # пока бот один на «ksclub»; выбор организации — R3-1
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     application.add_handler(
         TypeHandler(Update, track_audience_entry, block=False),

@@ -64,6 +64,13 @@ DIRECTORY = {
 # Платформа: глобальные сущности
 PLATFORM = {
     "users.User",
+    "organizations.Organization",
+    "organizations.OrgDomain",
+    "organizations.OrgRole",
+    "organizations.Membership",
+    "organizations.RoleAssignment",
+    "organizations.PlatformRole",
+    "organizations.AuditLog",
     "bot.TelegramChat",
     "bot.TelegramParticipant",
     "assistant.ServiceAccount",
@@ -78,6 +85,7 @@ LEGACY = {
 }
 
 PROJECT_APPS = {
+    "organizations",
     "school",
     "members",
     "classes",

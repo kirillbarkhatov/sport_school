@@ -14,6 +14,8 @@ from datetime import timedelta
 from django.db import close_old_connections
 from django.utils import timezone
 
+from organizations.context import activate_default_organization
+
 from .models import ResultsEvent
 from .services import TickResult, clear_error, ingest_snapshot, recompute, record_error, set_status
 from .sources import SourceConfigError, SourceError, build_source
@@ -106,6 +108,7 @@ class EventRunner(threading.Thread):
                     return
 
     def run(self) -> None:
+        activate_default_organization()  # у каждого потока свой контекст организации
         logger.info("results: трансляция %s запущена", self.event_id)
         while not self.stop_event.is_set():
             close_old_connections()
@@ -147,6 +150,7 @@ class Supervisor:
                 self.runners.pop(event_id, None)
 
     def run(self) -> None:
+        activate_default_organization()
         logger.info("results: воркер запущен")
         while not self.stop_event.is_set():
             try:
