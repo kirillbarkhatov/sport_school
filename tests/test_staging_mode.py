@@ -202,3 +202,65 @@ def test_anonymize_sql_clears_contacts():
     assert (person.phone, person.email, person.telegram, person.telegram_id) == (None, None, None, None)
     assert user.email == f"user{user.pk}@staging.invalid" and user.tg_id is None and user.phone is None
     assert TelegramParticipant.objects.get().username == ""
+
+
+def _compose_blocks(text: str) -> dict[str, str]:
+    blocks, current = {}, None
+    for line in text.splitlines():
+        if line.startswith("  ") and not line.startswith("   ") and line.strip().endswith(":"):
+            current = line.strip()[:-1]
+            blocks[current] = ""
+        elif current:
+            blocks[current] += line + "\n"
+    return blocks
+
+
+APP_SERVICES = ("migrate", "web", "bot", "celery_worker_docs", "celery_worker_default", "results_worker")
+
+
+def test_d01_staging_services_use_own_image_tag():
+    blocks = _compose_blocks((ROOT / "docker-compose.staging.yml").read_text())
+    for service in APP_SERVICES:
+        assert "image: sport_school:staging" in blocks[service], service
+    prod = (ROOT / "docker-compose.yml").read_text()
+    assert "image: sport_school:latest" in prod and "sport_school:staging" not in prod  # прод не меняется
+
+
+def test_d03_staging_worker_runs_without_beat_and_schedule_is_empty():
+    blocks = _compose_blocks((ROOT / "docker-compose.staging.yml").read_text())
+    command = next(line for line in blocks["celery_worker_default"].splitlines() if "command:" in line)
+    assert "worker" in command and " -B" not in command and "--beat" not in command
+    assert _settings_with({"STAGING_MODE": "True"})["beat"] == []
+
+
+def test_d02_backup_is_private_regardless_of_umask(tmp_path):
+    """Скрипт бэкапа с заглушкой docker и umask 022: каталог 0700, дамп 0600."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_docker = bin_dir / "docker"
+    fake_docker.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1 $2" in\n'
+        '  "inspect "*) exit 0 ;;\n'
+        '  "exec -i") cat >/dev/null; exit 0 ;;\n'
+        '  "exec "*) printf "PGDMP-synthetic" ;;\n'
+        "esac\n"
+    )
+    fake_docker.chmod(0o755)
+    work = tmp_path / "proj"
+    work.mkdir()
+    (work / ".env.postgres").write_text("POSTGRES_DB=db\nPOSTGRES_USER=u\nPOSTGRES_PASSWORD=p\n")
+    env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "COMPOSE_PROJECT_NAME": "synthetic"}
+    result = subprocess.run(
+        ["bash", "-c", f"umask 022 && bash {ROOT / 'scripts/backup_db.sh'}"],
+        cwd=work,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    backups = work / "backups"
+    dumps = list(backups.glob("synthetic_*.dump"))
+    assert len(dumps) == 1
+    assert oct(backups.stat().st_mode & 0o777) == "0o700"
+    assert oct(dumps[0].stat().st_mode & 0o777) == "0o600"

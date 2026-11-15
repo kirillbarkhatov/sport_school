@@ -4,26 +4,35 @@
 #   - имя проекта sport_school_staging → свои контейнеры, тома (postgres18_data, redis_data) и сеть;
 #   - веб только на 127.0.0.1:8020 (порт прода 8010 не публикуется: !override заменяет список, а не дополняет);
 #   - STAGING_MODE=True во всех сервисах приложения: Telegram, почта, расписание Celery, AI, S3 выключены;
-#   - бот не запускается (профиль, который никогда не включается).
+#   - бот не запускается (профиль, который никогда не включается);
+#   - свой тег образа sport_school:staging — сборка staging не перепривязывает продовый sport_school:latest;
+#   - default-воркер без встроенного beat (-B): расписание на staging не запускается вовсе.
 services:
   migrate:
+    image: sport_school:staging
     environment:
       STAGING_MODE: "True"
   web:
+    image: sport_school:staging
     environment:
       STAGING_MODE: "True"
     ports: !override
       - "127.0.0.1:8020:8000"
   bot:
+    image: sport_school:staging
     profiles: ["never-on-staging"]
     environment:
       STAGING_MODE: "True"
   celery_worker_docs:
+    image: sport_school:staging
     environment:
       STAGING_MODE: "True"
   celery_worker_default:
+    image: sport_school:staging
+    command: /opt/venv/bin/celery -A config worker --loglevel=info -Q celery -c 4
     environment:
       STAGING_MODE: "True"
   results_worker:
+    image: sport_school:staging
     environment:
       STAGING_MODE: "True"
