@@ -101,6 +101,10 @@
                         <i class="bi bi-chat-dots"></i>
                         Уведомления
                     </a>
+                    <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/results' %}active{% endif %}" href="{% url 'results:event_list' %}">
+                        <i class="bi bi-stopwatch"></i>
+                        Онлайн-результаты
+                    </a>
                     <a class="nav-link d-flex align-items-center gap-2 {% if path|starts_with:'/integrations/online-results/streams' %}active{% endif %}" href="{% url 'online-results-stream-runs' %}">
                         <i class="bi bi-broadcast-pin"></i>
                         Online Results: Потоки

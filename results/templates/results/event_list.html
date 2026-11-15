@@ -1,0 +1,27 @@
+{% extends 'school/base.html' %}
+{% block title %}Онлайн-результаты{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h2>Онлайн-результаты</h2>
+    <a class="btn btn-primary" href="{% url 'results:event_create' %}"><i class="bi bi-plus-lg"></i> Новая трансляция</a>
+</div>
+<div class="table-responsive">
+<table class="table table-hover align-middle">
+    <thead><tr><th>Название</th><th>Соревнование</th><th>Источник</th><th>Статус</th><th>Обновлено</th><th></th></tr></thead>
+    <tbody>
+    {% for event in events %}
+    <tr>
+        <td><a href="{% url 'results:event_detail' event.pk %}">{{ event.title }}</a>{% if event.last_error %} <i class="bi bi-exclamation-triangle text-danger" title="{{ event.last_error }}"></i>{% endif %}</td>
+        <td>{{ event.competition|default:"—" }}</td>
+        <td class="small">{{ event.get_source_kind_display }}</td>
+        <td><span class="badge {% if event.status == 'running' %}text-bg-success{% elif event.status == 'paused' %}text-bg-warning{% elif event.status == 'finished' %}text-bg-secondary{% else %}text-bg-light{% endif %}">{{ event.get_status_display }}</span></td>
+        <td class="small">{{ event.last_changed_at|default:"—" }}</td>
+        <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{% url 'results:live' event.pk %}">Live</a></td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="6" class="text-body-secondary">Трансляций пока нет.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endblock %}

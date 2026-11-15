@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "bot",
     "whatsapp",
     "assistant",
+    "results",
 ]
 
 MIDDLEWARE = [
@@ -524,6 +525,13 @@ if not DOCS_AI_ORCHESTRATOR_ENABLED:
 
 AI_ASSISTANT_ENABLED = os.getenv("AI_ASSISTANT_ENABLED", "False") == "True"
 AI_ASSISTANT_BASE_URL = os.getenv("AI_ASSISTANT_BASE_URL", "http://109.207.171.231")
+
+# Онлайн-результаты (приложение results)
+RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(
+    "RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE", str(BASE_DIR / "secrets" / "google-service-account.json")
+)
+RESULTS_TELEGRAM_MIN_INTERVAL_SEC = float(os.getenv("RESULTS_TELEGRAM_MIN_INTERVAL_SEC", "2.0"))
+RESULTS_TELEGRAM_SYNC = env_bool("RESULTS_TELEGRAM_SYNC")
 
 # Redis для сервисных токенов (автологин между браузерами)
 REDIS_XFER_URL = os.getenv("REDIS_XFER_URL", os.getenv("REDIS_URL", "redis://localhost:6379/1"))

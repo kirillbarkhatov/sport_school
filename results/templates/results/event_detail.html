@@ -1,0 +1,119 @@
+{% extends 'school/base.html' %}
+{% block title %}{{ event.title }} — пульт{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap align-items-center pt-3 pb-2 mb-3 border-bottom gap-2">
+    <div>
+        <h2 class="mb-0">{{ event.title }}</h2>
+        <div class="small text-body-secondary">
+            {{ event.get_source_kind_display }}{% if event.protocol_title %} · {{ event.protocol_title }}{% endif %}{% if event.protocol_date %} · {{ event.protocol_date }}{% endif %}
+            {% if event.competition %} · <a href="{% url 'school:competition_edit' event.competition.pk %}">{{ event.competition }}</a>{% endif %}
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <form method="post">{% csrf_token %}
+            {% if event.status == 'running' %}
+                <button class="btn btn-warning" name="action" value="pause"><i class="bi bi-pause-fill"></i> Пауза</button>
+                <button class="btn btn-outline-secondary" name="action" value="finish">Завершить</button>
+            {% elif event.status == 'finished' %}
+                <button class="btn btn-outline-secondary" name="action" value="reopen">Вернуть в черновик</button>
+            {% else %}
+                <button class="btn btn-success" name="action" value="start"><i class="bi bi-play-fill"></i> Старт</button>
+                {% if event.status == 'paused' %}<button class="btn btn-outline-secondary" name="action" value="finish">Завершить</button>{% endif %}
+            {% endif %}
+        </form>
+        <a class="btn btn-outline-primary" href="{% url 'results:live' event.pk %}"><i class="bi bi-display"></i> Live</a>
+        <a class="btn btn-outline-secondary" href="{% url 'results:event_update' event.pk %}"><i class="bi bi-gear"></i> Настройки</a>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Статус</div><strong>{{ event.get_status_display }}</strong></div></div>
+    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Сейчас</div>{% if state.focus_group %}<strong>{{ state.focus_group.name }}</strong>{% if not state.focus_group.is_single_run %}, {{ state.focus_run }} з.{% endif %}{% else %}—{% endif %}</div></div>
+    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Последний опрос / изменение</div>{{ event.last_polled_at|time:"H:i:s"|default:"—" }} / {{ event.last_changed_at|time:"H:i:s"|default:"—" }}</div></div>
+    <div class="col-md-3"><div class="border rounded p-2 h-100"><div class="small text-body-secondary">Участников / связано со школой</div>{{ entries|length }} / {{ linked_count }}</div></div>
+</div>
+
+{% if event.last_error %}<div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ event.last_error }}</div>{% endif %}
+{% for warning in event.parse_warnings %}<div class="alert alert-warning py-2 small">{{ warning }}</div>{% endfor %}
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <form method="post" class="d-flex flex-wrap gap-2">{% csrf_token %}
+        <button class="btn btn-sm btn-outline-secondary" name="action" value="preview"><i class="bi bi-eye"></i> Проверить источник</button>
+        <button class="btn btn-sm btn-outline-secondary" name="action" value="sync"><i class="bi bi-arrow-repeat"></i> Прочитать сейчас</button>
+        <button class="btn btn-sm btn-outline-secondary" name="action" value="link"><i class="bi bi-people"></i> Связать со спортсменами школы</button>
+        {% if event.telegram_enabled %}<button class="btn btn-sm btn-outline-secondary" name="action" value="publish"><i class="bi bi-telegram"></i> Опубликовать в Telegram</button>{% endif %}
+    </form>
+</div>
+<div class="small mb-3">
+    {% if event.public_enabled %}Публичная ссылка: <a href="{{ public_url }}" target="_blank">{{ public_url }}</a>{% else %}Публичная ссылка выключена{% endif %}
+    {% if telegram %} · Telegram: {% if telegram.last_error %}<span class="text-danger">{{ telegram.last_error }}</span>{% else %}опубликована версия {{ telegram.published_version }}{% endif %}{% endif %}
+</div>
+
+{% if preview %}
+<div class="card mb-3 border-info">
+    <div class="card-header">Предпросмотр разбора (в БД не записан)</div>
+    <div class="card-body">
+        <p class="mb-2">Листы: {% for name, count in preview.sheets %}<code>{{ name }}</code> ({{ count }} стр.){% if not forloop.last %}, {% endif %}{% endfor %}</p>
+        <p class="mb-2">Название: <strong>{{ preview.protocol.title|default:"—" }}</strong>, дата: {{ preview.protocol.event_date|default:"—" }}, групп: {{ preview.protocol.groups|length }}, участников: {{ preview.protocol.entries|length }}</p>
+        {% for warning in preview.protocol.warnings %}<div class="text-warning-emphasis small">{{ warning }}</div>{% endfor %}
+        <ul class="small mb-2">{% for group in preview.protocol.groups %}<li>{{ group.sheet_name }} / {{ group.name }} — {{ group.entries|length }} уч., заездов: {{ group.runs_count }}</li>{% endfor %}</ul>
+        <div class="small text-body-secondary">Автоопределённая разметка колонок (можно скопировать ниже и поправить):</div>
+        <pre class="small bg-body-tertiary p-2 rounded">{{ preview.detected_json }}</pre>
+    </div>
+</div>
+{% endif %}
+
+<details class="card mb-3" {% if mappings_form.errors %}open{% endif %}>
+    <summary class="card-header">Разметка колонок</summary>
+    <div class="card-body">
+        <form method="post">{% csrf_token %}
+            {{ mappings_form.mappings }}
+            <div class="form-text">{{ mappings_form.mappings.help_text }}</div>
+            {% for error in mappings_form.mappings.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+            <button class="btn btn-sm btn-primary mt-2" name="action" value="mappings">Сохранить разметку</button>
+        </form>
+    </div>
+</details>
+
+<details class="card mb-3">
+    <summary class="card-header">Участники и ручные правки</summary>
+    <div class="card-body p-0">
+    <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+        <thead class="table-light"><tr><th>Группа</th><th>№</th><th>Участник</th><th>Спортсмен школы</th><th style="width: 330px">1 з. / 2 з.</th></tr></thead>
+        <tbody>
+        {% for entry in entries %}
+        <tr id="entry-{{ entry.pk }}">
+            <td class="small">{{ entry.group.name }}</td>
+            <td>{{ entry.start_number }}</td>
+            <td>{{ entry.full_name }} <span class="small text-body-secondary">{{ entry.club }}</span></td>
+            <td class="small">{% if entry.athlete %}{{ entry.athlete.person }}{% if entry.link_method == 'auto' %} <span class="text-body-secondary">(авто)</span>{% endif %}{% else %}—{% endif %}</td>
+            <td>
+                <form method="post" action="{% url 'results:entry_result' event.pk entry.pk %}" class="d-flex gap-1">{% csrf_token %}
+                    <input class="form-control form-control-sm font-monospace{% if entry.run1_manual is not None %} border-warning{% endif %}" name="run1" value="{{ entry.effective_raw_1 }}" placeholder="—" title="Источник: {{ entry.run1_raw|default:'—' }}">
+                    {% if entry.runs_count > 1 %}<input class="form-control form-control-sm font-monospace{% if entry.run2_manual is not None %} border-warning{% endif %}" name="run2" value="{{ entry.effective_raw_2 }}" placeholder="—" title="Источник: {{ entry.run2_raw|default:'—' }}">{% endif %}
+                    <button class="btn btn-sm btn-outline-primary" title="Сохранить правку"><i class="bi bi-check"></i></button>
+                    {% if entry.run1_manual is not None or entry.run2_manual is not None %}<button class="btn btn-sm btn-outline-warning" name="reset" value="1" title="Вернуть значения источника"><i class="bi bi-arrow-counterclockwise"></i></button>{% endif %}
+                </form>
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-body-secondary p-3">Протокол ещё не загружен — нажмите «Прочитать сейчас» или «Старт».</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    </div>
+</details>
+
+<div class="card mb-4">
+    <div class="card-header">Журнал (последние 50)</div>
+    <ul class="list-group list-group-flush small">
+        {% for item in log %}
+        <li class="list-group-item d-flex gap-2"><span class="text-body-secondary font-monospace">{{ item.created_at|time:"H:i:s" }}</span><span class="badge text-bg-light">{{ item.get_kind_display }}</span><span>{{ item.message }}</span></li>
+        {% empty %}
+        <li class="list-group-item text-body-secondary">Пока пусто.</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends 'school/base.html' %}
+{% block title %}{{ event.title }} — онлайн{% endblock %}
+{% block content %}
+<div class="pt-3 mb-2 d-flex gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="{% url 'results:event_detail' event.pk %}"><i class="bi bi-sliders"></i> Пульт</a>
+    {% if event.public_enabled %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'results:public_live' event.public_token %}" target="_blank"><i class="bi bi-box-arrow-up-right"></i> Публичная страница</a>{% endif %}
+</div>
+<div id="live-root" data-version="{{ event.version }}" data-url="{{ fragment_url }}">
+    {% include "results/_live_body.html" %}
+</div>
+{% include "results/_live_script.html" %}
+{% endblock %}

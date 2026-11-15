@@ -20,3 +20,4 @@ celerybeat-schedule*
 dump.rdb
 gunicorn.ctl
 backups/
+secrets/
