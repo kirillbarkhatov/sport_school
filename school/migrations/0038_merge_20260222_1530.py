@@ -4,7 +4,6 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0011_competition_competition_type_competition_discipline"),
         ("school", "0037_kanaev_applications"),

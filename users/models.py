@@ -9,6 +9,7 @@ class UserPersonLinkStatus(models.TextChoices):
     APPROVED = "approved", "Связь подтверждена"
     REJECTED = "rejected", "Связь отклонена"
 
+
 class User(AbstractUser):
     """Модель кастомного пользователя"""
 
@@ -21,20 +22,14 @@ class User(AbstractUser):
 
     username = None
     email = models.EmailField(unique=True, blank=True, null=True, verbose_name="Почта")
-    phone = models.CharField(
-        max_length=15, blank=True, null=True, verbose_name="Телефон"
-    )
+    phone = models.CharField(max_length=15, blank=True, null=True, verbose_name="Телефон")
     tg_id = models.PositiveBigIntegerField(unique=True, blank=True, null=True, verbose_name="ID телеграмм аккаунта")
     tg_first_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="Имя в телеграмме")
     tg_last_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="Фамилия в телеграмме")
     tg_username = models.CharField(max_length=100, blank=True, null=True, verbose_name="Тег в телеграмме")
     city = models.CharField(max_length=30, blank=True, null=True, verbose_name="Город")
-    avatar = models.ImageField(
-        upload_to="users/avatar", blank=True, null=True, verbose_name="Аватар"
-    )
-    token = models.CharField(
-        max_length=100, blank=True, null=True, verbose_name="Токен"
-    )
+    avatar = models.ImageField(upload_to="users/avatar", blank=True, null=True, verbose_name="Аватар")
+    token = models.CharField(max_length=100, blank=True, null=True, verbose_name="Токен")
     is_approved = models.BooleanField(default=False, verbose_name="Пользователь подтверждён")
     bot_access = models.CharField(
         max_length=10,
@@ -75,11 +70,13 @@ class User(AbstractUser):
     def get_accessible_family_ids(self):
         if self.is_staff or self.is_superuser:
             from school.models import Family
+
             return list(Family.objects.values_list("id", flat=True))
 
         ids = set()
         if self.person_id:
             from school.models import FamilyMember
+
             linked = FamilyMember.objects.filter(person_id=self.person_id).values_list("family_id", flat=True)
             ids.update(linked)
         return list(ids)

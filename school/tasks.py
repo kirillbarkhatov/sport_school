@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import date
 import mimetypes
 import random
 import time
+from collections import defaultdict
+from datetime import date
 from pathlib import PurePosixPath
 from typing import Any
-from uuid import UUID
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import requests
 from celery import chain, shared_task
@@ -28,10 +27,20 @@ from .document_ai import (
     hash_signed_url,
     make_signed_document_url,
 )
-from .document_binding import auto_bind_document_by_analysis
-from .document_binding import infer_athlete_doc_type
-from .document_binding import sync_athlete_document_from_analysis
-from .models import AthleteContract, AthleteDocument, Document, DocumentAIAnalysis, DocumentAIJob, DocumentAIJobItem, DocumentType
+from .document_binding import (
+    auto_bind_document_by_analysis,
+    infer_athlete_doc_type,
+    sync_athlete_document_from_analysis,
+)
+from .models import (
+    AthleteContract,
+    AthleteDocument,
+    Document,
+    DocumentAIAnalysis,
+    DocumentAIJob,
+    DocumentAIJobItem,
+    DocumentType,
+)
 from .services import ensure_monthly_service_for_contract
 
 logger = get_task_logger(__name__)
@@ -129,11 +138,7 @@ def monitor_athlete_document_analysis_status(*, athlete_document_id: int, timeou
     }
 
     while time.time() < deadline:
-        link = (
-            AthleteDocument.objects.select_related("document__ai_analysis")
-            .filter(pk=athlete_document_id)
-            .first()
-        )
+        link = AthleteDocument.objects.select_related("document__ai_analysis").filter(pk=athlete_document_id).first()
         if not link:
             final_payload = {"state": "failed", "message": "Документ не найден"}
             cache.set(key, final_payload, timeout=180)
@@ -250,7 +255,7 @@ def _to_job_uuid(job_id: str | UUID | None) -> UUID | None:
         return job_id
     try:
         return UUID(str(job_id))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         logger.warning("docs-ai invalid job_id=%s", job_id)
         return None
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation

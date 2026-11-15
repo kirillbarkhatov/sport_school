@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time, timedelta
+
 from asgiref.sync import async_to_sync
 from celery import shared_task
-from datetime import datetime, timedelta, time
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 from config.settings import BOT_TOKEN
-from users.models import UserPersonLink, UserPersonLinkStatus
 from tg_bot.services.notifications import notify_admins_bot, notify_managers_bot
+from users.models import UserPersonLink, UserPersonLinkStatus
 
 logger = logging.getLogger(__name__)
 
@@ -44,18 +45,10 @@ def _format_link_summary(link: UserPersonLink, *, include_reasons: bool = True) 
 def build_decision_keyboard(user_id: int, link: UserPersonLink) -> InlineKeyboardMarkup:
     buttons = []
     if link.suggested_person_id:
-        buttons.append(
-            [InlineKeyboardButton("✅ Подтвердить связь", callback_data=f"admin_link:confirm:{user_id}")]
-        )
-    buttons.append(
-        [InlineKeyboardButton("🔁 Выбрать другого члена", callback_data=f"admin_link:select:{user_id}")]
-    )
-    buttons.append(
-        [InlineKeyboardButton("➕ Добавить нового члена", callback_data=f"admin_link:create:{user_id}")]
-    )
-    buttons.append(
-        [InlineKeyboardButton("🚫 Отклонить заявку", callback_data=f"admin_link:reject:{user_id}")]
-    )
+        buttons.append([InlineKeyboardButton("✅ Подтвердить связь", callback_data=f"admin_link:confirm:{user_id}")])
+    buttons.append([InlineKeyboardButton("🔁 Выбрать другого члена", callback_data=f"admin_link:select:{user_id}")])
+    buttons.append([InlineKeyboardButton("➕ Добавить нового члена", callback_data=f"admin_link:create:{user_id}")])
+    buttons.append([InlineKeyboardButton("🚫 Отклонить заявку", callback_data=f"admin_link:reject:{user_id}")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -102,8 +95,8 @@ def _daily_range(target_date):
 
 
 def _format_bot_activity_entry(user) -> str:
-    display_name = user.display_name() if hasattr(user, "display_name") else (
-        user.get_full_name() or user.email or str(user.pk)
+    display_name = (
+        user.display_name() if hasattr(user, "display_name") else (user.get_full_name() or user.email or str(user.pk))
     )
     email = user.email or "—"
     if getattr(user, "tg_username", None):

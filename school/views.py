@@ -11,40 +11,23 @@ from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.db.models.functions import Coalesce
-from django.http import FileResponse, Http404, JsonResponse, HttpResponse
-from django.shortcuts import render, get_object_or_404, redirect
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views import View
-from django.views.generic import TemplateView, ListView
+from django.views.generic import ListView, TemplateView
 
-from school.document_ai import make_signed_document_url
-from school.forms import (
-    AthleteForm,
-    AthleteCompactForm,
-    PersonForm,
-    PersonCompactForm,
-    FamilyForm,
-    FamilyMemberForm,
-    CompetitionForm,
-    CompetitionVenueForm,
-    CompetitionScoringGroupForm,
-    CompetitionScoringGroupCreateForm,
-    CompetitionApplyAthleteForm,
-    CompetitionDocumentUploadForm,
-    BulkDocumentUploadForm,
-    DocumentAIAnalysisFilterForm,
-)
 from school.competition_groups import (
     build_manual_group_name,
-    ensure_standard_u_groups_for_birth_year,
     ensure_competition_scoring_groups_from_analysis,
     ensure_competition_scoring_groups_from_competition_documents,
     ensure_standard_u_category_groups,
+    ensure_standard_u_groups_for_birth_year,
 )
 from school.competition_standards import STANDARD_U_CATEGORIES, infer_season_start_year, normalize_discipline_value
-from school.document_ai import validate_signed_document_token
+from school.document_ai import make_signed_document_url, validate_signed_document_token
 from school.document_binding import (
     bind_document_to_athlete,
     bind_document_to_competition,
@@ -55,24 +38,40 @@ from school.document_binding import (
     sync_athlete_document_from_analysis,
 )
 from school.document_ingest import DocumentIngestValidationError, ingest_single_document
+from school.forms import (
+    AthleteCompactForm,
+    AthleteForm,
+    BulkDocumentUploadForm,
+    CompetitionApplyAthleteForm,
+    CompetitionDocumentUploadForm,
+    CompetitionForm,
+    CompetitionScoringGroupCreateForm,
+    CompetitionScoringGroupForm,
+    CompetitionVenueForm,
+    DocumentAIAnalysisFilterForm,
+    FamilyForm,
+    FamilyMemberForm,
+    PersonCompactForm,
+    PersonForm,
+)
 from school.models import (
     Athlete,
-    Family,
-    FamilyMember,
-    Group,
+    AthleteDocument,
     Club,
     Competition,
-    CompetitionVenue,
-    CompetitionScoringGroup,
-    CompetitionEntry,
     CompetitionApplication,
     CompetitionApplicationLink,
-    Person,
     CompetitionDocument,
+    CompetitionEntry,
+    CompetitionScoringGroup,
+    CompetitionVenue,
     Document,
     DocumentAIAnalysis,
     DocumentType,
-    AthleteDocument,
+    Family,
+    FamilyMember,
+    Group,
+    Person,
 )
 from school.tasks import (
     enqueue_documents_for_ai_analysis,
@@ -82,15 +81,14 @@ from school.tasks import (
 from users.constants import ADMIN_GROUP_NAME, COACH_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.utils import (
-    get_athlete_queryset_for_user,
-    get_person_queryset_for_user,
-    get_group_queryset_for_user,
-    get_class_queryset_for_user,
-    get_available_athlete_queryset_for_user,
-    get_coach_club_ids_for_user,
     ensure_user_athlete_links,
+    get_athlete_queryset_for_user,
+    get_available_athlete_queryset_for_user,
+    get_class_queryset_for_user,
+    get_coach_club_ids_for_user,
+    get_group_queryset_for_user,
+    get_person_queryset_for_user,
 )
-
 
 # Create your views here.
 
@@ -99,13 +97,7 @@ KANAEV_CLUB_NAME = "Канаев Ски Клаб"
 
 
 def _is_regular_person_user(user) -> bool:
-    return bool(
-        user
-        and user.is_authenticated
-        and not user.is_staff
-        and not user.is_superuser
-        and user.person_id
-    )
+    return bool(user and user.is_authenticated and not user.is_staff and not user.is_superuser and user.person_id)
 
 
 def _is_extended_athlete_filters_user(user) -> bool:
@@ -125,8 +117,7 @@ def _monitor_cache_key(athlete_document_id: int) -> str:
 
 def _get_athlete_med_documents(athlete: Athlete):
     return (
-        AthleteDocument.objects
-        .select_related("document", "document__ai_analysis")
+        AthleteDocument.objects.select_related("document", "document__ai_analysis")
         .filter(athlete=athlete, doc_type=DocumentType.MED_CERT)
         .order_by("-is_actual", "-created_at")
     )
@@ -221,6 +212,7 @@ def _resolve_certificate_ui_state(active_document: AthleteDocument | None) -> di
 
 class IndexView(ApprovedUserRequiredMixin, TemplateView):
     """Стартовая страница"""
+
     template_name = "school/index.html"
 
     def get(self, request, *args, **kwargs):
@@ -264,15 +256,12 @@ class UserMainInfoView(ApprovedUserRequiredMixin, TemplateView):
         athletes = (
             get_available_athlete_queryset_for_user(user, ensure_family_links=True)
             .select_related("person", "person__club")
-            .prefetch_related(
-                Prefetch("groups_athletes", queryset=Group.objects.order_by("name"))
-            )
+            .prefetch_related(Prefetch("groups_athletes", queryset=Group.objects.order_by("name")))
             .order_by("person__surname", "person__name")
         )
 
         upcoming_competitions = (
-            Competition.objects
-            .annotate(event_date=Coalesce("start_date", "date"))
+            Competition.objects.annotate(event_date=Coalesce("start_date", "date"))
             .filter(
                 event_date__isnull=False,
                 event_date__gte=today,
@@ -311,11 +300,7 @@ class AthleteListView(ApprovedUserRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         user = self.request.user
         context["level_choices"] = Athlete.LEVEL_CHOICES
-        context["groups"] = (
-            get_group_queryset_for_user(user)
-            .prefetch_related("athletes")
-            .order_by("name")
-        )
+        context["groups"] = get_group_queryset_for_user(user).prefetch_related("athletes").order_by("name")
         return context
 
 
@@ -329,9 +314,7 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
         queryset = (
             get_athlete_queryset_for_user(self.request.user)
             .select_related("person", "person__club")
-            .prefetch_related(
-                Prefetch("groups_athletes", queryset=Group.objects.order_by("name"))
-            )
+            .prefetch_related(Prefetch("groups_athletes", queryset=Group.objects.order_by("name")))
         )
         club_id = self.request.GET.get("club")
         if club_id:
@@ -433,15 +416,14 @@ def edit_athlete(request, athlete_id):
         person_form = PersonForm(request.POST, instance=person)
         family_form = FamilyForm(request.POST, instance=family) if family else None
         family_member_forms = [
-            FamilyMemberForm(request.POST, prefix=str(member.id), instance=member)
-            for member in family_members
+            FamilyMemberForm(request.POST, prefix=str(member.id), instance=member) for member in family_members
         ]
 
         if (
-            athlete_form.is_valid() and
-            person_form.is_valid() and
-            (family_form is None or family_form.is_valid()) and
-            all(form.is_valid() for form in family_member_forms)
+            athlete_form.is_valid()
+            and person_form.is_valid()
+            and (family_form is None or family_form.is_valid())
+            and all(form.is_valid() for form in family_member_forms)
         ):
             athlete_form.save()
             person_form.save()
@@ -577,7 +559,7 @@ class AthleteInlineUpdateView(ApprovedUserRequiredMixin, View):
         if birth_year is not None and person:
             try:
                 year = int(birth_year)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return JsonResponse({"error": "invalid_birth_year"}, status=400)
             current_year = timezone.now().year
             if year < 1900 or year > current_year:
@@ -629,11 +611,9 @@ class AthleteInlineUpdateView(ApprovedUserRequiredMixin, View):
         if group_ids is not None:
             try:
                 group_ids = [int(group_id) for group_id in group_ids]
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return JsonResponse({"error": "invalid_group_ids"}, status=400)
-            allowed_group_ids = set(
-                get_group_queryset_for_user(request.user).values_list("id", flat=True)
-            )
+            allowed_group_ids = set(get_group_queryset_for_user(request.user).values_list("id", flat=True))
             cleaned_group_ids = [gid for gid in group_ids if gid in allowed_group_ids]
             athlete.groups_athletes.set(cleaned_group_ids)
 
@@ -641,9 +621,7 @@ class AthleteInlineUpdateView(ApprovedUserRequiredMixin, View):
             athlete.save(update_fields=updated_fields)
 
         refreshed_groups = list(
-            Group.objects.filter(
-                id__in=athlete.groups_athletes.values_list("id", flat=True)
-            )
+            Group.objects.filter(id__in=athlete.groups_athletes.values_list("id", flat=True))
             .order_by("name")
             .values("id", "name")
         )
@@ -748,7 +726,7 @@ class AthleteCertificateStatusView(ApprovedUserRequiredMixin, View):
         if doc_id_raw:
             try:
                 doc_id_int = int(doc_id_raw)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 doc_id_int = None
             if doc_id_int:
                 link = (
@@ -806,11 +784,15 @@ class AthleteCertificateClarifyView(ApprovedUserRequiredMixin, View):
         if not _can_manage_athlete_certificates(request.user):
             return JsonResponse({"error": "forbidden"}, status=403)
 
-        link = AthleteDocument.objects.select_related("athlete").filter(
-            pk=athlete_document_id,
-            athlete=athlete,
-            doc_type=DocumentType.MED_CERT,
-        ).first()
+        link = (
+            AthleteDocument.objects.select_related("athlete")
+            .filter(
+                pk=athlete_document_id,
+                athlete=athlete,
+                doc_type=DocumentType.MED_CERT,
+            )
+            .first()
+        )
         if not link:
             return JsonResponse({"error": "document_not_found"}, status=404)
 
@@ -988,11 +970,13 @@ def _standard_u_category_payload(competition: Competition | None) -> list[dict[s
                 CompetitionScoringGroup.GenderScope.FEMALE in legacy_genders
                 and CompetitionScoringGroup.GenderScope.MALE in legacy_genders
             )
-        payload.append({
-            "code": code,
-            "label": STANDARD_U_CATEGORIES[code].button_label,
-            "active": is_complete_pair,
-        })
+        payload.append(
+            {
+                "code": code,
+                "label": STANDARD_U_CATEGORIES[code].button_label,
+                "active": is_complete_pair,
+            }
+        )
     return payload
 
 
@@ -1044,14 +1028,15 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "apply_url": (
                 f"{settings.SITE_BASE_URL.rstrip('/')}"
                 f"{reverse('school:competition_apply', kwargs={'pk': competition.pk, 'token': link.token})}"
-            ) if competition and link else "",
+            )
+            if competition and link
+            else "",
             "competition_documents": competition.documents.select_related("document") if competition else [],
             "document_form": document_form,
             "scoring_groups": _sorted_scoring_groups(competition),
             "standard_u_categories": _standard_u_category_payload(competition),
         }
         return render(request, self.template_name, context)
-
 
     def post(self, request, pk=None):
         competition = self.get_object(pk)
@@ -1122,7 +1107,9 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
             "apply_url": (
                 f"{settings.SITE_BASE_URL.rstrip('/')}"
                 f"{reverse('school:competition_apply', kwargs={'pk': competition.pk, 'token': link.token})}"
-            ) if competition and link else "",
+            )
+            if competition and link
+            else "",
             "competition_documents": competition.documents.select_related("document") if competition else [],
             "document_form": document_form,
             "scoring_groups": _sorted_scoring_groups(competition),
@@ -1143,7 +1130,8 @@ class CompetitionScoringGroupListCreateView(ApprovedUserRequiredMixin, View):
         return {
             "competition": competition,
             "groups": groups,
-            "create_form": create_form or CompetitionScoringGroupCreateForm(initial={"discipline": initial_discipline}),
+            "create_form": create_form
+            or CompetitionScoringGroupCreateForm(initial={"discipline": initial_discipline}),
         }
 
     def get(self, request, pk):
@@ -1444,7 +1432,7 @@ class DocumentAIAnalysisListView(ApprovedUserRequiredMixin, ListView):
         force = request.POST.get("force") == "1"
         try:
             document_id_int = int(document_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             messages.error(request, "Некорректный ID документа.")
             return redirect("school:documents_analysis_list")
 
@@ -1586,8 +1574,7 @@ class DocumentBindAthleteView(ApprovedUserRequiredMixin, View):
             previous_active_med_id = None
             if doc_type == DocumentType.MED_CERT:
                 previous_active_med_id = (
-                    AthleteDocument.objects
-                    .filter(
+                    AthleteDocument.objects.filter(
                         athlete=athlete,
                         doc_type=DocumentType.MED_CERT,
                         is_actual=True,
@@ -1709,12 +1696,10 @@ class CompetitionEntryToggleView(ApprovedUserRequiredMixin, View):
 
         try:
             athlete_id_int = int(athlete_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return JsonResponse({"success": False, "error": "bad_athlete"}, status=400)
 
-        available_ids = set(
-            _athlete_filter_queryset(request.user).values_list("id", flat=True)
-        )
+        available_ids = set(_athlete_filter_queryset(request.user).values_list("id", flat=True))
         if athlete_id_int not in available_ids:
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
 
@@ -1733,6 +1718,7 @@ class CompetitionEntryToggleView(ApprovedUserRequiredMixin, View):
             athlete_id=athlete_id_int,
         ).delete()
         return JsonResponse({"success": True, "status": "removed"})
+
 
 def _has_new_athlete_payload(data) -> bool:
     fields = [
@@ -1859,11 +1845,7 @@ class CompetitionApplyView(LoginRequiredMixin, View):
 
         available_athletes = self._get_available_athletes(request)
         available_ids = set(available_athletes.values_list("id", flat=True))
-        selected_ids = {
-            int(value)
-            for value in request.POST.getlist("athletes")
-            if str(value).isdigit()
-        }
+        selected_ids = {int(value) for value in request.POST.getlist("athletes") if str(value).isdigit()}
 
         athlete_form = CompetitionApplyAthleteForm(request.POST)
         if _has_new_athlete_payload(request.POST):
@@ -1958,11 +1940,13 @@ class CompetitionApplyToggleView(LoginRequiredMixin, View):
 
         try:
             athlete_id_int = int(athlete_id)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return JsonResponse({"success": False, "error": "bad_athlete"}, status=400)
 
         available_ids = set(
-            get_available_athlete_queryset_for_user(request.user, ensure_family_links=True).values_list("id", flat=True)
+            get_available_athlete_queryset_for_user(request.user, ensure_family_links=True).values_list(
+                "id", flat=True
+            )
         )
         if athlete_id_int not in available_ids:
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
@@ -1989,6 +1973,7 @@ class CompetitionApplyToggleView(LoginRequiredMixin, View):
 
 def _excel_date_from_serial(serial):
     from datetime import datetime, timedelta
+
     try:
         base = datetime(1899, 12, 30)
         return base + timedelta(days=int(serial))
@@ -2026,7 +2011,7 @@ def competition_export(request, pk):
 
     header = f'ЗАЯВКА НА УЧАСТИЕ СПОРТСМЕНОВ В СОРЕВНОВАНИЯХ "{competition.name}" ПО ГОРНОЛЫЖНОМУ СПОРТУ'
     if competition.location:
-        subloc = f'НА {str(competition.location).upper()}'
+        subloc = f"НА {str(competition.location).upper()}"
     else:
         subloc = ""
     date_part = ""
@@ -2040,8 +2025,12 @@ def competition_export(request, pk):
 
     table_rows = []
     # Title rows
-    table_rows.append(f"<Row><Cell ss:MergeAcross='5' ss:StyleID='sTitle'><Data ss:Type='String'>{force_str(header)}</Data></Cell></Row>")
-    table_rows.append(f"<Row><Cell ss:MergeAcross='5' ss:StyleID='sSubtitle'><Data ss:Type='String'>{force_str(subtitle)}</Data></Cell></Row>")
+    table_rows.append(
+        f"<Row><Cell ss:MergeAcross='5' ss:StyleID='sTitle'><Data ss:Type='String'>{force_str(header)}</Data></Cell></Row>"
+    )
+    table_rows.append(
+        f"<Row><Cell ss:MergeAcross='5' ss:StyleID='sSubtitle'><Data ss:Type='String'>{force_str(subtitle)}</Data></Cell></Row>"
+    )
     # Header row
     headers = ["№ п/п", "Фамилия, Имя", "Дата рождения", "Спортивный разряд", "Муниципальный район", "ФСО/Отделение"]
     table_rows.append("<Row>" + "".join(cell(h, "sHead") for h in headers) + "</Row>")
@@ -2096,12 +2085,10 @@ def competition_export(request, pk):
         "xmlns:ss='urn:schemas-microsoft-com:office:spreadsheet'>"
         f"{styles}"
         "<Worksheet ss:Name='Общая заявка'><Table>"
-        f"{columns}"
-        + "".join(table_rows) +
-        "</Table></Worksheet></Workbook>"
+        f"{columns}" + "".join(table_rows) + "</Table></Worksheet></Workbook>"
     )
     resp = HttpResponse(xml_content, content_type="application/vnd.ms-excel")
-    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}.xls\"'
+    resp["Content-Disposition"] = f'attachment; filename="zayavka_{competition.pk}.xls"'
     return resp
 
 
@@ -2160,7 +2147,9 @@ def _group_entries_by_birth_year(entries):
     result = []
     for title, (start_year, end_year) in groups:
         filtered = [
-            e for e in entries if e.athlete.person.date_of_birth and start_year <= e.athlete.person.date_of_birth.year <= end_year
+            e
+            for e in entries
+            if e.athlete.person.date_of_birth and start_year <= e.athlete.person.date_of_birth.year <= end_year
         ]
         # keep deterministic order: by surname, name
         filtered.sort(key=lambda e: (e.athlete.person.surname or "", e.athlete.person.name or ""))
@@ -2170,12 +2159,10 @@ def _group_entries_by_birth_year(entries):
 
 def competition_export_type2(request, pk):
     competition = get_object_or_404(Competition, pk=pk)
-    entries = list(
-        competition.entries.select_related("athlete__person", "athlete__person__club").all()
-    )
+    entries = list(competition.entries.select_related("athlete__person", "athlete__person__club").all())
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Alignment, Border, Side, Font
+        from openpyxl.styles import Alignment, Border, Font, Side
     except ImportError:
         return HttpResponse("openpyxl не установлен", status=500)
 
@@ -2219,7 +2206,15 @@ def competition_export_type2(request, pk):
     write_header()
 
     start_row = 11
-    headers = ["№ п/п", "Фамилия, Имя", "Д.р.", "Спортивный разряд", "Наименование ФСО", "Муниципальный район", "Допуск врача (подпись, штамп)"]
+    headers = [
+        "№ п/п",
+        "Фамилия, Имя",
+        "Д.р.",
+        "Спортивный разряд",
+        "Наименование ФСО",
+        "Муниципальный район",
+        "Допуск врача (подпись, штамп)",
+    ]
     column_widths = [5, 26, 10, 18, 26, 18, 24]
     for idx, width in enumerate(column_widths, start=1):
         ws.column_dimensions[chr(64 + idx)].width = width
@@ -2276,7 +2271,11 @@ def competition_export_type2(request, pk):
     ws.cell(row=row_cursor, column=1, value="Врач (ФИО) __________________________ / ____________ / ____________/")
     row_cursor += 1
     ws.merge_cells(start_row=row_cursor, start_column=1, end_row=row_cursor, end_column=7)
-    ws.cell(row=row_cursor, column=1, value="Представитель команды __________________________ / ____________ / ____________/")
+    ws.cell(
+        row=row_cursor,
+        column=1,
+        value="Представитель команды __________________________ / ____________ / ____________/",
+    )
 
     # align all text left by default
     for row in ws.iter_rows(min_row=1, max_row=row_cursor, min_col=1, max_col=7):
@@ -2291,7 +2290,7 @@ def competition_export_type2(request, pk):
         buf.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_type2.xlsx\"'
+    resp["Content-Disposition"] = f'attachment; filename="zayavka_{competition.pk}_type2.xlsx"'
     return resp
 
 
@@ -2311,14 +2310,12 @@ def _medical_value(entry):
 
 def competition_export_word_type1(request, pk):
     competition = get_object_or_404(Competition, pk=pk)
-    entries = list(
-        competition.entries.select_related("athlete__person", "athlete__person__club").all()
-    )
+    entries = list(competition.entries.select_related("athlete__person", "athlete__person__club").all())
     try:
         from docx import Document
-        from docx.shared import Cm, Pt
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml.ns import qn
+        from docx.shared import Cm, Pt
     except ImportError:
         return HttpResponse("python-docx не установлен", status=500)
 
@@ -2358,7 +2355,15 @@ def competition_export_word_type1(request, pk):
     add_para("Руководитель команды: __________________________ Контакты: _______________________")
     add_para("Сопровождающий команды: ________________________ Контакты: _______________________")
 
-    table_headers = ["№ п/п", "Фамилия, Имя", "Д.р.", "Спортивный разряд", "Наименование ФСО", "Муниципальный район", "Допуск врача (подпись, штамп)"]
+    table_headers = [
+        "№ п/п",
+        "Фамилия, Имя",
+        "Д.р.",
+        "Спортивный разряд",
+        "Наименование ФСО",
+        "Муниципальный район",
+        "Допуск врача (подпись, штамп)",
+    ]
     # ширины под макет, суммарно ≈ ширина страницы после полей
     # чуть сузил, чтобы гарантированно вписаться в страницу с полями 2 см
     col_width_cm = [0.9, 4.4, 1.5, 1.9, 2.7, 2.1, 2.0]
@@ -2410,7 +2415,7 @@ def competition_export_word_type1(request, pk):
         buf.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
-    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_w1.docx\"'
+    resp["Content-Disposition"] = f'attachment; filename="zayavka_{competition.pk}_w1.docx"'
     return resp
 
 
@@ -2434,9 +2439,9 @@ def competition_export_word_type2(request, pk):
     )
     try:
         from docx import Document
-        from docx.shared import Cm, Pt, RGBColor
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml.ns import qn
+        from docx.shared import Cm, Pt, RGBColor
     except ImportError:
         return HttpResponse("python-docx не установлен", status=500)
 
@@ -2526,7 +2531,7 @@ def competition_export_word_type2(request, pk):
         buf.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
-    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_w2.docx\"'
+    resp["Content-Disposition"] = f'attachment; filename="zayavka_{competition.pk}_w2.docx"'
     return resp
 
 
@@ -2539,9 +2544,9 @@ def competition_export_word_type3(request, pk):
     )
     try:
         from docx import Document
-        from docx.shared import Cm, Pt, RGBColor
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml.ns import qn
+        from docx.shared import Cm, Pt, RGBColor
     except ImportError:
         return HttpResponse("python-docx не установлен", status=500)
 
@@ -2570,7 +2575,7 @@ def competition_export_word_type3(request, pk):
     add_p(f"сроки проведения {fmt_ru_date(competition.start_date or competition.date)}")
     add_p(f"от физкультурно-спортивной организации {org}")
     add_p("руководитель команды Канаев Д.Т.")
-    add_p(f"сопровождающий команды Козлеев М.С.")
+    add_p("сопровождающий команды Козлеев М.С.")
     add_p(f"контакты {contact}")
 
     headers = ["№", "Фамилия, Имя", "Год рождения", "Спортивный разряд", "Наименование ФСО"]
@@ -2616,7 +2621,7 @@ def competition_export_word_type3(request, pk):
         buf.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
-    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_w3.docx\"'
+    resp["Content-Disposition"] = f'attachment; filename="zayavka_{competition.pk}_w3.docx"'
     return resp
 
 
@@ -2629,9 +2634,9 @@ def competition_export_word_type4(request, pk):
     )
     try:
         from docx import Document
-        from docx.shared import Cm, Pt
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml.ns import qn
+        from docx.shared import Cm, Pt
     except ImportError:
         return HttpResponse("python-docx не установлен", status=500)
 
@@ -2663,7 +2668,15 @@ def competition_export_word_type4(request, pk):
     add_p("сопровождающий команды: Козлеев М.С.")
     add_p("контакты +79215595114")
 
-    headers = ["№ п/п", "Фамилия, Имя", "Год рождения", "Спортивный разряд", "Наименование ФСО", "Муниципальный район", "Допуск врача"]
+    headers = [
+        "№ п/п",
+        "Фамилия, Имя",
+        "Год рождения",
+        "Спортивный разряд",
+        "Наименование ФСО",
+        "Муниципальный район",
+        "Допуск врача",
+    ]
     widths = [0.8, 4.5, 1.7, 2.0, 2.6, 2.1, 1.8]  # подгонка под ширину страницы
 
     groups = [
@@ -2727,5 +2740,5 @@ def competition_export_word_type4(request, pk):
         buf.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
-    resp["Content-Disposition"] = f'attachment; filename=\"zayavka_{competition.pk}_w4.docx\"'
+    resp["Content-Disposition"] = f'attachment; filename="zayavka_{competition.pk}_w4.docx"'
     return resp

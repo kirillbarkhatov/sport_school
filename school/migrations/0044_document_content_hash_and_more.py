@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0043_documentaianalysis_auto_bound_and_more"),
     ]
@@ -22,8 +21,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="document",
-            index=models.Index(
-                fields=["size", "content_hash"], name="school_docu_size_1f4e55_idx"
-            ),
+            index=models.Index(fields=["size", "content_hash"], name="school_docu_size_1f4e55_idx"),
         ),
     ]

@@ -1,8 +1,10 @@
 import logging
-import secrets
 import re
+import secrets
 
 import httpx
+import redis
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -12,21 +14,18 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
-from django.views.generic import TemplateView, RedirectView
+from django.views.generic import RedirectView, TemplateView
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from .models import User
 from config.settings import (
     BOT_NAME,
     BOT_TOKEN,
-    TELEGRAM_LOG_CHAT_ID,
     TELEGRAM_ADMIN_IDS,
-    XFER_TOKEN_POST_USE_TTL_SECONDS,
+    TELEGRAM_LOG_CHAT_ID,
 )
-from django.conf import settings
-import redis
 
+from .models import User
 
 logger = logging.getLogger("auth.telegram")
 
@@ -103,7 +102,7 @@ class LoginPageView(TemplateView):
         if match:
             try:
                 return int(match.group("pk"))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return None
         return None
 
@@ -130,12 +129,14 @@ class LoginPageView(TemplateView):
                 context["dashboard_url"] = reverse("school:index")
             else:
                 context["dashboard_url"] = reverse("users:awaiting_approval")
-            self._notify_debug({
-                "authenticated": True,
-                "user_id": self.request.user.pk,
-                "tg_id": getattr(self.request.user, "tg_id", None),
-                "next_url": self.request.session.get("next_url"),
-            })
+            self._notify_debug(
+                {
+                    "authenticated": True,
+                    "user_id": self.request.user.pk,
+                    "tg_id": getattr(self.request.user, "tg_id", None),
+                    "next_url": self.request.session.get("next_url"),
+                }
+            )
             return context
 
         token = self._issue_session_token()
@@ -153,14 +154,16 @@ class LoginPageView(TemplateView):
 
         context["telegram_link"] = f"https://t.me/{bot_name}?start={start_payload}"
         context["telegram_bot_name"] = bot_name
-        self._notify_debug({
-            "authenticated": False,
-            "generated_token": token,
-            "session_token": self.request.session.get("telegram_token"),
-            "next_url": self.request.session.get("next_url"),
-            "telegram_link": context["telegram_link"],
-            "is_competition_flow": context["is_competition_flow"],
-        })
+        self._notify_debug(
+            {
+                "authenticated": False,
+                "generated_token": token,
+                "session_token": self.request.session.get("telegram_token"),
+                "next_url": self.request.session.get("next_url"),
+                "telegram_link": context["telegram_link"],
+                "is_competition_flow": context["is_competition_flow"],
+            }
+        )
         return context
 
     def _issue_session_token(self) -> str:
@@ -202,7 +205,9 @@ class TelegramCallbackView(View):
 
         # Проверяем кэш одноразовых токенов, если он ещё живёт после первого использования
         user = None
-        redis_client = redis.Redis.from_url(getattr(settings, "REDIS_XFER_URL", "redis://localhost:6379/1"), decode_responses=True)
+        redis_client = redis.Redis.from_url(
+            getattr(settings, "REDIS_XFER_URL", "redis://localhost:6379/1"), decode_responses=True
+        )
         cached_user_id = redis_client.get(f"xfer_token:{token}")
         if cached_user_id:
             try:
@@ -244,6 +249,7 @@ class TelegramCallbackView(View):
         send_admin_message(_format_user_login_message(user, request))
 
         next_url = request.session.pop("next_url", None) or request.GET.get("next")
+
         def _is_competition_apply(url: str | None) -> bool:
             if not url:
                 return False

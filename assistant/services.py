@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Iterable
 from datetime import datetime, time, timedelta
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
 from django.conf import settings
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from school.models import Class, FamilyMember, Person
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
+from school.models import Class, FamilyMember, Person
+
 from .models import ServiceAccount
 
 
@@ -17,7 +19,7 @@ def is_integration_enabled() -> bool:
     return bool(getattr(settings, "AI_ASSISTANT_ENABLED", False))
 
 
-def get_service_account_for_outgoing() -> Optional[ServiceAccount]:
+def get_service_account_for_outgoing() -> ServiceAccount | None:
     slug = getattr(settings, "AI_ASSISTANT_SERVICE_ACCOUNT_SLUG", None)
     if not slug:
         return None

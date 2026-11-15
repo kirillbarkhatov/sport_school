@@ -2,7 +2,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0050_person_telegram_id"),
         ("api", "0010_alter_streamrun_options"),

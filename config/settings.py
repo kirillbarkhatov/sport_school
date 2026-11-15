@@ -11,12 +11,12 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 import os
-from urllib.parse import urlparse
 from pathlib import Path
-from dotenv import load_dotenv
-from django.core.exceptions import ImproperlyConfigured
-from celery.schedules import crontab
+from urllib.parse import urlparse
 
+from celery.schedules import crontab
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 load_dotenv(override=True)
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -174,6 +174,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "users.User"
 
+
 def require_setting(name: str) -> str:
     """Возвращает обязательную переменную окружения или поднимает исключение."""
     value = os.getenv(name)
@@ -232,15 +233,11 @@ TELEGRAM_ADMIN_IDS = [
 ]
 
 TELEGRAM_COACH_IDS = [
-    coach_id.strip()
-    for coach_id in os.getenv("TELEGRAM_COACH_IDS", "").split(",")
-    if coach_id.strip()
+    coach_id.strip() for coach_id in os.getenv("TELEGRAM_COACH_IDS", "").split(",") if coach_id.strip()
 ]
 
 TELEGRAM_MANAGER_IDS = [
-    manager_id.strip()
-    for manager_id in os.getenv("TELEGRAM_MANAGER_IDS", "").split(",")
-    if manager_id.strip()
+    manager_id.strip() for manager_id in os.getenv("TELEGRAM_MANAGER_IDS", "").split(",") if manager_id.strip()
 ]
 TELEGRAM_DOC_IMPORT_ENABLED = os.getenv("TELEGRAM_DOC_IMPORT_ENABLED", "False") == "True"
 TELEGRAM_DOC_IMPORT_CHAT_IDS = [
@@ -273,30 +270,14 @@ ONLINE_RESULTS_STREAM_RESET_STATE_URL_TEMPLATE = os.getenv(
 ).strip()
 ONLINE_RESULTS_STREAM_TIMEOUT_SEC = int(os.getenv("ONLINE_RESULTS_STREAM_TIMEOUT_SEC", "15"))
 ONLINE_RESULTS_STREAM_AUTH_TOKEN = os.getenv("ONLINE_RESULTS_STREAM_AUTH_TOKEN", "")
-ONLINE_RESULTS_STREAM_POLL_INTERVAL_SEC = float(
-    os.getenv("ONLINE_RESULTS_STREAM_POLL_INTERVAL_SEC", "1.0")
-)
-ONLINE_RESULTS_STREAM_REFRESH_TITLES_EVERY = int(
-    os.getenv("ONLINE_RESULTS_STREAM_REFRESH_TITLES_EVERY", "120")
-)
-ONLINE_RESULTS_STREAM_FINALIZE_TIMEOUT_SEC = int(
-    os.getenv("ONLINE_RESULTS_STREAM_FINALIZE_TIMEOUT_SEC", "300")
-)
-ONLINE_RESULTS_STREAM_FINALIZE_MAX_MISSING = int(
-    os.getenv("ONLINE_RESULTS_STREAM_FINALIZE_MAX_MISSING", "2")
-)
-ONLINE_RESULTS_STREAM_WORKER_PRINT = (
-    os.getenv("ONLINE_RESULTS_STREAM_WORKER_PRINT", "False") == "True"
-)
-ONLINE_RESULTS_STREAM_RESUME_STALE_SEC = int(
-    os.getenv("ONLINE_RESULTS_STREAM_RESUME_STALE_SEC", "180")
-)
-ONLINE_RESULTS_STREAM_PENDING_TIMEOUT_SEC = int(
-    os.getenv("ONLINE_RESULTS_STREAM_PENDING_TIMEOUT_SEC", "45")
-)
-ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC = int(
-    os.getenv("ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC", "30")
-)
+ONLINE_RESULTS_STREAM_POLL_INTERVAL_SEC = float(os.getenv("ONLINE_RESULTS_STREAM_POLL_INTERVAL_SEC", "1.0"))
+ONLINE_RESULTS_STREAM_REFRESH_TITLES_EVERY = int(os.getenv("ONLINE_RESULTS_STREAM_REFRESH_TITLES_EVERY", "120"))
+ONLINE_RESULTS_STREAM_FINALIZE_TIMEOUT_SEC = int(os.getenv("ONLINE_RESULTS_STREAM_FINALIZE_TIMEOUT_SEC", "300"))
+ONLINE_RESULTS_STREAM_FINALIZE_MAX_MISSING = int(os.getenv("ONLINE_RESULTS_STREAM_FINALIZE_MAX_MISSING", "2"))
+ONLINE_RESULTS_STREAM_WORKER_PRINT = os.getenv("ONLINE_RESULTS_STREAM_WORKER_PRINT", "False") == "True"
+ONLINE_RESULTS_STREAM_RESUME_STALE_SEC = int(os.getenv("ONLINE_RESULTS_STREAM_RESUME_STALE_SEC", "180"))
+ONLINE_RESULTS_STREAM_PENDING_TIMEOUT_SEC = int(os.getenv("ONLINE_RESULTS_STREAM_PENDING_TIMEOUT_SEC", "45"))
+ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC = int(os.getenv("ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC", "30"))
 ONLINE_RESULTS_TELEGRAM_PUBLISH_MIN_INTERVAL_SEC = float(
     os.getenv("ONLINE_RESULTS_TELEGRAM_PUBLISH_MIN_INTERVAL_SEC", "2.0")
 )
@@ -304,6 +285,7 @@ ONLINE_RESULTS_TELEGRAM_PUBLISH_MIN_INTERVAL_SEC = float(
 LOGIN_URL = "users:login_page"
 LOGIN_REDIRECT_URL = "school:index"
 LOGOUT_REDIRECT_URL = "users:login_page"
+
 
 def _to_origin(url: str) -> str:
     parsed = urlparse(url)

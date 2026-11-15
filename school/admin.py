@@ -82,7 +82,9 @@ class DocumentAIAnalysisAdmin(admin.ModelAdmin):
 
     @admin.display(description="Сущность")
     def entity_view(self, obj):
-        competitions = [link.competition.name for link in obj.document.competition_links.select_related("competition").all()]
+        competitions = [
+            link.competition.name for link in obj.document.competition_links.select_related("competition").all()
+        ]
         athletes = [
             f"{link.athlete.person.surname} {link.athlete.person.name}"
             for link in obj.document.athlete_links.select_related("athlete__person").all()
@@ -101,10 +103,14 @@ class DocumentAIAnalysisAdmin(admin.ModelAdmin):
             return f"{extracted.get('competition_name') or '-'} / {extracted.get('discipline') or '-'}"
         if obj.doc_type == DocumentAIAnalysis.DocType.ATHLETE_SPECIFIC:
             person = extracted.get("person") or {}
-            person_name = person.get("full_name") or " ".join(
-                part for part in [person.get("last_name"), person.get("first_name"), person.get("middle_name")]
-                if part
-            ).strip()
+            person_name = (
+                person.get("full_name")
+                or " ".join(
+                    part
+                    for part in [person.get("last_name"), person.get("first_name"), person.get("middle_name")]
+                    if part
+                ).strip()
+            )
             return f"{person_name or '-'} / {extracted.get('document_name') or '-'}"
         if obj.doc_type == DocumentAIAnalysis.DocType.OTHER:
             return extracted.get("summary") or "-"

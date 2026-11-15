@@ -1,44 +1,59 @@
+import re
 from datetime import date
 from decimal import Decimal
-import re
 
 from django.contrib import messages
-from django.db import transaction
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
-from django.views.generic import CreateView, DetailView, ListView, UpdateView, DeleteView, TemplateView
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
-from users.mixins import ApprovedUserRequiredMixin
-from users.utils import get_person_queryset_for_user
+from bot.models import TelegramParticipant
+from members.models import PersonDedupJob, PersonDuplicateCluster, PersonMergeRedirect
+from members.services import apply_cluster_merge, build_cluster_payload, build_job_payload
+from members.tasks import run_person_dedup_job_task
 from school.forms import (
-    PersonForm,
-    FamilyForm,
-    FamilyMemberInlineFormSet,
+    AthleteContractForm,
     ExistingFamilyMemberFormSet,
     FamilyAthleteProfileFormSet,
-    FamilyServiceForm,
+    FamilyForm,
+    FamilyMemberInlineFormSet,
     FamilyPaymentForm,
-    AthleteContractForm,
+    FamilyServiceForm,
+    PersonForm,
 )
-from school.models import Person, Family, FamilyMember, Athlete, FamilyAthleteProfile, FamilyService, FamilyPayment, Club
-from school.models import DiscountType, ServiceType, AthleteContract
-from bot.models import TelegramParticipant
+from school.models import (
+    Athlete,
+    AthleteContract,
+    Club,
+    DiscountType,
+    Family,
+    FamilyAthleteProfile,
+    FamilyMember,
+    FamilyPayment,
+    FamilyService,
+    Person,
+    ServiceType,
+)
 from school.services import (
     ensure_monthly_service_for_contract,
     get_month_range,
 )
-from members.models import PersonDedupJob, PersonDuplicateCluster, PersonMergeRedirect
-from members.services import apply_cluster_merge, build_cluster_payload, build_job_payload
-from members.tasks import run_person_dedup_job_task
 from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
+from users.mixins import ApprovedUserRequiredMixin
 from users.models import User, UserPersonLink, UserPersonLinkStatus
-from users.telegram_identity import normalize_phone, normalize_username, parse_telegram_reference, telegram_url_from_username
-
+from users.telegram_identity import (
+    normalize_phone,
+    normalize_username,
+    parse_telegram_reference,
+    telegram_url_from_username,
+)
+from users.utils import get_person_queryset_for_user
 
 NON_ALNUM_RE = re.compile(r"[^a-zа-яё0-9]+", re.IGNORECASE)
 NAME_PART_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
@@ -171,7 +186,9 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
     template_name = "members/person_list.html"
 
     def get_queryset(self):
-        redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
+        redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list(
+            "source_person_id", flat=True
+        )
         qs = (
             get_person_queryset_for_user(self.request.user)
             .exclude(id__in=redirected_sources)
@@ -194,10 +211,14 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
             context["person_form"] = PersonForm()
             latest_job = PersonDedupJob.objects.order_by("-created_at").first()
             context["dedup_last_job"] = latest_job
-            context["dedup_open_clusters"] = PersonDuplicateCluster.objects.filter(
-                job=latest_job,
-                status=PersonDuplicateCluster.STATUS_OPEN,
-            ).count() if latest_job else 0
+            context["dedup_open_clusters"] = (
+                PersonDuplicateCluster.objects.filter(
+                    job=latest_job,
+                    status=PersonDuplicateCluster.STATUS_OPEN,
+                ).count()
+                if latest_job
+                else 0
+            )
             context["dedup_url"] = reverse("members:person_dedup_center")
         return context
 
@@ -249,7 +270,7 @@ class PersonCreateView(ApprovedUserRequiredMixin, CreateView):
         if family_id:
             try:
                 selected_family = Family.objects.get(pk=family_id)
-            except (Family.DoesNotExist, ValueError):
+            except Family.DoesNotExist, ValueError:
                 form.add_error(None, "Выбранная семья не найдена.")
                 return self.form_invalid(form)
 
@@ -349,9 +370,7 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
 
     def _participant_summary_rows(self):
         participant_rows = list(
-            TelegramParticipant.objects
-            .select_related("chat", "linked_person")
-            .order_by("-last_seen", "-first_seen")
+            TelegramParticipant.objects.select_related("chat", "linked_person").order_by("-last_seen", "-first_seen")
         )
         by_user_id: dict[int, dict] = {}
 
@@ -396,11 +415,7 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
         redirected_sources = set(
             PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
         )
-        person_candidates = list(
-            Person.objects
-            .exclude(id__in=redirected_sources)
-            .order_by("id")
-        )
+        person_candidates = list(Person.objects.exclude(id__in=redirected_sources).order_by("id"))
         person_by_tg_id: dict[int, Person | None] = {}
         person_by_username: dict[str, Person | None] = {}
         for person in person_candidates:
@@ -463,8 +478,7 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
         summary_last_raw = summary.get("last_name")
         summary_first_raw = summary.get("first_name")
         has_latin_name = bool(
-            LATIN_RE.search(str(summary_last_raw or ""))
-            or LATIN_RE.search(str(summary_first_raw or ""))
+            LATIN_RE.search(str(summary_last_raw or "")) or LATIN_RE.search(str(summary_first_raw or ""))
         )
         summary_last = _normalize_name_token(summary_last_raw)
         summary_first = _normalize_name_token(summary_first_raw)
@@ -489,10 +503,7 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
             for last, first in exact_pairs
         }
         exact_tokens = {token for token in [summary_last, summary_first, *name_tokens] if token}
-        translit_tokens = {
-            _normalize_name_token(_latin_to_cyrillic(token))
-            for token in exact_tokens
-        }
+        translit_tokens = {_normalize_name_token(_latin_to_cyrillic(token)) for token in exact_tokens}
         translit_tokens.discard("")
 
         if (person_last, person_first) in exact_pairs:
@@ -530,21 +541,20 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
             score, reasons = self._score_person_candidate(summary, person)
             if score <= 0:
                 continue
-            candidates.append({
-                "person": person,
-                "score": score,
-                "reasons": reasons,
-            })
+            candidates.append(
+                {
+                    "person": person,
+                    "score": score,
+                    "reasons": reasons,
+                }
+            )
         candidates.sort(key=lambda item: (item["score"], item["person"].id), reverse=True)
         return candidates[:5]
 
     def _link_interlocutor(self, *, user_id: int, person: Person, actor: User) -> None:
         now = timezone.now()
         rows = list(
-            TelegramParticipant.objects
-            .filter(user_id=user_id)
-            .select_related("linked_person")
-            .order_by("-last_seen")
+            TelegramParticipant.objects.filter(user_id=user_id).select_related("linked_person").order_by("-last_seen")
         )
         if not rows:
             return
@@ -591,22 +601,24 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
             reasons.add("telegram_id_exact")
         link.matched_reasons = sorted(reasons)
         link.apply_decision(UserPersonLinkStatus.APPROVED, decided_by=actor)
-        link.save(update_fields=[
-            "suggested_person",
-            "matched_reasons",
-            "status",
-            "decided_by",
-            "decided_at",
-            "decision_note",
-            "updated_at",
-        ])
+        link.save(
+            update_fields=[
+                "suggested_person",
+                "matched_reasons",
+                "status",
+                "decided_by",
+                "decided_at",
+                "decision_note",
+                "updated_at",
+            ]
+        )
 
     def post(self, request, *args, **kwargs):
         action = (request.POST.get("action") or "").strip()
         user_id_raw = request.POST.get("user_id")
         try:
             user_id = int(user_id_raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             messages.error(request, "Некорректный идентификатор собеседника.")
             return redirect("members:telegram_interlocutors")
 
@@ -623,12 +635,7 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
             if gender not in {choice[0] for choice in Person.GENDER_CHOICES}:
                 gender = "male"
 
-            participant = (
-                TelegramParticipant.objects
-                .filter(user_id=user_id)
-                .order_by("-last_seen")
-                .first()
-            )
+            participant = TelegramParticipant.objects.filter(user_id=user_id).order_by("-last_seen").first()
             if not participant:
                 messages.error(request, "Собеседник не найден.")
                 return redirect("members:telegram_interlocutors")
@@ -664,16 +671,13 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         show_linked = self.request.GET.get("show") == "all"
-        redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
-        summaries = self._participant_summary_rows()
-        people = list(
-            Person.objects
-            .exclude(id__in=redirected_sources)
-            .order_by("surname", "name")
+        redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list(
+            "source_person_id", flat=True
         )
+        summaries = self._participant_summary_rows()
+        people = list(Person.objects.exclude(id__in=redirected_sources).order_by("surname", "name"))
         unlinked_people = list(
-            Person.objects
-            .exclude(id__in=redirected_sources)
+            Person.objects.exclude(id__in=redirected_sources)
             .filter(linked_users__isnull=True, telegram_participant_links__isnull=True)
             .order_by("surname", "name")
             .distinct()
@@ -684,12 +688,14 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
             if summary["linked_person"] and not show_linked:
                 continue
             candidates = self._build_candidates(summary, people)
-            rows.append({
-                **summary,
-                "chat_titles": sorted(summary["chat_titles"]),
-                "chat_count": len(summary["chat_ids"]),
-                "candidates": candidates,
-            })
+            rows.append(
+                {
+                    **summary,
+                    "chat_titles": sorted(summary["chat_titles"]),
+                    "chat_count": len(summary["chat_ids"]),
+                    "candidates": candidates,
+                }
+            )
 
         context["rows"] = rows
         context["unlinked_people"] = unlinked_people
@@ -728,10 +734,7 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
         context["clubs"] = Club.objects.order_by("name")
         context["selected_club"] = self.request.GET.get("club") or ""
         person_ids = {
-            membership.person_id
-            for family in families
-            for membership in family.members.all()
-            if membership.person_id
+            membership.person_id for family in families for membership in family.members.all() if membership.person_id
         }
         linked_map = _group_users_by_person(person_ids)
         context["persons_with_accounts"] = list(linked_map.keys())
@@ -808,10 +811,7 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
             family_prefix = (family.family_name or "").strip().lower()[:3]
             candidates.sort(
                 key=lambda person: (
-                    0
-                    if family_prefix
-                    and (person.surname or "").strip().lower()[:3] == family_prefix
-                    else 1,
+                    0 if family_prefix and (person.surname or "").strip().lower()[:3] == family_prefix else 1,
                     person.surname.lower(),
                     person.name.lower(),
                 )
@@ -885,7 +885,10 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
                 month_services_qs = month_services_qs.filter(contract=target_contract)
 
             month_services = list(month_services_qs)
-            amount_due = sum((service.amount - service.discount_value for service in month_services if not service.is_closed), Decimal("0.00"))
+            amount_due = sum(
+                (service.amount - service.discount_value for service in month_services if not service.is_closed),
+                Decimal("0.00"),
+            )
             amount_paid = Decimal("0.00")
             for service in month_services:
                 amount_paid += sum(
@@ -921,7 +924,9 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
                     "amount_paid": amount_paid,
                     "balance": balance,
                     "contract_create_url": reverse("members:contract_create", args=[family.pk, profile.pk]),
-                    "contract_edit_url": reverse("members:contract_update", args=[family.pk, target_contract.pk]) if active_contract else None,
+                    "contract_edit_url": reverse("members:contract_update", args=[family.pk, target_contract.pk])
+                    if active_contract
+                    else None,
                     "create_label": "Создать договор на следующий сезон" if active_contract else "Создать договор",
                 }
             )
@@ -979,8 +984,12 @@ class FamilyUpdateView(ApprovedUserRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if self.request.POST:
-            context["member_formset"] = ExistingFamilyMemberFormSet(self.request.POST, instance=self.object, prefix="members")
-            context["profile_formset"] = FamilyAthleteProfileFormSet(self.request.POST, instance=self.object, prefix="profiles")
+            context["member_formset"] = ExistingFamilyMemberFormSet(
+                self.request.POST, instance=self.object, prefix="members"
+            )
+            context["profile_formset"] = FamilyAthleteProfileFormSet(
+                self.request.POST, instance=self.object, prefix="profiles"
+            )
         else:
             context["member_formset"] = ExistingFamilyMemberFormSet(instance=self.object, prefix="members")
             context["profile_formset"] = FamilyAthleteProfileFormSet(instance=self.object, prefix="profiles")
@@ -1021,12 +1030,14 @@ class FamilyFinanceView(ApprovedUserRequiredMixin, DetailView):
         for service in services:
             paid = sum((p.amount for p in service.payments.all()), Decimal("0.00"))
             net_amount = service.amount - service.discount_value
-            service_rows.append({
-                "service": service,
-                "net_amount": net_amount,
-                "paid_amount": paid,
-                "balance": net_amount - paid,
-            })
+            service_rows.append(
+                {
+                    "service": service,
+                    "net_amount": net_amount,
+                    "paid_amount": paid,
+                    "balance": net_amount - paid,
+                }
+            )
 
         context.update(
             service_rows=service_rows,
@@ -1527,9 +1538,7 @@ class PersonDedupCenterView(ApprovedUserRequiredMixin, ListView):
         context["latest_job"] = latest_job
         context["latest_job_payload"] = build_job_payload(latest_job) if latest_job else None
         context["pending_clusters"] = (
-            latest_job.clusters.filter(status=PersonDuplicateCluster.STATUS_OPEN).count()
-            if latest_job
-            else 0
+            latest_job.clusters.filter(status=PersonDuplicateCluster.STATUS_OPEN).count() if latest_job else 0
         )
         return context
 

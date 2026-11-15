@@ -3,8 +3,8 @@ import os
 import sys
 
 from django.apps import AppConfig
-from django.core.cache import cache
 from django.conf import settings
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 

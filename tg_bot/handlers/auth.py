@@ -1,5 +1,4 @@
 import logging
-from typing import Optional, Tuple
 from urllib.parse import quote_plus
 
 from asgiref.sync import sync_to_async
@@ -7,20 +6,20 @@ from django.conf import settings
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from tg_bot.handlers.onboarding import maybe_start_group_onboarding
 from tg_bot.services.notifications import (
     notify_admins_context,
     user_is_admin,
     user_is_coach,
     user_is_manager,
 )
-from tg_bot.handlers.onboarding import maybe_start_group_onboarding
-from tg_bot.services.user_sync import ensure_user_for_start_async
+from tg_bot.services.reply_keyboard import build_persistent_reply_keyboard
 from tg_bot.services.training_overview import (
     build_attendance_lines,
     build_training_brief_lines,
     get_upcoming_trainings_for_user,
 )
-from tg_bot.services.reply_keyboard import build_persistent_reply_keyboard
+from tg_bot.services.user_sync import ensure_user_for_start_async
 from users.models import User, UserPersonLinkStatus
 from users.tasks import notify_pending_user_task, schedule_pending_user_notifications
 
@@ -31,7 +30,7 @@ START_KIND_COMPETITION = "comp"
 START_KIND_DEFAULT = "default"
 
 
-def _parse_start_payload(raw: Optional[str]) -> Tuple[str, Optional[str], Optional[int]]:
+def _parse_start_payload(raw: str | None) -> tuple[str, str | None, int | None]:
     """Return (kind, token, competition_id). Accepts legacy ':' and new '_' delimiters."""
     if not raw:
         return START_KIND_DEFAULT, None, None
@@ -73,11 +72,12 @@ def _parse_start_payload(raw: Optional[str]) -> Tuple[str, Optional[str], Option
     return START_KIND_DEFAULT, raw, None
 
 
-def _build_competition_apply_url(comp_id: int) -> Optional[str]:
+def _build_competition_apply_url(comp_id: int) -> str | None:
     if not comp_id:
         return None
     try:
         from django.urls import reverse
+
         from school.models import CompetitionApplicationLink
 
         link = CompetitionApplicationLink.objects.filter(
@@ -93,7 +93,7 @@ def _build_competition_apply_url(comp_id: int) -> Optional[str]:
         return None
 
 
-def _format_login_instructions(token: Optional[str], next_url: Optional[str] = None) -> str:
+def _format_login_instructions(token: str | None, next_url: str | None = None) -> str:
     base_url = settings.SITE_BASE_URL.rstrip("/")
     instructions = [
         # "Чтобы войти на сайт, откройте страницу авторизации и нажмите «Войти через Telegram».",
@@ -103,10 +103,7 @@ def _format_login_instructions(token: Optional[str], next_url: Optional[str] = N
         callback_url = f"{base_url}/telegram-callback/{token}/"
         if next_url:
             callback_url = f"{callback_url}?next={quote_plus(next_url)}"
-        instructions.append(
-            "🔐 Для завершения авторизации на сайте перейдите по "
-            f'<a href="{callback_url}">ссылке</a>'
-        )
+        instructions.append(f'🔐 Для завершения авторизации на сайте перейдите по <a href="{callback_url}">ссылке</a>')
     return "\n".join(instructions)
 
 
@@ -144,10 +141,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=(
-                "Произошла ошибка при обработке запроса. Сообщите администратору.\n"
-                f"Текст ошибки: {exc}"
-            ),
+            text=(f"Произошла ошибка при обработке запроса. Сообщите администратору.\nТекст ошибки: {exc}"),
         )
         return
 
@@ -158,12 +152,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     link_status = link.status if link else None
     is_confirmed = bool(user.person_id and link_status == UserPersonLinkStatus.APPROVED)
     can_auto_bind = bool(
-        is_confirmed
-        or (
-            link
-            and link.suggested_person_id
-            and "telegram_id_exact" in (link.matched_reasons or [])
-        )
+        is_confirmed or (link and link.suggested_person_id and "telegram_id_exact" in (link.matched_reasons or []))
     )
 
     should_try_group_onboarding = start_kind != START_KIND_COMPETITION
@@ -182,9 +171,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if apply_url:
             callback_url = f"{callback_url}?next={quote_plus(apply_url)}"
         text = "Перейдите по ссылке, чтобы продолжить работу с заявкой."
-        markup = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Продолжить заявку", url=callback_url)]]
-        )
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("Продолжить заявку", url=callback_url)]])
         await update.effective_message.reply_html(
             text,
             disable_web_page_preview=True,
@@ -195,9 +182,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if start_kind == START_KIND_AUTH:
         callback_url = f"{settings.SITE_BASE_URL.rstrip('/')}/telegram-callback/{token}/"
         text = "Перейдите по ссылке, чтобы авторизоваться на сайте."
-        markup = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("Авторизоваться", url=callback_url)]]
-        )
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("Авторизоваться", url=callback_url)]])
         await update.effective_message.reply_html(
             text,
             disable_web_page_preview=True,
@@ -306,9 +291,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if is_coach:
                 role_hints.append("«Тренер»")
             if role_hints:
-                prompt_lines.append(
-                    f"⚙️ Используйте {', '.join(role_hints)} для перехода в рабочие панели."
-                )
+                prompt_lines.append(f"⚙️ Используйте {', '.join(role_hints)} для перехода в рабочие панели.")
         prompt_lines.append("🔁 Кнопка «Начать работу» откроет главное меню.")
 
         await context.bot.send_message(
@@ -320,22 +303,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id, text="Укажите id занятия"
-        )
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Укажите id занятия")
         logger.warning("Команда /register без аргументов от tg_id=%s", update.effective_user.id)
         return
 
     class_id = context.args[0]
-    from school.models import Class, Person, Athlete, ClassEnrollment
+    from school.models import Athlete, Class, ClassEnrollment, Person
 
     tg_id = update.effective_user.id
     user = await sync_to_async(User.objects.filter(tg_id=tg_id).first)()
 
     if not user:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id, text="Сначала выполните /start"
-        )
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Сначала выполните /start")
         logger.warning("Попытка /register без связанного пользователя tg_id=%s", tg_id)
         return
 
@@ -349,21 +328,15 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         defaults={"level": Athlete.LEVEL_CHOICES[0][0]},
     )
     class_instance = await sync_to_async(Class.objects.get)(pk=class_id)
-    await sync_to_async(ClassEnrollment.objects.get_or_create)(
-        athlete=athlete, class_instance=class_instance
-    )
+    await sync_to_async(ClassEnrollment.objects.get_or_create)(athlete=athlete, class_instance=class_instance)
 
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="Вы зарегистрированы"
-    )
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Вы зарегистрированы")
     logger.info("Пользователь tg_id=%s зарегистрировался на занятие %s", tg_id, class_id)
 
 
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id, text="Укажите id занятия"
-        )
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Укажите id занятия")
         logger.warning("Команда /confirm без аргументов от tg_id=%s", update.effective_user.id)
         return
 
@@ -373,9 +346,7 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_id = update.effective_user.id
     user = await sync_to_async(User.objects.filter(tg_id=tg_id).first)()
     if not user:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id, text="Сначала выполните /start"
-        )
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Сначала выполните /start")
         logger.warning("Попытка /confirm без связанного пользователя tg_id=%s", tg_id)
         return
 
@@ -384,7 +355,5 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         athlete__person__surname=user.tg_last_name or user.tg_first_name,
     )
     await sync_to_async(enrollments.update)(confirmed=True)
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id, text="Участие подтверждено"
-    )
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Участие подтверждено")
     logger.info("Пользователь tg_id=%s подтвердил участие в занятии %s", tg_id, class_id)

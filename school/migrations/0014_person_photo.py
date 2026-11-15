@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0013_classenrollment_confirmed"),
     ]
@@ -13,8 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="person",
             name="photo",
-            field=models.ImageField(
-                blank=True, null=True, upload_to="person/photos", verbose_name="Фото"
-            ),
+            field=models.ImageField(blank=True, null=True, upload_to="person/photos", verbose_name="Фото"),
         ),
     ]

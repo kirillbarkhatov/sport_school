@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from asgiref.sync import sync_to_async
 from django.db import transaction
@@ -31,7 +30,7 @@ def _parse_full_name(value: str) -> tuple[str, str, str]:
     return surname, name, middlename
 
 
-def _parse_birth_date(value: str) -> Optional[datetime.date]:
+def _parse_birth_date(value: str) -> datetime.date | None:
     raw = (value or "").strip()
     if not raw:
         return None
@@ -73,15 +72,10 @@ async def get_target_group_titles_for_user(tg_id: int | None) -> list[str]:
         return []
 
     def _query() -> list[str]:
-        rows = (
-            TelegramParticipant.objects
-            .select_related("chat")
-            .filter(user_id=tg_id, chat__chat_id__in=TARGET_GROUP_CHAT_IDS)
+        rows = TelegramParticipant.objects.select_related("chat").filter(
+            user_id=tg_id, chat__chat_id__in=TARGET_GROUP_CHAT_IDS
         )
-        titles = {
-            row.chat.title or row.chat.username or str(row.chat.chat_id)
-            for row in rows
-        }
+        titles = {row.chat.title or row.chat.username or str(row.chat.chat_id) for row in rows}
         return sorted(titles)
 
     return await sync_to_async(_query, thread_sensitive=True)()
@@ -204,7 +198,10 @@ def _resolve_person_for_athlete_payload(
         qs = qs.filter(date_of_birth=date_of_birth)
 
     if club_name:
-        club = Club.objects.filter(name__iexact=club_name).first() or Club.objects.filter(name__icontains=club_name).first()
+        club = (
+            Club.objects.filter(name__iexact=club_name).first()
+            or Club.objects.filter(name__icontains=club_name).first()
+        )
         if club:
             qs = qs.filter(club=club)
 
@@ -217,7 +214,10 @@ def _resolve_person_for_athlete_payload(
 
     club = None
     if club_name:
-        club = Club.objects.filter(name__iexact=club_name).first() or Club.objects.filter(name__icontains=club_name).first()
+        club = (
+            Club.objects.filter(name__iexact=club_name).first()
+            or Club.objects.filter(name__icontains=club_name).first()
+        )
     person = Person.objects.create(
         surname=surname,
         name=name,
@@ -239,16 +239,13 @@ def _resolve_parent_person(
     athlete_middlename: str,
     athlete_gender: str,
     athlete_birth_date,
-) -> tuple[str, Optional[Person]]:
+) -> tuple[str, Person | None]:
     redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
-    athlete_qs = (
-        Person.objects.exclude(id__in=redirected_sources)
-        .filter(
-            athlete__isnull=False,
-            surname__iexact=athlete_surname,
-            name__iexact=athlete_name,
-            gender=athlete_gender,
-        )
+    athlete_qs = Person.objects.exclude(id__in=redirected_sources).filter(
+        athlete__isnull=False,
+        surname__iexact=athlete_surname,
+        name__iexact=athlete_name,
+        gender=athlete_gender,
     )
     if athlete_middlename:
         athlete_qs = athlete_qs.filter(middlename__iexact=athlete_middlename)
@@ -508,7 +505,9 @@ async def handle_onboarding_message(update: Update, context: ContextTypes.DEFAUL
         data["user_surname"] = surname
         data["user_name"] = name
         _set_step(context, "user_gender")
-        await update.effective_message.reply_text("Укажите ваш пол:", reply_markup=_onboarding_gender_keyboard("user_gender"))
+        await update.effective_message.reply_text(
+            "Укажите ваш пол:", reply_markup=_onboarding_gender_keyboard("user_gender")
+        )
         return True
 
     if step == "athlete_middlename":

@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0042_documentaianalysis_document_updated_at_and_more"),
     ]
@@ -13,23 +12,17 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="documentaianalysis",
             name="auto_bound",
-            field=models.BooleanField(
-                default=False, verbose_name="Автопривязка выполнена"
-            ),
+            field=models.BooleanField(default=False, verbose_name="Автопривязка выполнена"),
         ),
         migrations.AddField(
             model_name="documentaianalysis",
             name="bound_at",
-            field=models.DateTimeField(
-                blank=True, null=True, verbose_name="Время привязки"
-            ),
+            field=models.DateTimeField(blank=True, null=True, verbose_name="Время привязки"),
         ),
         migrations.AddField(
             model_name="documentaianalysis",
             name="bound_entity_id",
-            field=models.PositiveBigIntegerField(
-                blank=True, null=True, verbose_name="ID связанной сущности"
-            ),
+            field=models.PositiveBigIntegerField(blank=True, null=True, verbose_name="ID связанной сущности"),
         ),
         migrations.AddField(
             model_name="documentaianalysis",

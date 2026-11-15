@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0047_competitionvenue_and_more"),
     ]
@@ -25,9 +24,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "name",
-                    models.CharField(
-                        max_length=255, verbose_name="Название зачетной группы"
-                    ),
+                    models.CharField(max_length=255, verbose_name="Название зачетной группы"),
                 ),
                 (
                     "gender_scope",
@@ -57,9 +54,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "discipline",
-                    models.CharField(
-                        blank=True, max_length=100, verbose_name="Дисциплина"
-                    ),
+                    models.CharField(blank=True, max_length=100, verbose_name="Дисциплина"),
                 ),
                 (
                     "source",
@@ -72,9 +67,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "source_raw_text",
-                    models.CharField(
-                        blank=True, max_length=500, verbose_name="Исходная строка AI"
-                    ),
+                    models.CharField(blank=True, max_length=500, verbose_name="Исходная строка AI"),
                 ),
                 (
                     "parse_status",

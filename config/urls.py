@@ -16,15 +16,16 @@ Including another URLconf
 """
 
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import include, path
+
 from api.views import (
     OnlineResultsCompetitionHardRefreshView,
     OnlineResultsCompetitionLivePublicStateView,
     OnlineResultsCompetitionLivePublicView,
     OnlineResultsCompetitionLiveStateView,
     OnlineResultsCompetitionLiveView,
-    OnlineResultsPublicDocumentView,
     OnlineResultsCompetitionSoftRefreshView,
+    OnlineResultsPublicDocumentView,
     OnlineResultsStreamRunsView,
     OnlineResultsWebhookEventsView,
     OnlineResultsWebhookView,

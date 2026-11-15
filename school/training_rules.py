@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from collections.abc import Iterable, Sequence
 
 from .choices import TrainingEquipment, TrainingKind, TrainingLocation
 
+TRAINING_ORDER: list[str] = [value for value, _ in TrainingKind.choices]
+LOCATION_ORDER: list[str] = [value for value, _ in TrainingLocation.choices]
+EQUIPMENT_ORDER: list[str] = [value for value, _ in TrainingEquipment.choices]
 
-TRAINING_ORDER: List[str] = [value for value, _ in TrainingKind.choices]
-LOCATION_ORDER: List[str] = [value for value, _ in TrainingLocation.choices]
-EQUIPMENT_ORDER: List[str] = [value for value, _ in TrainingEquipment.choices]
-
-SKI_TRAININGS: Set[str] = {
+SKI_TRAININGS: set[str] = {
     TrainingKind.SKI,
     TrainingKind.SKI_BEGINNERS,
     TrainingKind.SKI_DRILLS,
@@ -17,13 +16,13 @@ SKI_TRAININGS: Set[str] = {
     TrainingKind.GIANT_SLALOM,
 }
 
-SKI_EQUIPMENT: Set[str] = {
+SKI_EQUIPMENT: set[str] = {
     TrainingEquipment.SLALOM_SKI,
     TrainingEquipment.GS_SKI,
 }
 
 
-LOCATION_RULES: Dict[str, Dict[str, Set[str]]] = {
+LOCATION_RULES: dict[str, dict[str, set[str]]] = {
     TrainingLocation.MURINSKY_PARK: {
         TrainingKind.FITNESS: {TrainingEquipment.ATHLETIC},
         TrainingKind.ROLLERS: {TrainingEquipment.ROLLERS},
@@ -44,12 +43,8 @@ LOCATION_RULES: Dict[str, Dict[str, Set[str]]] = {
         TrainingKind.SLALOM: SKI_EQUIPMENT,
         TrainingKind.GIANT_SLALOM: SKI_EQUIPMENT,
     },
-    TrainingLocation.SNEZHNY: {
-        training_kind: SKI_EQUIPMENT for training_kind in SKI_TRAININGS
-    },
-    TrainingLocation.SERVERNY_SLOPE: {
-        training_kind: SKI_EQUIPMENT for training_kind in SKI_TRAININGS
-    },
+    TrainingLocation.SNEZHNY: {training_kind: SKI_EQUIPMENT for training_kind in SKI_TRAININGS},
+    TrainingLocation.SERVERNY_SLOPE: {training_kind: SKI_EQUIPMENT for training_kind in SKI_TRAININGS},
     TrainingLocation.OKHTA_PARK: {
         TrainingKind.FITNESS: {TrainingEquipment.ATHLETIC},
         TrainingKind.ROLLERS: {TrainingEquipment.ROLLERS},
@@ -68,7 +63,7 @@ LOCATION_RULES: Dict[str, Dict[str, Set[str]]] = {
 }
 
 
-DEFAULT_EQUIPMENT_BY_TRAINING: Dict[str, List[str]] = {
+DEFAULT_EQUIPMENT_BY_TRAINING: dict[str, list[str]] = {
     TrainingKind.FITNESS: [TrainingEquipment.ATHLETIC],
     TrainingKind.ROLLERS: [TrainingEquipment.ROLLERS],
     TrainingKind.BIKE: [TrainingEquipment.BIKE],
@@ -84,9 +79,9 @@ DEFAULT_EQUIPMENT_BY_TRAINING: Dict[str, List[str]] = {
 }
 
 
-def _unique(values: Iterable[str]) -> List[str]:
-    seen: Set[str] = set()
-    result: List[str] = []
+def _unique(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
     for value in values:
         if value and value not in seen:
             seen.add(value)
@@ -94,7 +89,7 @@ def _unique(values: Iterable[str]) -> List[str]:
     return result
 
 
-def _order_values(options: Iterable[str], order: Sequence[str]) -> List[str]:
+def _order_values(options: Iterable[str], order: Sequence[str]) -> list[str]:
     ordered_options = []
     order_index = {value: index for index, value in enumerate(order)}
     for value in options:
@@ -103,7 +98,7 @@ def _order_values(options: Iterable[str], order: Sequence[str]) -> List[str]:
     return [value for _, value in ordered_options]
 
 
-def _choose_preferred(options: Iterable[str], current: Optional[str], order: Sequence[str]) -> Optional[str]:
+def _choose_preferred(options: Iterable[str], current: str | None, order: Sequence[str]) -> str | None:
     options_list = _order_values(options, order)
     if not options_list:
         return current
@@ -112,7 +107,7 @@ def _choose_preferred(options: Iterable[str], current: Optional[str], order: Seq
     return options_list[0]
 
 
-def get_allowed_training_for_location(location: Optional[str]) -> Optional[Set[str]]:
+def get_allowed_training_for_location(location: str | None) -> set[str] | None:
     if not location:
         return None
     rules = LOCATION_RULES.get(location)
@@ -121,7 +116,7 @@ def get_allowed_training_for_location(location: Optional[str]) -> Optional[Set[s
     return set(rules.keys())
 
 
-def get_allowed_equipment(location: Optional[str], training_type: Optional[str]) -> Optional[Set[str]]:
+def get_allowed_equipment(location: str | None, training_type: str | None) -> set[str] | None:
     if not location or not training_type:
         return None
     rules = LOCATION_RULES.get(location)
@@ -133,7 +128,7 @@ def get_allowed_equipment(location: Optional[str], training_type: Optional[str])
     return set(equipment)
 
 
-def get_default_equipment_for_training(training_type: Optional[str]) -> List[str]:
+def get_default_equipment_for_training(training_type: str | None) -> list[str]:
     if not training_type:
         return []
     defaults = DEFAULT_EQUIPMENT_BY_TRAINING.get(training_type)
@@ -142,18 +137,18 @@ def get_default_equipment_for_training(training_type: Optional[str]) -> List[str
     return [TrainingEquipment.OTHER]
 
 
-def _build_training_locations_map() -> Dict[str, Set[str]]:
-    mapping: Dict[str, Set[str]] = {}
+def _build_training_locations_map() -> dict[str, set[str]]:
+    mapping: dict[str, set[str]] = {}
     for location, rules in LOCATION_RULES.items():
         for training_type in rules.keys():
             mapping.setdefault(training_type, set()).add(location)
     return mapping
 
 
-TRAINING_LOCATIONS: Dict[str, Set[str]] = _build_training_locations_map()
+TRAINING_LOCATIONS: dict[str, set[str]] = _build_training_locations_map()
 
 
-def get_locations_for_training(training_type: Optional[str]) -> Optional[Set[str]]:
+def get_locations_for_training(training_type: str | None) -> set[str] | None:
     if not training_type:
         return None
     locations = TRAINING_LOCATIONS.get(training_type)
@@ -162,9 +157,9 @@ def get_locations_for_training(training_type: Optional[str]) -> Optional[Set[str
     return set(locations)
 
 
-def _build_equipment_maps() -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
-    training_map: Dict[str, Set[str]] = {}
-    location_map: Dict[str, Set[str]] = {}
+def _build_equipment_maps() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    training_map: dict[str, set[str]] = {}
+    location_map: dict[str, set[str]] = {}
     for location, rules in LOCATION_RULES.items():
         for training_type, equipment_values in rules.items():
             for equipment in equipment_values:
@@ -176,13 +171,13 @@ def _build_equipment_maps() -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]]]:
 EQUIPMENT_TRAINING_MAP, EQUIPMENT_LOCATION_MAP = _build_equipment_maps()
 
 
-def infer_from_equipment(equipment_values: Iterable[str]) -> Tuple[Optional[str], Set[str]]:
+def infer_from_equipment(equipment_values: Iterable[str]) -> tuple[str | None, set[str]]:
     equipment_list = _unique(equipment_values)
     if not equipment_list:
         return None, set()
 
-    training_candidates: Optional[Set[str]] = None
-    location_candidates: Optional[Set[str]] = None
+    training_candidates: set[str] | None = None
+    location_candidates: set[str] | None = None
 
     for value in equipment_list:
         possible_trainings = EQUIPMENT_TRAINING_MAP.get(value)
@@ -208,10 +203,10 @@ def infer_from_equipment(equipment_values: Iterable[str]) -> Tuple[Optional[str]
 
 
 def normalize_training_selection(
-    location: Optional[str],
-    training_type: Optional[str],
+    location: str | None,
+    training_type: str | None,
     equipment_values: Iterable[str],
-) -> Tuple[Optional[str], Optional[str], List[str]]:
+) -> tuple[str | None, str | None, list[str]]:
     location_value = location or None
     training_value = training_type or None
     equipment_list = _unique(equipment_values)
@@ -262,11 +257,7 @@ def apply_training_rules(obj) -> bool:
         original_equipment,
     )
 
-    changed = (
-        location != original_location
-        or training_type != original_training
-        or original_equipment != equipment
-    )
+    changed = location != original_location or training_type != original_training or original_equipment != equipment
 
     if location is not None:
         obj.location = location
@@ -277,7 +268,7 @@ def apply_training_rules(obj) -> bool:
     return changed
 
 
-def build_training_form_config() -> Dict[str, object]:
+def build_training_form_config() -> dict[str, object]:
     """
     Готовит структуру зависимостей для фронтенда формы занятия.
     Возвращает сериализуемый словарь с вариантами полей и зависимостями.
@@ -287,8 +278,8 @@ def build_training_form_config() -> Dict[str, object]:
     location_labels = {value: label for value, label in TrainingLocation.choices}
     equipment_labels = {value: label for value, label in TrainingEquipment.choices}
 
-    training_by_location: Dict[str, List[str]] = {}
-    equipment_by_location: Dict[str, Dict[str, List[str]]] = {}
+    training_by_location: dict[str, list[str]] = {}
+    equipment_by_location: dict[str, dict[str, list[str]]] = {}
 
     for location, rules in LOCATION_RULES.items():
         trainings = list(rules.keys())
@@ -296,13 +287,10 @@ def build_training_form_config() -> Dict[str, object]:
             training_by_location[location] = _order_values(trainings, TRAINING_ORDER)
         equipment_by_location[location] = {}
         for training_type, equipment_values in rules.items():
-            equipment_by_location[location][training_type] = _order_values(
-                equipment_values, EQUIPMENT_ORDER
-            )
+            equipment_by_location[location][training_type] = _order_values(equipment_values, EQUIPMENT_ORDER)
 
     defaults_by_training = {
-        training: get_default_equipment_for_training(training)
-        for training, _ in TrainingKind.choices
+        training: get_default_equipment_for_training(training) for training, _ in TrainingKind.choices
     }
 
     return {

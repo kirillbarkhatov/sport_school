@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0041_alter_competition_birth_years"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -44,9 +43,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "request_id",
-                    models.CharField(
-                        blank=True, max_length=100, verbose_name="Request ID"
-                    ),
+                    models.CharField(blank=True, max_length=100, verbose_name="Request ID"),
                 ),
                 (
                     "doc_type",
@@ -64,21 +61,15 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "confidence",
-                    models.FloatField(
-                        blank=True, null=True, verbose_name="Уверенность"
-                    ),
+                    models.FloatField(blank=True, null=True, verbose_name="Уверенность"),
                 ),
                 (
                     "title",
-                    models.CharField(
-                        blank=True, max_length=255, null=True, verbose_name="Заголовок"
-                    ),
+                    models.CharField(blank=True, max_length=255, null=True, verbose_name="Заголовок"),
                 ),
                 (
                     "extracted",
-                    models.JSONField(
-                        blank=True, default=dict, verbose_name="Нормализованные данные"
-                    ),
+                    models.JSONField(blank=True, default=dict, verbose_name="Нормализованные данные"),
                 ),
                 (
                     "issues",
@@ -86,9 +77,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "raw_response",
-                    models.JSONField(
-                        blank=True, default=dict, verbose_name="Сырой ответ"
-                    ),
+                    models.JSONField(blank=True, default=dict, verbose_name="Сырой ответ"),
                 ),
                 (
                     "error_stage",
@@ -106,9 +95,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "error_message",
-                    models.TextField(
-                        blank=True, null=True, verbose_name="Текст ошибки"
-                    ),
+                    models.TextField(blank=True, null=True, verbose_name="Текст ошибки"),
                 ),
                 (
                     "source_persistent_url",
@@ -120,15 +107,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "source_signed_url_hash",
-                    models.CharField(
-                        blank=True, max_length=64, verbose_name="Hash signed URL"
-                    ),
+                    models.CharField(blank=True, max_length=64, verbose_name="Hash signed URL"),
                 ),
                 (
                     "is_analyzed_successfully",
-                    models.BooleanField(
-                        default=False, verbose_name="Успешно проанализирован"
-                    ),
+                    models.BooleanField(default=False, verbose_name="Успешно проанализирован"),
                 ),
                 (
                     "document_updated_at_snapshot",
@@ -140,9 +123,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "analyzed_at",
-                    models.DateTimeField(
-                        blank=True, null=True, verbose_name="Время анализа"
-                    ),
+                    models.DateTimeField(blank=True, null=True, verbose_name="Время анализа"),
                 ),
                 (
                     "created_at",
@@ -165,15 +146,11 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="athletedocument",
-            index=models.Index(
-                fields=["athlete", "doc_type"], name="school_athl_athlete_84ae2b_idx"
-            ),
+            index=models.Index(fields=["athlete", "doc_type"], name="school_athl_athlete_84ae2b_idx"),
         ),
         migrations.AddIndex(
             model_name="athletedocument",
-            index=models.Index(
-                fields=["document"], name="school_athl_documen_f11f94_idx"
-            ),
+            index=models.Index(fields=["document"], name="school_athl_documen_f11f94_idx"),
         ),
         migrations.AddIndex(
             model_name="competitiondocument",
@@ -184,21 +161,15 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="competitiondocument",
-            index=models.Index(
-                fields=["document"], name="school_comp_documen_4a43d4_idx"
-            ),
+            index=models.Index(fields=["document"], name="school_comp_documen_4a43d4_idx"),
         ),
         migrations.AddIndex(
             model_name="document",
-            index=models.Index(
-                fields=["created_at"], name="school_docu_created_1da98a_idx"
-            ),
+            index=models.Index(fields=["created_at"], name="school_docu_created_1da98a_idx"),
         ),
         migrations.AddIndex(
             model_name="document",
-            index=models.Index(
-                fields=["updated_at"], name="school_docu_updated_ae60db_idx"
-            ),
+            index=models.Index(fields=["updated_at"], name="school_docu_updated_ae60db_idx"),
         ),
         migrations.AddField(
             model_name="documentaianalysis",
@@ -216,9 +187,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="documentaianalysis",
-            index=models.Index(
-                fields=["doc_type"], name="school_docu_doc_typ_b8b757_idx"
-            ),
+            index=models.Index(fields=["doc_type"], name="school_docu_doc_typ_b8b757_idx"),
         ),
         migrations.AddIndex(
             model_name="documentaianalysis",
@@ -229,9 +198,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="documentaianalysis",
-            index=models.Index(
-                fields=["analyzed_at"], name="school_docu_analyze_2cd13c_idx"
-            ),
+            index=models.Index(fields=["analyzed_at"], name="school_docu_analyze_2cd13c_idx"),
         ),
         migrations.AddIndex(
             model_name="documentaianalysis",
@@ -242,8 +209,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="documentaianalysis",
-            index=models.Index(
-                fields=["request_id"], name="school_docu_request_2b3a12_idx"
-            ),
+            index=models.Index(fields=["request_id"], name="school_docu_request_2b3a12_idx"),
         ),
     ]

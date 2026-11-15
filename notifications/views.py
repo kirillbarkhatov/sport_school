@@ -1,10 +1,11 @@
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView
 
-from .forms import NotificationForm
-from .models import Notification
 from notifications.services import deliver_notification
 from users.mixins import ApprovedUserRequiredMixin
+
+from .forms import NotificationForm
+from .models import Notification
 
 
 class NotificationListView(ApprovedUserRequiredMixin, ListView):

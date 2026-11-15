@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0004_alter_person_options"),
     ]
@@ -13,8 +12,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="family",
             name="family_name",
-            field=models.CharField(
-                blank=True, max_length=100, null=True, verbose_name="Фамилия семьи"
-            ),
+            field=models.CharField(blank=True, max_length=100, null=True, verbose_name="Фамилия семьи"),
         ),
     ]

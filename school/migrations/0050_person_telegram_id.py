@@ -52,20 +52,14 @@ def _forward_fill_telegram_id(apps, schema_editor):
             username, _ = _parse_telegram(person.telegram)
             if username:
                 username_key = username.rsplit("/", 1)[-1]
-                user_match = (
-                    User.objects
-                    .filter(tg_username__iexact=username_key)
-                    .exclude(tg_id__isnull=True)
-                    .first()
-                )
+                user_match = User.objects.filter(tg_username__iexact=username_key).exclude(tg_id__isnull=True).first()
                 if user_match:
                     person.telegram_id = user_match.tg_id
                     changed_fields.append("telegram_id")
 
         if person.telegram_id and not person.telegram:
             user_match = (
-                User.objects
-                .filter(tg_id=person.telegram_id)
+                User.objects.filter(tg_id=person.telegram_id)
                 .exclude(tg_username__isnull=True)
                 .exclude(tg_username="")
                 .first()
@@ -83,7 +77,6 @@ def _noop_reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0049_competitionscoringgroup_standard_category_and_more"),
     ]
@@ -92,9 +85,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="person",
             name="telegram_id",
-            field=models.BigIntegerField(
-                blank=True, db_index=True, null=True, verbose_name="Telegram ID"
-            ),
+            field=models.BigIntegerField(blank=True, db_index=True, null=True, verbose_name="Telegram ID"),
         ),
         migrations.RunPython(_forward_fill_telegram_id, reverse_code=_noop_reverse),
     ]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 
 import jwt
 from django.db import models
@@ -70,7 +70,7 @@ class ServiceAccount(models.Model):
         self.save(update_fields=["secret", "updated_at"])
         return self.secret
 
-    def issue_token(self, *, additional_claims: Optional[Dict[str, Any]] = None) -> str:
+    def issue_token(self, *, additional_claims: dict[str, Any] | None = None) -> str:
         """Формирует JWT для авторизации при исходящих запросах."""
         if not self.is_active:
             raise ValueError("Service account is not active")
@@ -78,7 +78,7 @@ class ServiceAccount(models.Model):
         now = dj_timezone.now()
         expires_at = now + timedelta(seconds=self.lifetime_seconds)
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "iss": self.issuer,
             "sub": self.slug,
             "aud": self.audience,

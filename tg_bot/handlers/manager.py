@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Sequence
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -13,13 +13,13 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
+from school.models import Athlete, Class, ClassEnrollment, Family, FamilyMember, Group
 from school.training_rules import (
     apply_training_rules,
     get_allowed_equipment,
     get_allowed_training_for_location,
     get_default_equipment_for_training,
 )
-from school.models import Athlete, Class, ClassEnrollment, Family, FamilyMember, Group
 from tg_bot.handlers.admin import build_pending_overview_payload
 from tg_bot.services.notifications import user_is_admin, user_is_manager
 from tg_bot.services.training_overview import (
@@ -102,6 +102,7 @@ async def manager_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # Помощники для работы с семьями
 # ---------------------------------------------------------------------------
 
+
 async def _search_families(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[Family]:
     normalized = (query or "").strip()
 
@@ -158,12 +159,11 @@ def _format_family_members(family: Family) -> list[str]:
     return lines
 
 
-async def _prompt_family_search(update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool = False, message=None) -> None:
+async def _prompt_family_search(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool = False, message=None
+) -> None:
     _set_manager_state(context, {"mode": "family_search"})
-    text = (
-        "Введите фамилию семьи, имя контактного лица или фамилию участника.\n"
-        "Можно указать номер семьи."
-    )
+    text = "Введите фамилию семьи, имя контактного лица или фамилию участника.\nМожно указать номер семьи."
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")],
@@ -204,7 +204,9 @@ async def _send_family_search_results(update: Update, context: ContextTypes.DEFA
     keyboard_rows.append(
         [InlineKeyboardButton("🔍 Искать снова", callback_data=f"{MANAGER_CALLBACK_PREFIX}:families")]
     )
-    keyboard_rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
+    keyboard_rows.append(
+        [InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")]
+    )
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -294,14 +296,12 @@ async def _send_family_details(update: Update, context: ContextTypes.DEFAULT_TYP
 # Работа с пользователями
 # ---------------------------------------------------------------------------
 
+
 async def _search_users(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[User]:
     normalized = (query or "").strip()
 
     def fetch():
-        users = (
-            User.objects.select_related("person", "link", "person__athlete")
-            .order_by("last_name", "first_name")
-        )
+        users = User.objects.select_related("person", "link", "person__athlete").order_by("last_name", "first_name")
         if not normalized:
             return list(users[:limit])
 
@@ -390,17 +390,18 @@ def _build_user_keyboard(user: User) -> InlineKeyboardMarkup:
         except Exception as exc:  # noqa: BLE001
             logger.debug("Не удалось построить ссылку на персону %s: %s", user.person_id, exc)
 
-    rows.append([InlineKeyboardButton("🔍 Найти другого пользователя", callback_data=f"{MANAGER_CALLBACK_PREFIX}:users")])
+    rows.append(
+        [InlineKeyboardButton("🔍 Найти другого пользователя", callback_data=f"{MANAGER_CALLBACK_PREFIX}:users")]
+    )
     rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
     return InlineKeyboardMarkup(rows)
 
 
-async def _prompt_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool = False, message=None) -> None:
+async def _prompt_user_search(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool = False, message=None
+) -> None:
     _set_manager_state(context, {"mode": "user_search"})
-    text = (
-        "Введите имя, фамилию, email или телефон пользователя.\n"
-        "Можно указать telegram @username для поиска."
-    )
+    text = "Введите имя, фамилию, email или телефон пользователя.\nМожно указать telegram @username для поиска."
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")],
@@ -445,7 +446,9 @@ async def _send_user_search_results(update: Update, context: ContextTypes.DEFAUL
         )
 
     keyboard_rows.append([InlineKeyboardButton("🔍 Искать снова", callback_data=f"{MANAGER_CALLBACK_PREFIX}:users")])
-    keyboard_rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
+    keyboard_rows.append(
+        [InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")]
+    )
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -482,6 +485,7 @@ async def _send_user_details(update: Update, context: ContextTypes.DEFAULT_TYPE,
 # Подтверждение заявок
 # ---------------------------------------------------------------------------
 
+
 async def _send_pending_overview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     overview_text, keyboard = await build_pending_overview_payload(include_ids=False)
     if not overview_text:
@@ -501,6 +505,7 @@ async def _send_pending_overview(update: Update, context: ContextTypes.DEFAULT_T
 # ---------------------------------------------------------------------------
 # Переводы спортсменов между группами
 # ---------------------------------------------------------------------------
+
 
 async def _search_athletes(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[Athlete]:
     normalized = (query or "").strip()
@@ -524,12 +529,7 @@ async def _search_athletes(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[
 
 async def _load_athlete(athlete_id: int) -> Athlete | None:
     def fetch():
-        return (
-            Athlete.objects.select_related("person")
-            .prefetch_related("groups")
-            .filter(id=athlete_id)
-            .first()
-        )
+        return Athlete.objects.select_related("person").prefetch_related("groups").filter(id=athlete_id).first()
 
     return await sync_to_async(fetch, thread_sensitive=True)()
 
@@ -582,12 +582,16 @@ def _build_athlete_keyboard(athlete: Athlete) -> InlineKeyboardMarkup:
             ]
         )
 
-    rows.append([InlineKeyboardButton("🔍 Найти другого спортсмена", callback_data=f"{MANAGER_CALLBACK_PREFIX}:transfer")])
+    rows.append(
+        [InlineKeyboardButton("🔍 Найти другого спортсмена", callback_data=f"{MANAGER_CALLBACK_PREFIX}:transfer")]
+    )
     rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
     return InlineKeyboardMarkup(rows)
 
 
-async def _prompt_transfer_search(update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool = False, message=None) -> None:
+async def _prompt_transfer_search(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool = False, message=None
+) -> None:
     _set_manager_state(context, {"mode": "transfer_search"})
     text = "Введите фамилию или имя спортсмена (можно указать id)."
     keyboard = InlineKeyboardMarkup(
@@ -629,8 +633,12 @@ async def _send_transfer_search_results(update: Update, context: ContextTypes.DE
             ]
         )
 
-    keyboard_rows.append([InlineKeyboardButton("🔍 Искать снова", callback_data=f"{MANAGER_CALLBACK_PREFIX}:transfer")])
-    keyboard_rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
+    keyboard_rows.append(
+        [InlineKeyboardButton("🔍 Искать снова", callback_data=f"{MANAGER_CALLBACK_PREFIX}:transfer")]
+    )
+    keyboard_rows.append(
+        [InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")]
+    )
 
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -695,7 +703,13 @@ def _group_keyboard_rows(
                     )
                 ]
             )
-    rows.append([InlineKeyboardButton("⬅️ К спортсмену", callback_data=f"{MANAGER_CALLBACK_PREFIX}:transfer_select:{athlete_id}")])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ К спортсмену", callback_data=f"{MANAGER_CALLBACK_PREFIX}:transfer_select:{athlete_id}"
+            )
+        ]
+    )
     rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
     return InlineKeyboardMarkup(rows)
 
@@ -777,6 +791,7 @@ async def _remove_athlete_from_group(athlete_id: int, group_id: int) -> tuple[bo
 # ---------------------------------------------------------------------------
 # Управление тренировками и записями
 # ---------------------------------------------------------------------------
+
 
 async def _load_manager_user(tg_id: int) -> User | None:
     user = await sync_to_async(
@@ -1105,9 +1120,7 @@ def _format_training_flow_status(pending: dict) -> str:
         pieces.append(f"🏷 {TRAINING_KIND_LABELS.get(training_type, training_type)}")
     equipment_values = pending.get("equipment") or []
     if equipment_values:
-        equipment_text = ", ".join(
-            TRAINING_EQUIPMENT_LABELS.get(value, value) for value in equipment_values
-        )
+        equipment_text = ", ".join(TRAINING_EQUIPMENT_LABELS.get(value, value) for value in equipment_values)
         pieces.append(f"🎒 {equipment_text}")
     return " | ".join(pieces) if pieces else "—"
 
@@ -1219,9 +1232,7 @@ def _build_flow_equipment_keyboard(
         options = [value for value, _ in TrainingEquipment.choices]
     else:
         if allowed_equipment:
-            options = [
-                value for value, _ in TrainingEquipment.choices if value in allowed_equipment
-            ]
+            options = [value for value, _ in TrainingEquipment.choices if value in allowed_equipment]
             if not options:
                 options = list(allowed_equipment)
         else:
@@ -1290,9 +1301,7 @@ def _ensure_training_flow_state(context: ContextTypes.DEFAULT_TYPE, class_id: in
     return state
 
 
-async def _show_flow_location_stage(
-    query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict
-) -> None:
+async def _show_flow_location_stage(query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict) -> None:
     pending = state.setdefault("pending", {})
     pending.setdefault("location", summary.location)
     state["stage"] = "location"
@@ -1304,9 +1313,7 @@ async def _show_flow_location_stage(
     )
 
 
-async def _show_flow_training_stage(
-    query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict
-) -> None:
+async def _show_flow_training_stage(query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict) -> None:
     pending = state.setdefault("pending", {})
     location = pending.get("location") or summary.location
     pending["location"] = location
@@ -1324,9 +1331,7 @@ async def _show_flow_training_stage(
     )
 
 
-async def _show_flow_equipment_stage(
-    query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict
-) -> None:
+async def _show_flow_equipment_stage(query, context: ContextTypes.DEFAULT_TYPE, summary, state: dict) -> None:
     pending = state.setdefault("pending", {})
     training_type = pending.get("training_type") or summary.training_type
     pending["training_type"] = training_type
@@ -1409,8 +1414,20 @@ def _build_enrollment_list_keyboard(class_id: int, summary) -> InlineKeyboardMar
                 )
             ]
         )
-    rows.append([InlineKeyboardButton("➕ Добавить спортсмена", callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:add_prompt:{class_id}")])
-    rows.append([InlineKeyboardButton("⬅️ Назад к тренировке", callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:view:{class_id}")])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "➕ Добавить спортсмена", callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:add_prompt:{class_id}"
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Назад к тренировке", callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:view:{class_id}"
+            )
+        ]
+    )
     rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
     return InlineKeyboardMarkup(rows)
 
@@ -1457,13 +1474,19 @@ def _build_enrollment_action_keyboard(class_id: int, athlete_id: int) -> InlineK
                 callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:remove:{class_id}:{athlete_id}",
             )
         ],
-        [InlineKeyboardButton("⬅️ Назад к списку", callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:enrollments:{class_id}")],
+        [
+            InlineKeyboardButton(
+                "⬅️ Назад к списку", callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:enrollments:{class_id}"
+            )
+        ],
     ]
     rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
     return InlineKeyboardMarkup(rows)
 
 
-async def _send_enrollment_actions(update: Update, context: ContextTypes.DEFAULT_TYPE, class_id: int, athlete_id: int) -> None:
+async def _send_enrollment_actions(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, class_id: int, athlete_id: int
+) -> None:
     tg_id = update.effective_user.id if update.effective_user else None
     summary, error = await _load_training_summary(tg_id, class_id)
     if error:
@@ -1491,7 +1514,9 @@ async def _send_enrollment_actions(update: Update, context: ContextTypes.DEFAULT
     )
 
 
-async def _apply_attendance_action(update: Update, context: ContextTypes.DEFAULT_TYPE, class_id: int, athlete_id: int, action: str) -> None:
+async def _apply_attendance_action(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, class_id: int, athlete_id: int, action: str
+) -> None:
     tg_id = update.effective_user.id if update.effective_user else None
     user = await _load_manager_user(tg_id)
     if not user:
@@ -1520,9 +1545,7 @@ async def _apply_attendance_action(update: Update, context: ContextTypes.DEFAULT
 
 async def _remove_enrollment(class_id: int, athlete_id: int) -> bool:
     def operation():
-        enrollment = (
-            ClassEnrollment.objects.filter(class_instance_id=class_id, athlete_id=athlete_id).first()
-        )
+        enrollment = ClassEnrollment.objects.filter(class_instance_id=class_id, athlete_id=athlete_id).first()
         if not enrollment:
             return False
         enrollment.delete()
@@ -1563,6 +1586,7 @@ async def _add_athlete_to_training(class_id: int, athlete_id: int) -> tuple[bool
 # ---------------------------------------------------------------------------
 # Обработка текстовых сообщений (по состояниям)
 # ---------------------------------------------------------------------------
+
 
 async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     state = _get_manager_state(context)
@@ -1609,7 +1633,13 @@ async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE
                     )
                 ]
             )
-        rows.append([InlineKeyboardButton("⬅️ Назад к тренировке", callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:view:{class_id}")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    "⬅️ Назад к тренировке", callback_data=f"{MANAGER_CALLBACK_PREFIX}:training:view:{class_id}"
+                )
+            ]
+        )
         rows.append([InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")])
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -1696,6 +1726,7 @@ async def handle_manager_text(update: Update, context: ContextTypes.DEFAULT_TYPE
 # Callback обработчик
 # ---------------------------------------------------------------------------
 
+
 async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query:
@@ -1719,7 +1750,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:family:"):
         try:
             family_id = int(data.split(":", 2)[2])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить семью.")
             return
         await _send_family_details(update, context, family_id)
@@ -1732,7 +1763,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:user:"):
         try:
             user_id = int(data.split(":", 2)[2])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить пользователя.")
             return
         await _send_user_details(update, context, user_id)
@@ -1749,7 +1780,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:transfer_family:"):
         try:
             family_id = int(data.split(":", 2)[2])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить семью.")
             return
 
@@ -1794,7 +1825,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:transfer_select:"):
         try:
             athlete_id = int(data.split(":", 2)[2])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить спортсмена.")
             return
         await _send_athlete_details(update, context, athlete_id)
@@ -1803,7 +1834,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:transfer_add:"):
         try:
             athlete_id = int(data.split(":", 2)[2])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить спортсмена.")
             return
         await _prompt_add_group(update, context, athlete_id)
@@ -1829,7 +1860,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:transfer_remove_menu:"):
         try:
             athlete_id = int(data.split(":", 2)[2])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить спортсмена.")
             return
         await _prompt_remove_group(update, context, athlete_id)
@@ -1860,7 +1891,9 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
                     InlineKeyboardButton("Завтра", callback_data=f"{MANAGER_CALLBACK_PREFIX}:trainings:list:tomorrow"),
                 ],
                 [
-                    InlineKeyboardButton("7 дней вперёд", callback_data=f"{MANAGER_CALLBACK_PREFIX}:trainings:list:week"),
+                    InlineKeyboardButton(
+                        "7 дней вперёд", callback_data=f"{MANAGER_CALLBACK_PREFIX}:trainings:list:week"
+                    ),
                 ],
                 [InlineKeyboardButton("🏠 Панель менеджера", callback_data=f"{MANAGER_CALLBACK_PREFIX}:menu")],
             ]
@@ -1884,7 +1917,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:advanced:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         summary, error = await _load_training_summary(tg_id, class_id)
@@ -2071,7 +2104,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_schedule:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         summary, error = await _load_training_summary(tg_id, class_id)
@@ -2094,7 +2127,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_duration:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         summary, error = await _load_training_summary(tg_id, class_id)
@@ -2117,7 +2150,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_comment:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         summary, error = await _load_training_summary(tg_id, class_id)
@@ -2142,7 +2175,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_location:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         summary, error = await _load_training_summary(tg_id, class_id)
@@ -2164,7 +2197,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_type:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         summary, error = await _load_training_summary(tg_id, class_id)
@@ -2187,7 +2220,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit_equipment:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         summary, error = await _load_training_summary(tg_id, class_id)
@@ -2354,7 +2387,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:edit:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         summary, error = await _load_training_summary(tg_id, class_id)
@@ -2368,7 +2401,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:view:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         await _send_training_detail(update, context, class_id)
@@ -2377,7 +2410,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:enrollments:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         await _send_enrollment_list(update, context, class_id)
@@ -2441,7 +2474,7 @@ async def handle_manager_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith(f"{MANAGER_CALLBACK_PREFIX}:training:add_prompt:"):
         try:
             class_id = int(data.split(":", 3)[3])
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             await query.edit_message_text("Не удалось определить тренировку.")
             return
         await _prompt_training_add(update, context, class_id)

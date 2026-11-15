@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable, Sequence
 from datetime import datetime
-from typing import Dict, Iterable, Sequence
 
 from django.db import transaction
 from django.db.models import Q
@@ -12,7 +12,6 @@ from school.choices import ClassCoachStatus, TrainingKind
 from school.models import Athlete, Class, ClassEnrollment
 from users.models import User
 from users.utils import get_athlete_queryset_for_user
-
 
 TRAINING_TYPE_EMOJI = {
     TrainingKind.FITNESS: "💪",
@@ -102,18 +101,14 @@ def _resolve_training_emoji(training_type: str) -> str:
     return TRAINING_TYPE_EMOJI.get(training_type, "🏋️")
 
 
-def _collect_accessible_athletes(user: User) -> Dict[int, Athlete]:
-    athletes = (
-        get_athlete_queryset_for_user(user)
-        .select_related("person")
-        .order_by("person__surname", "person__name")
-    )
+def _collect_accessible_athletes(user: User) -> dict[int, Athlete]:
+    athletes = get_athlete_queryset_for_user(user).select_related("person").order_by("person__surname", "person__name")
     return {athlete.id: athlete for athlete in athletes}
 
 
 def _serialize_training(
     class_instance: Class,
-    athlete_map: Dict[int, Athlete],
+    athlete_map: dict[int, Athlete],
 ) -> TrainingSummary | None:
     local_start = timezone.localtime(class_instance.date)
     attendees: list[AthleteAttendance] = []
@@ -185,17 +180,12 @@ def _serialize_training(
 
 
 def _build_classes_queryset(user: User):
-    athlete_ids = list(
-        get_athlete_queryset_for_user(user).values_list("id", flat=True)
-    )
+    athlete_ids = list(get_athlete_queryset_for_user(user).values_list("id", flat=True))
     if not athlete_ids:
         return Class.objects.none()
 
     return (
-        Class.objects.filter(
-            Q(enrollments__athlete_id__in=athlete_ids)
-            | Q(group__athletes__id__in=athlete_ids)
-        )
+        Class.objects.filter(Q(enrollments__athlete_id__in=athlete_ids) | Q(group__athletes__id__in=athlete_ids))
         .select_related("group")
         .prefetch_related(
             "enrollments__athlete__person",
@@ -243,9 +233,7 @@ def get_training_summary(user: User, class_id: int) -> TrainingSummary | None:
 
 
 def update_attendance_status(user: User, class_id: int, athlete_id: int, action: str) -> str:
-    allowed_ids = set(
-        get_athlete_queryset_for_user(user).values_list("id", flat=True)
-    )
+    allowed_ids = set(get_athlete_queryset_for_user(user).values_list("id", flat=True))
     if athlete_id not in allowed_ids:
         return "forbidden"
 
@@ -266,11 +254,7 @@ def update_attendance_status(user: User, class_id: int, athlete_id: int, action:
         )
         created = False
         if not enrollment:
-            class_instance = (
-                Class.objects.select_related("group")
-                .filter(id=class_id)
-                .first()
-            )
+            class_instance = Class.objects.select_related("group").filter(id=class_id).first()
             if not class_instance:
                 return "not_found"
             if class_instance.group and not class_instance.group.athletes.filter(id=athlete_id).exists():

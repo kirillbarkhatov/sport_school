@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("bot", "0001_initial"),
         ("school", "0050_person_telegram_id"),
@@ -17,9 +16,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="telegramparticipant",
             name="linked_at",
-            field=models.DateTimeField(
-                blank=True, null=True, verbose_name="Когда связана"
-            ),
+            field=models.DateTimeField(blank=True, null=True, verbose_name="Когда связана"),
         ),
         migrations.AddField(
             model_name="telegramparticipant",

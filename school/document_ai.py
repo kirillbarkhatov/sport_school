@@ -168,9 +168,12 @@ def _validate_athlete_extracted(extracted: dict[str, Any]) -> dict[str, Any]:
     first_name = person.get("first_name")
     middle_name = person.get("middle_name")
     full_name_legacy = person.get("full_name")
-    full_name = full_name_legacy or " ".join(
-        part for part in [last_name, first_name, middle_name] if isinstance(part, str) and part.strip()
-    ).strip()
+    full_name = (
+        full_name_legacy
+        or " ".join(
+            part for part in [last_name, first_name, middle_name] if isinstance(part, str) and part.strip()
+        ).strip()
+    )
 
     return {
         "person": {

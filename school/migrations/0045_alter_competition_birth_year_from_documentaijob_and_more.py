@@ -7,7 +7,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0044_document_content_hash_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -42,33 +41,23 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "force",
-                    models.BooleanField(
-                        default=False, verbose_name="Принудительный анализ"
-                    ),
+                    models.BooleanField(default=False, verbose_name="Принудительный анализ"),
                 ),
                 (
                     "total_documents",
-                    models.PositiveIntegerField(
-                        default=0, verbose_name="Документов в job"
-                    ),
+                    models.PositiveIntegerField(default=0, verbose_name="Документов в job"),
                 ),
                 (
                     "error_message",
-                    models.TextField(
-                        blank=True, null=True, verbose_name="Текст ошибки job"
-                    ),
+                    models.TextField(blank=True, null=True, verbose_name="Текст ошибки job"),
                 ),
                 (
                     "started_at",
-                    models.DateTimeField(
-                        blank=True, null=True, verbose_name="Начало обработки"
-                    ),
+                    models.DateTimeField(blank=True, null=True, verbose_name="Начало обработки"),
                 ),
                 (
                     "finished_at",
-                    models.DateTimeField(
-                        blank=True, null=True, verbose_name="Окончание обработки"
-                    ),
+                    models.DateTimeField(blank=True, null=True, verbose_name="Окончание обработки"),
                 ),
                 (
                     "created_at",
@@ -123,15 +112,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "request_id",
-                    models.CharField(
-                        blank=True, max_length=100, verbose_name="Request ID батча"
-                    ),
+                    models.CharField(blank=True, max_length=100, verbose_name="Request ID батча"),
                 ),
                 (
                     "error_message",
-                    models.TextField(
-                        blank=True, null=True, verbose_name="Текст ошибки"
-                    ),
+                    models.TextField(blank=True, null=True, verbose_name="Текст ошибки"),
                 ),
                 (
                     "created_at",
@@ -171,38 +156,26 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="documentaijob",
-            index=models.Index(
-                fields=["created_at"], name="school_docu_created_e4646b_idx"
-            ),
+            index=models.Index(fields=["created_at"], name="school_docu_created_e4646b_idx"),
         ),
         migrations.AddIndex(
             model_name="documentaijob",
-            index=models.Index(
-                fields=["updated_at"], name="school_docu_updated_789eff_idx"
-            ),
+            index=models.Index(fields=["updated_at"], name="school_docu_updated_789eff_idx"),
         ),
         migrations.AddIndex(
             model_name="documentaijobitem",
-            index=models.Index(
-                fields=["job", "status"], name="school_docu_job_id_3556cb_idx"
-            ),
+            index=models.Index(fields=["job", "status"], name="school_docu_job_id_3556cb_idx"),
         ),
         migrations.AddIndex(
             model_name="documentaijobitem",
-            index=models.Index(
-                fields=["document"], name="school_docu_documen_cb785a_idx"
-            ),
+            index=models.Index(fields=["document"], name="school_docu_documen_cb785a_idx"),
         ),
         migrations.AddIndex(
             model_name="documentaijobitem",
-            index=models.Index(
-                fields=["updated_at"], name="school_docu_updated_e26657_idx"
-            ),
+            index=models.Index(fields=["updated_at"], name="school_docu_updated_e26657_idx"),
         ),
         migrations.AddConstraint(
             model_name="documentaijobitem",
-            constraint=models.UniqueConstraint(
-                fields=("job", "document"), name="uniq_ai_job_item_job_document"
-            ),
+            constraint=models.UniqueConstraint(fields=("job", "document"), name="uniq_ai_job_item_job_document"),
         ),
     ]

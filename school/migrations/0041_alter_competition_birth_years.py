@@ -1,12 +1,12 @@
 from django.db import migrations, models
 import django.utils.timezone
 
+
 def default_birth_year_from():
     return django.utils.timezone.now().year - 7
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0040_competition_birth_years"),
     ]

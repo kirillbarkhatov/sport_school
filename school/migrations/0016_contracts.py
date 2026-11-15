@@ -5,7 +5,6 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0015_family_extensions"),
     ]
@@ -19,11 +18,29 @@ class Migration(migrations.Migration):
                 ("issue_date", models.DateField(verbose_name="Дата оформления")),
                 ("start_date", models.DateField(verbose_name="Дата начала")),
                 ("end_date", models.DateField(verbose_name="Дата окончания")),
-                ("base_fee", models.DecimalField(decimal_places=2, default=Decimal("12000.00"), max_digits=9, verbose_name="Базовый платёж")),
-                ("discount_value", models.DecimalField(decimal_places=2, default=Decimal("0.00"), max_digits=7, verbose_name="Скидка")),
+                (
+                    "base_fee",
+                    models.DecimalField(
+                        decimal_places=2, default=Decimal("12000.00"), max_digits=9, verbose_name="Базовый платёж"
+                    ),
+                ),
+                (
+                    "discount_value",
+                    models.DecimalField(
+                        decimal_places=2, default=Decimal("0.00"), max_digits=7, verbose_name="Скидка"
+                    ),
+                ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                ("profile", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="contracts", to="school.familyathleteprofile", verbose_name="Профиль спортсмена")),
+                (
+                    "profile",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="contracts",
+                        to="school.familyathleteprofile",
+                        verbose_name="Профиль спортсмена",
+                    ),
+                ),
             ],
             options={
                 "verbose_name": "Договор",
@@ -34,6 +51,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="familyservice",
             name="contract",
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="services", to="school.athletecontract"),
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="services",
+                to="school.athletecontract",
+            ),
         ),
     ]

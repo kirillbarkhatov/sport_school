@@ -64,7 +64,6 @@ def normalize_class_fields(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0018_class_coach_comment_class_coach_status_and_more"),
     ]

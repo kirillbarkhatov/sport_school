@@ -23,4 +23,3 @@ def build_persistent_reply_keyboard(*, show_manager: bool, show_coach: bool) -> 
         resize_keyboard=True,
         is_persistent=True,
     )
-

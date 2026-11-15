@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import jwt
 from django.utils.translation import gettext_lazy as _
 from rest_framework import authentication, exceptions
@@ -44,7 +42,7 @@ class ServiceAccountJWTAuthentication(authentication.BaseAuthentication):
             raise exceptions.AuthenticationFailed(_("Некорректный JWT токен.")) from exc
 
         kid = header.get("kid")
-        account: Optional[ServiceAccount] = None
+        account: ServiceAccount | None = None
 
         if kid:
             account = ServiceAccount.objects.filter(key=kid, is_active=True).first()

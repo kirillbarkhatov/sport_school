@@ -54,7 +54,6 @@ def backwards_restore_competition_location_text(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0046_athletedocument_certificate_status_fields"),
     ]
@@ -149,15 +148,11 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="competitionvenue",
-            index=models.Index(
-                fields=["short_name"], name="school_comp_short_n_eef76e_idx"
-            ),
+            index=models.Index(fields=["short_name"], name="school_comp_short_n_eef76e_idx"),
         ),
         migrations.AddIndex(
             model_name="competitionvenue",
-            index=models.Index(
-                fields=["parent", "is_active"], name="school_comp_parent__76b9c9_idx"
-            ),
+            index=models.Index(fields=["parent", "is_active"], name="school_comp_parent__76b9c9_idx"),
         ),
         migrations.AddConstraint(
             model_name="competitionvenue",

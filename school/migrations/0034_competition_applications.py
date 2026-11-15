@@ -4,7 +4,6 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0033_fill_club_for_active"),
         ("users", "0026_user_training_reminders_enabled_trainingreminderlog"),

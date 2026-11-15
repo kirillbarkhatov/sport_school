@@ -22,7 +22,6 @@ from .models import (
     Person,
 )
 
-
 _COMPETITION_DOC_TYPES = {
     DocumentType.REGULATION,
     DocumentType.SCHEDULE,
@@ -97,10 +96,7 @@ def _sync_med_cert_actual_flags(athlete: Athlete) -> None:
             doc.is_actual = False
             doc.save(update_fields=["is_actual"])
 
-    valid_docs = [
-        doc for doc in med_docs
-        if doc.valid_until and doc.valid_until >= today
-    ]
+    valid_docs = [doc for doc in med_docs if doc.valid_until and doc.valid_until >= today]
     if valid_docs:
         active_id = valid_docs[0].id
     else:
@@ -289,7 +285,12 @@ def infer_competition_doc_type(analysis: DocumentAIAnalysis) -> str:
     extracted = analysis.extracted or {}
     corpus = " ".join(
         str(v)
-        for v in [analysis.title, extracted.get("competition_name"), extracted.get("summary"), extracted.get("discipline")]
+        for v in [
+            analysis.title,
+            extracted.get("competition_name"),
+            extracted.get("summary"),
+            extracted.get("discipline"),
+        ]
         if v
     ).lower()
 
@@ -312,9 +313,7 @@ def infer_competition_doc_type(analysis: DocumentAIAnalysis) -> str:
 def infer_athlete_doc_type(analysis: DocumentAIAnalysis) -> str:
     extracted = analysis.extracted or {}
     corpus = " ".join(
-        str(v)
-        for v in [analysis.title, extracted.get("document_name"), extracted.get("summary")]
-        if v
+        str(v) for v in [analysis.title, extracted.get("document_name"), extracted.get("summary")] if v
     ).lower()
 
     mapping = [
@@ -376,9 +375,7 @@ def _resolve_venues_from_analysis(analysis: DocumentAIAnalysis) -> list[Competit
     if not corpus:
         return []
 
-    venues = list(
-        CompetitionVenue.objects.filter(is_active=True).only("id", "short_name", "parent_id")
-    )
+    venues = list(CompetitionVenue.objects.filter(is_active=True).only("id", "short_name", "parent_id"))
     venue_by_id = {venue.id: venue for venue in venues}
     matched: list[tuple[CompetitionVenue, int, int]] = []
 
@@ -412,16 +409,19 @@ def _find_competition_by_venue_and_day(venue: CompetitionVenue, event_day: date)
         return current.id if current else None
 
     day_match_q = (
-        (Q(start_date__isnull=False) & Q(end_date__isnull=False) & Q(start_date__lte=event_day) & Q(end_date__gte=event_day))
+        (
+            Q(start_date__isnull=False)
+            & Q(end_date__isnull=False)
+            & Q(start_date__lte=event_day)
+            & Q(end_date__gte=event_day)
+        )
         | Q(start_date=event_day)
         | Q(end_date=event_day)
         | Q(date=event_day)
     )
 
     target_root_id = _root_id(venue)
-    candidates = list(
-        Competition.objects.filter(location=venue).filter(day_match_q).order_by("id")
-    )
+    candidates = list(Competition.objects.filter(location=venue).filter(day_match_q).order_by("id"))
     if len(candidates) == 1:
         return candidates[0]
     if len(candidates) > 1:
@@ -614,9 +614,7 @@ def get_binding_context(document: Document) -> dict[str, Any]:
     athletes = list(
         Athlete.objects.select_related("person")
         .order_by("person__surname", "person__name")
-        .values(
-            "id", "person__surname", "person__name", "person__middlename", "person__date_of_birth"
-        )
+        .values("id", "person__surname", "person__name", "person__middlename", "person__date_of_birth")
     )
 
     result: dict[str, Any] = {
@@ -632,16 +630,16 @@ def get_binding_context(document: Document) -> dict[str, Any]:
             if value in _COMPETITION_DOC_TYPES
         ],
         "athlete_doc_types": [
-            {"value": value, "label": label}
-            for value, label in DocumentType.choices
-            if value in _ATHLETE_DOC_TYPES
+            {"value": value, "label": label} for value, label in DocumentType.choices if value in _ATHLETE_DOC_TYPES
         ],
         "competitions": competitions,
         "athletes": [
             {
                 "id": item["id"],
                 "full_name": " ".join(
-                    part for part in [item["person__surname"], item["person__name"], item["person__middlename"]] if part
+                    part
+                    for part in [item["person__surname"], item["person__name"], item["person__middlename"]]
+                    if part
                 ),
                 "birth_date": item["person__date_of_birth"],
             }
@@ -733,7 +731,9 @@ def get_binding_context(document: Document) -> dict[str, Any]:
     return result
 
 
-def bind_document_to_competition(*, document: Document, competition: Competition, doc_type: str, title: str = "") -> CompetitionDocument:
+def bind_document_to_competition(
+    *, document: Document, competition: Competition, doc_type: str, title: str = ""
+) -> CompetitionDocument:
     return CompetitionDocument.objects.create(
         competition=competition,
         document=document,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from school.choices import ClassCoachStatus, TrainingKind, TrainingLocation, TrainingEquipment
+from school.choices import ClassCoachStatus, TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Class
 from school.training_rules import get_allowed_equipment
 from tg_bot.services.training_overview import COACH_STATUS_HINTS, TRAINING_TYPE_EMOJI

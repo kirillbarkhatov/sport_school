@@ -3,14 +3,13 @@ import hmac
 import json
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import patch
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
-from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -284,7 +283,9 @@ class OnlineResultsPagesTests(APITestCase):
         self.assertEqual(payload["completed_groups"][0]["data"]["headers"], ["Ст.№"])
         self.assertEqual(payload["completed_groups"][0]["table_lines"], ["line 1"])
 
-    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"})
+    @patch(
+        "api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"}
+    )
     def test_soft_refresh_endpoint_returns_payload(self, _probe_mock):
         run = StreamRun.objects.create(
             stream_id="stream-soft-refresh",
@@ -303,7 +304,9 @@ class OnlineResultsPagesTests(APITestCase):
         self.assertEqual(payload.get("resolved_stream_id"), run.stream_id)
 
     @patch("api.views.reset_online_results_stream_state")
-    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"})
+    @patch(
+        "api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"}
+    )
     def test_hard_refresh_endpoint_restarts_and_returns_new_stream(self, _probe_mock, reset_mock):
         run = StreamRun.objects.create(
             stream_id="stream-hard-refresh-old",
@@ -405,7 +408,9 @@ class OnlineResultsPagesTests(APITestCase):
         launch_mock.assert_not_called()
 
     @override_settings(ONLINE_RESULTS_STREAM_RESUME_STALE_SEC=0)
-    @patch("api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"})
+    @patch(
+        "api.views._probe_online_results_stream_state", return_value={"ok": True, "found": True, "status": "running"}
+    )
     @patch("api.views.launch_online_results_stream")
     def test_live_state_does_not_recover_when_remote_stream_is_running(self, launch_mock, _probe_mock):
         run = StreamRun.objects.create(
@@ -1456,11 +1461,7 @@ class OnlineResultsServicesTests(APITestCase):
         run.telegram_channel = channel
         run.external_response_json = {
             "stream_output": {
-                "latest_group_tables": {
-                    "sheet|group-a": {
-                        "data": {"rows": [{"athlete_key": "ax", "place": 2}]}
-                    }
-                }
+                "latest_group_tables": {"sheet|group-a": {"data": {"rows": [{"athlete_key": "ax", "place": 2}]}}}
             }
         }
         run.save(
@@ -1487,7 +1488,16 @@ class OnlineResultsServicesTests(APITestCase):
                     "group_name": "group-a",
                     "data": {
                         "rows": [
-                            {"athlete_key": "ax", "place": 1, "start_number": 7, "full_name": "Петров Петр", "run1": "20.10", "run2": "-", "total": "20.10", "interval": "+0.00"}
+                            {
+                                "athlete_key": "ax",
+                                "place": 1,
+                                "start_number": 7,
+                                "full_name": "Петров Петр",
+                                "run1": "20.10",
+                                "run2": "-",
+                                "total": "20.10",
+                                "interval": "+0.00",
+                            }
                         ]
                     },
                 }
@@ -1505,7 +1515,16 @@ class OnlineResultsServicesTests(APITestCase):
                     "group_name": "group-a",
                     "data": {
                         "rows": [
-                            {"athlete_key": "ax", "place": 1, "start_number": 7, "full_name": "Петров Петр", "run1": "20.10", "run2": "-", "total": "20.10", "interval": "+0.00"}
+                            {
+                                "athlete_key": "ax",
+                                "place": 1,
+                                "start_number": 7,
+                                "full_name": "Петров Петр",
+                                "run1": "20.10",
+                                "run2": "-",
+                                "total": "20.10",
+                                "interval": "+0.00",
+                            }
                         ]
                     },
                 }
@@ -1548,7 +1567,19 @@ class OnlineResultsServicesTests(APITestCase):
                 "payload": {
                     "group_key": "sheet|group-x",
                     "group_name": "group-x",
-                    "data": {"rows": [{"place": 1, "start_number": 11, "full_name": "Петров Петр", "run1": "22.11", "run2": "-", "total": "22.11", "interval": "+0.00"}]},
+                    "data": {
+                        "rows": [
+                            {
+                                "place": 1,
+                                "start_number": 11,
+                                "full_name": "Петров Петр",
+                                "run1": "22.11",
+                                "run2": "-",
+                                "total": "22.11",
+                                "interval": "+0.00",
+                            }
+                        ]
+                    },
                 }
             },
             payload_hash="d" * 63 + "e",
@@ -1563,7 +1594,19 @@ class OnlineResultsServicesTests(APITestCase):
                 "payload": {
                     "group_key": "sheet|group-x",
                     "group_name": "group-x",
-                    "data": {"rows": [{"place": 1, "start_number": 11, "full_name": "Петров Петр", "run1": "21.95", "run2": "-", "total": "21.95", "interval": "+0.00"}]},
+                    "data": {
+                        "rows": [
+                            {
+                                "place": 1,
+                                "start_number": 11,
+                                "full_name": "Петров Петр",
+                                "run1": "21.95",
+                                "run2": "-",
+                                "total": "21.95",
+                                "interval": "+0.00",
+                            }
+                        ]
+                    },
                 }
             },
             payload_hash="e" * 63 + "f",
@@ -1613,7 +1656,15 @@ class OnlineResultsServicesTests(APITestCase):
                     "group_name": "group-a",
                     "data": {
                         "rows": [
-                            {"place": 1, "start_number": 1, "full_name": "Петров Петр", "run1": "20.10", "run2": "-", "total": "20.10", "interval": "+0.00"}
+                            {
+                                "place": 1,
+                                "start_number": 1,
+                                "full_name": "Петров Петр",
+                                "run1": "20.10",
+                                "run2": "-",
+                                "total": "20.10",
+                                "interval": "+0.00",
+                            }
                         ]
                     },
                 }
@@ -1635,7 +1686,15 @@ class OnlineResultsServicesTests(APITestCase):
                     "group_name": "group-b",
                     "data": {
                         "rows": [
-                            {"place": 1, "start_number": 2, "full_name": "Иванов Иван", "run1": "21.10", "run2": "-", "total": "21.10", "interval": "+0.00"}
+                            {
+                                "place": 1,
+                                "start_number": 2,
+                                "full_name": "Иванов Иван",
+                                "run1": "21.10",
+                                "run2": "-",
+                                "total": "21.10",
+                                "interval": "+0.00",
+                            }
                         ]
                     },
                 }

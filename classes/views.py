@@ -3,23 +3,22 @@ from django.db import models
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse_lazy
-from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, FormView
+from django.views.generic import CreateView, DeleteView, DetailView, FormView, ListView, UpdateView
 
 from classes.forms import ClassNotificationForm
 from notifications.models import Notification
 from notifications.services import deliver_notification
-from school.forms import ClassForm, AthleteSelectionForm
-from school.models import Class, Athlete, ClassEnrollment, FamilyMember
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
+from school.forms import AthleteSelectionForm, ClassForm
+from school.models import Athlete, Class, ClassEnrollment, FamilyMember
 from school.training_rules import build_training_form_config
 from users.mixins import ApprovedUserRequiredMixin
+from users.models import User
 from users.utils import (
+    get_athlete_queryset_for_user,
     get_class_queryset_for_user,
     get_group_queryset_for_user,
-    get_athlete_queryset_for_user,
 )
-from users.models import User
-
 
 CLASS_PRESETS = [
     {
@@ -90,9 +89,7 @@ class ClassFormContextMixin:
 
         mapping: dict[str, list[int]] = {}
         for group in group_queryset.prefetch_related("athletes"):
-            athlete_ids = [
-                athlete.pk for athlete in group.athletes.all() if athlete.pk in available_athlete_ids
-            ]
+            athlete_ids = [athlete.pk for athlete in group.athletes.all() if athlete.pk in available_athlete_ids]
             mapping[str(group.pk)] = athlete_ids
 
         context["group_athletes_map"] = mapping
@@ -117,7 +114,11 @@ class ClassDetailView(ApprovedUserRequiredMixin, DetailView):
     template_name = "classes/class_detail.html"
 
     def get_queryset(self):
-        return get_class_queryset_for_user(self.request.user).select_related("group").prefetch_related("enrollments__athlete__person")
+        return (
+            get_class_queryset_for_user(self.request.user)
+            .select_related("group")
+            .prefetch_related("enrollments__athlete__person")
+        )
 
 
 class ClassCreateView(ClassFormContextMixin, ApprovedUserRequiredMixin, CreateView):
@@ -142,9 +143,9 @@ class ClassCreateView(ClassFormContextMixin, ApprovedUserRequiredMixin, CreateVi
         if self.request.POST:
             context["athlete_form"] = AthleteSelectionForm(self.request.POST, user=self.request.user)
         else:
-            initial_athletes = athlete_qs.filter(
-                class_enrollments__class_instance=self.object
-            ) if self.object else athlete_qs.none()
+            initial_athletes = (
+                athlete_qs.filter(class_enrollments__class_instance=self.object) if self.object else athlete_qs.none()
+            )
             context["athlete_form"] = AthleteSelectionForm(
                 user=self.request.user,
                 initial={"athletes": initial_athletes},
@@ -154,7 +155,7 @@ class ClassCreateView(ClassFormContextMixin, ApprovedUserRequiredMixin, CreateVi
 
     def form_valid(self, form):
         context = self.get_context_data()
-        athlete_form = context['athlete_form']
+        athlete_form = context["athlete_form"]
 
         if form.is_valid() and athlete_form.is_valid():
             # Сохраняем занятие
@@ -162,11 +163,8 @@ class ClassCreateView(ClassFormContextMixin, ApprovedUserRequiredMixin, CreateVi
 
             # Обновляем записи ClassEnrollment
             ClassEnrollment.objects.filter(class_instance=self.object).delete()
-            for athlete in athlete_form.cleaned_data['athletes']:
-                ClassEnrollment.objects.create(
-                    class_instance=self.object,
-                    athlete=athlete
-                )
+            for athlete in athlete_form.cleaned_data["athletes"]:
+                ClassEnrollment.objects.create(class_instance=self.object, athlete=athlete)
 
             return HttpResponseRedirect(self.get_success_url())
 
@@ -197,18 +195,14 @@ class ClassUpdateView(ClassFormContextMixin, ApprovedUserRequiredMixin, UpdateVi
         else:
             context["athlete_form"] = AthleteSelectionForm(
                 user=self.request.user,
-                initial={
-                    "athletes": athlete_qs.filter(
-                        class_enrollments__class_instance=self.object
-                    )
-                },
+                initial={"athletes": athlete_qs.filter(class_enrollments__class_instance=self.object)},
             )
 
         return self._augment_class_form_context(context)
 
     def form_valid(self, form):
         context = self.get_context_data()
-        athlete_form = context['athlete_form']
+        athlete_form = context["athlete_form"]
 
         if form.is_valid() and athlete_form.is_valid():
             # Сохраняем изменения занятия
@@ -216,11 +210,8 @@ class ClassUpdateView(ClassFormContextMixin, ApprovedUserRequiredMixin, UpdateVi
 
             # Обновляем записи ClassEnrollment
             ClassEnrollment.objects.filter(class_instance=self.object).delete()
-            for athlete in athlete_form.cleaned_data['athletes']:
-                ClassEnrollment.objects.create(
-                    class_instance=self.object,
-                    athlete=athlete
-                )
+            for athlete in athlete_form.cleaned_data["athletes"]:
+                ClassEnrollment.objects.create(class_instance=self.object, athlete=athlete)
 
             return HttpResponseRedirect(self.get_success_url())
 
@@ -254,17 +245,14 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
     def get_recipients_queryset(self):
         class_instance = self.get_class_instance()
         athlete_ids = class_instance.enrollments.values_list("athlete_id", flat=True)
-        person_ids = list(
-            Athlete.objects.filter(id__in=athlete_ids).values_list("person_id", flat=True)
-        )
-        family_ids = list(
-            FamilyMember.objects.filter(person_id__in=person_ids).values_list("family_id", flat=True)
-        )
+        person_ids = list(Athlete.objects.filter(id__in=athlete_ids).values_list("person_id", flat=True))
+        family_ids = list(FamilyMember.objects.filter(person_id__in=person_ids).values_list("family_id", flat=True))
 
-        return User.objects.filter(
-            models.Q(family_id__in=family_ids)
-            | models.Q(person_id__in=person_ids)
-        ).filter(is_approved=True).distinct()
+        return (
+            User.objects.filter(models.Q(family_id__in=family_ids) | models.Q(person_id__in=person_ids))
+            .filter(is_approved=True)
+            .distinct()
+        )
 
     def get_initial(self):
         class_instance = self.get_class_instance()
@@ -273,9 +261,7 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
         start_time = class_instance.date.strftime("%d.%m %H:%M")
         equipment_hint = ""
         if class_instance.equipment:
-            equipment_hint = (
-                "\nЭкипировка: " + class_instance.get_equipment_display()
-            )
+            equipment_hint = "\nЭкипировка: " + class_instance.get_equipment_display()
         training_type_display = class_instance.get_training_type_display()
         location_display = class_instance.get_location_display()
         if group_name:
@@ -292,9 +278,7 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
             )
         return {
             "title": title,
-            "message": (
-                f"{intro}{equipment_hint}\nПожалуйста, подтвердите участие спортсмена."
-            ),
+            "message": (f"{intro}{equipment_hint}\nПожалуйста, подтвердите участие спортсмена."),
             "recipients": list(self.get_recipients_queryset().values_list("pk", flat=True)),
         }
 

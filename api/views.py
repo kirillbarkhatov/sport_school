@@ -12,17 +12,16 @@ from urllib.parse import quote, urljoin, urlsplit
 from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.db import transaction
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Max
 from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -30,26 +29,27 @@ from rest_framework.views import APIView
 
 from api.forms import StreamRunLaunchForm
 from api.models import PublicStreamAccess, StreamRun, WebhookEvent
-from api.tasks import (
-    launch_online_results_stream_task,
-    process_online_results_webhook_event_task,
-    stop_online_results_stream_task,
-)
 from api.services import (
     _build_run1_group_table_snapshot,
     launch_online_results_stream,
     normalize_source_id,
     reset_online_results_stream_state,
 )
+from api.tasks import (
+    launch_online_results_stream_task,
+    process_online_results_webhook_event_task,
+    stop_online_results_stream_task,
+)
 from api.telegram_streaming import disable_stream_telegram_publication, enable_stream_telegram_publication
 from api.telemetry import log_event
 from bot.models import TelegramChat, TelegramParticipant
+from classes.services import get_assistant_schedule_payload
+from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Competition, CompetitionDocument, Person
 from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.models import User
-from classes.services import get_assistant_schedule_payload
-from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
+
 from .serializers import (
     AssistantAthleteSerializer,
     AssistantTrainingSerializer,
@@ -203,7 +203,9 @@ def _normalize_run1_selected_group_block(block: dict[str, object]) -> dict[str, 
 
 
 def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, object]:
-    output = run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
+    output = (
+        run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
+    )
     if not isinstance(output, dict):
         output = {}
 
@@ -221,8 +223,13 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
             continue
         run_stage = int(value.get("run_stage") or 1)
         group_name = str(value.get("group_name") or "")
-        run_label = str(value.get("run_label") or ("заезд 1" if competition_format == "single_run" else f"заезд {run_stage}"))
-        option_label = str(value.get("option_label") or (group_name if competition_format == "single_run" else f"{group_name} - {run_label}"))
+        run_label = str(
+            value.get("run_label") or ("заезд 1" if competition_format == "single_run" else f"заезд {run_stage}")
+        )
+        option_label = str(
+            value.get("option_label")
+            or (group_name if competition_format == "single_run" else f"{group_name} - {run_label}")
+        )
         completed_items.append(
             {
                 "group_key": key,
@@ -343,7 +350,9 @@ def _live_payload_from_run(run: StreamRun, group_key: str = "") -> dict[str, obj
         "completed_groups": completed_items,
         "all_groups": all_groups_items,
         "overall_stats_lines": output.get("overall_stats_lines_plain") or output.get("overall_stats_lines") or [],
-        "overall_stats_data": output.get("overall_stats_data") if isinstance(output.get("overall_stats_data"), dict) else {},
+        "overall_stats_data": output.get("overall_stats_data")
+        if isinstance(output.get("overall_stats_data"), dict)
+        else {},
         "last_tick": output.get("last_tick") if isinstance(output.get("last_tick"), dict) else {},
         "last_event": output.get("last_event") if isinstance(output.get("last_event"), dict) else {},
         "last_warning": output.get("last_warning") if isinstance(output.get("last_warning"), dict) else {},
@@ -576,7 +585,7 @@ class AssistantUpcomingTrainingsView(APIView):
         if limit_param is not None:
             try:
                 limit_value = int(limit_param)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return Response(
                     {"detail": "Параметр limit должен быть целым числом."},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -601,18 +610,9 @@ class AssistantUpcomingTrainingsView(APIView):
                 "trainings": trainings,
                 "athletes": athletes,
                 "defaults": {
-                    "training_types": [
-                        {"value": value, "label": label}
-                        for value, label in TrainingKind.choices
-                    ],
-                    "equipment": [
-                        {"value": value, "label": label}
-                        for value, label in TrainingEquipment.choices
-                    ],
-                    "locations": [
-                        {"value": value, "label": label}
-                        for value, label in TrainingLocation.choices
-                    ],
+                    "training_types": [{"value": value, "label": label} for value, label in TrainingKind.choices],
+                    "equipment": [{"value": value, "label": label} for value, label in TrainingEquipment.choices],
+                    "locations": [{"value": value, "label": label} for value, label in TrainingLocation.choices],
                 },
             },
             status=status.HTTP_200_OK,
@@ -664,7 +664,7 @@ class OnlineResultsWebhookView(APIView):
 
         try:
             payload = json.loads(raw_body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except UnicodeDecodeError, json.JSONDecodeError:
             logger.warning(
                 "Online Results webhook rejected: invalid_json payload_hash=%s",
                 payload_hash,
@@ -791,10 +791,16 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
         for run in page_obj.object_list:
             event_stats = events_map.get(run.stream_id, {})
             public_link = _ensure_active_public_stream_access(run)
-            output = run.external_response_json.get("stream_output", {}) if isinstance(run.external_response_json, dict) else {}
+            output = (
+                run.external_response_json.get("stream_output", {})
+                if isinstance(run.external_response_json, dict)
+                else {}
+            )
             if not isinstance(output, dict):
                 output = {}
-            competition_title = str(output.get("competition_title") or "").strip() or _extract_competition_title(output)
+            competition_title = str(output.get("competition_title") or "").strip() or _extract_competition_title(
+                output
+            )
             runs_payload.append(
                 {
                     "run": run,
@@ -956,7 +962,9 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                     ]
                 )
                 public_access = (
-                    PublicStreamAccess.objects.filter(stream_run=stream_run, is_active=True, expires_at__gt=timezone.now())
+                    PublicStreamAccess.objects.filter(
+                        stream_run=stream_run, is_active=True, expires_at__gt=timezone.now()
+                    )
                     .order_by("-created_at")
                     .first()
                 )
@@ -1045,7 +1053,9 @@ class OnlineResultsCompetitionLiveView(ApprovedUserRequiredMixin, View):
         if not stream_id and latest_run:
             stream_id = latest_run.stream_id
         competition_title = ""
-        run_for_title = StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at").first() if stream_id else latest_run
+        run_for_title = (
+            StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at").first() if stream_id else latest_run
+        )
         if run_for_title:
             payload = _live_payload_from_run(run=run_for_title)
             competition_title = str(payload.get("competition_title") or "")

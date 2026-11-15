@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from dataclasses import dataclass
 import re
-from typing import Iterable
+from collections import defaultdict
+from collections.abc import Iterable
+from dataclasses import dataclass
 
 from django.db import transaction
 from django.db.models import Count
@@ -21,13 +21,13 @@ from school.models import (
     AthleteDocument,
     CampEnrollment,
     ClassEnrollment,
+    Coach,
     CompetitionEntry,
     Family,
     FamilyAthleteProfile,
     FamilyMember,
     Person,
     PotentialClient,
-    Coach,
 )
 from users.models import User, UserAthleteLink, UserPersonLink
 
@@ -92,13 +92,27 @@ def _is_redirected(person_id: int) -> bool:
 
 
 def _canonical_person(person: Person) -> Person:
-    redirect = PersonMergeRedirect.objects.filter(source_person=person, is_active=True).select_related("target_person").first()
+    redirect = (
+        PersonMergeRedirect.objects.filter(source_person=person, is_active=True)
+        .select_related("target_person")
+        .first()
+    )
     return redirect.target_person if redirect else person
 
 
 def _person_completeness(person: Person) -> int:
     score = 0
-    for field in ("surname", "name", "middlename", "date_of_birth", "phone", "email", "telegram", "telegram_id", "club"):
+    for field in (
+        "surname",
+        "name",
+        "middlename",
+        "date_of_birth",
+        "phone",
+        "email",
+        "telegram",
+        "telegram_id",
+        "club",
+    ):
         value = getattr(person, field, None)
         if value:
             score += 1
@@ -272,7 +286,9 @@ def _reassign_athlete_refs(source_athlete: Athlete, target_athlete: Athlete) -> 
     moved = {}
     moved["class_enrollments"] = ClassEnrollment.objects.filter(athlete=source_athlete).update(athlete=target_athlete)
     moved["camp_enrollments"] = CampEnrollment.objects.filter(athlete=source_athlete).update(athlete=target_athlete)
-    moved["competition_entries"] = CompetitionEntry.objects.filter(athlete=source_athlete).update(athlete=target_athlete)
+    moved["competition_entries"] = CompetitionEntry.objects.filter(athlete=source_athlete).update(
+        athlete=target_athlete
+    )
     moved["athlete_documents"] = AthleteDocument.objects.filter(athlete=source_athlete).update(athlete=target_athlete)
 
     profile_moved = 0
@@ -361,7 +377,9 @@ def apply_cluster_merge(
         moved_relations["user_links_suggested"] += UserPersonLink.objects.filter(suggested_person=duplicate).update(
             suggested_person=master
         )
-        moved_relations["family_contact_person"] += Family.objects.filter(contact_person=duplicate).update(contact_person=master)
+        moved_relations["family_contact_person"] += Family.objects.filter(contact_person=duplicate).update(
+            contact_person=master
+        )
         moved_relations["family_members"] += FamilyMember.objects.filter(person=duplicate).update(person=master)
 
         duplicate_coach = Coach.objects.filter(person=duplicate).first()
@@ -420,11 +438,7 @@ def run_dedup_job(job: PersonDedupJob) -> PersonDedupJob:
         active_redirect_sources = set(
             PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
         )
-        persons = list(
-            Person.objects.select_related("club")
-            .exclude(id__in=active_redirect_sources)
-            .order_by("id")
-        )
+        persons = list(Person.objects.select_related("club").exclude(id__in=active_redirect_sources).order_by("id"))
         job.total_persons = len(persons)
         job.processed_persons = len(persons)
         blocks = _build_blocks(persons)
@@ -435,7 +449,7 @@ def run_dedup_job(job: PersonDedupJob) -> PersonDedupJob:
             if len(block_people) < 2:
                 continue
             for idx, left in enumerate(block_people):
-                for right in block_people[idx + 1:]:
+                for right in block_people[idx + 1 :]:
                     pair_key = (min(left.id, right.id), max(left.id, right.id))
                     if pair_key in seen_pairs:
                         continue
@@ -468,7 +482,9 @@ def run_dedup_job(job: PersonDedupJob) -> PersonDedupJob:
             reason_summary = ", ".join(component_pairs[0].reasons) if component_pairs else ""
             suggested_master = _suggest_master_person(people)
             requires_manual = True
-            if job.mode == PersonDedupJob.MODE_AUTO_SAFE and _is_safe_auto_merge(people, max_pair_score, job.auto_merge_score):
+            if job.mode == PersonDedupJob.MODE_AUTO_SAFE and _is_safe_auto_merge(
+                people, max_pair_score, job.auto_merge_score
+            ):
                 requires_manual = False
 
             cluster = PersonDuplicateCluster.objects.create(
@@ -558,7 +574,9 @@ def build_job_payload(job: PersonDedupJob) -> dict:
 
 
 def build_cluster_payload(cluster: PersonDuplicateCluster) -> dict:
-    items = list(cluster.items.select_related("person__club").order_by("-aggregate_score", "person__surname", "person__name"))
+    items = list(
+        cluster.items.select_related("person__club").order_by("-aggregate_score", "person__surname", "person__name")
+    )
     return {
         "id": cluster.id,
         "status": cluster.status,

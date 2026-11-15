@@ -1,8 +1,8 @@
 import logging
 import os
 import sys
-from pathlib import Path
 from functools import wraps
+from pathlib import Path
 
 import django
 from telegram import Update
@@ -24,23 +24,20 @@ if str(BASE_DIR) not in sys.path:
 from config.settings import BOT_TOKEN  # noqa: E402
 
 # Настройка логирования
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
 # Инициализация Django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 from tg_bot.handlers.admin import (  # noqa: E402
-    approve,
     admin_panel,
+    approve,
     handle_admin_callback,
 )
-from tg_bot.handlers.documents import telegram_document_entry  # noqa: E402
-from tg_bot.handlers.coach import coach_panel, handle_coach_callback  # noqa: E402
 from tg_bot.handlers.auth import confirm, register, start  # noqa: E402
-from tg_bot.handlers.onboarding import handle_onboarding_callback  # noqa: E402
+from tg_bot.handlers.coach import coach_panel, handle_coach_callback  # noqa: E402
+from tg_bot.handlers.documents import telegram_document_entry  # noqa: E402
 from tg_bot.handlers.general import (  # noqa: E402
     caps,
     classes,
@@ -50,9 +47,9 @@ from tg_bot.handlers.general import (  # noqa: E402
     unknown,
 )
 from tg_bot.handlers.manager import handle_manager_callback, manager_panel  # noqa: E402
+from tg_bot.handlers.onboarding import handle_onboarding_callback  # noqa: E402
 from tg_bot.handlers.user import cancel_current_action, handle_user_callback  # noqa: E402
 from tg_bot.services.audience import chat_member_entry, track_audience_entry  # noqa: E402
-
 
 AUDIENCE_TRACKING_GROUP = -2
 CHAT_MEMBER_TRACKING_GROUP = -1
@@ -101,15 +98,11 @@ def build_application():
     )
 
     application.add_handler(
-        ChatMemberHandler(
-            chat_member_entry, ChatMemberHandler.CHAT_MEMBER, block=False
-        ),
+        ChatMemberHandler(chat_member_entry, ChatMemberHandler.CHAT_MEMBER, block=False),
         group=CHAT_MEMBER_TRACKING_GROUP,
     )
     application.add_handler(
-        ChatMemberHandler(
-            chat_member_entry, ChatMemberHandler.MY_CHAT_MEMBER, block=False
-        ),
+        ChatMemberHandler(chat_member_entry, ChatMemberHandler.MY_CHAT_MEMBER, block=False),
         group=CHAT_MEMBER_TRACKING_GROUP,
     )
 
@@ -125,9 +118,15 @@ def build_application():
     application.add_handler(CommandHandler("coach", coach_panel))
     application.add_handler(CommandHandler("cancel", cancel_current_action))
 
-    application.add_handler(CallbackQueryHandler(trace_callback("handle_admin_callback", handle_admin_callback), pattern=r"^admin"))
-    application.add_handler(CallbackQueryHandler(trace_callback("handle_manager_callback", handle_manager_callback), pattern=r"^manager:"))
-    application.add_handler(CallbackQueryHandler(trace_callback("handle_coach_callback", handle_coach_callback), pattern=r"^coach:"))
+    application.add_handler(
+        CallbackQueryHandler(trace_callback("handle_admin_callback", handle_admin_callback), pattern=r"^admin")
+    )
+    application.add_handler(
+        CallbackQueryHandler(trace_callback("handle_manager_callback", handle_manager_callback), pattern=r"^manager:")
+    )
+    application.add_handler(
+        CallbackQueryHandler(trace_callback("handle_coach_callback", handle_coach_callback), pattern=r"^coach:")
+    )
     application.add_handler(
         CallbackQueryHandler(
             trace_callback("handle_user_callback", handle_user_callback),
@@ -157,7 +156,6 @@ def build_application():
         )
     )
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
-
 
     return application
 

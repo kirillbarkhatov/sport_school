@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = []
@@ -29,9 +28,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "rank",
-                    models.CharField(
-                        blank=True, max_length=50, null=True, verbose_name="Разряд"
-                    ),
+                    models.CharField(blank=True, max_length=50, null=True, verbose_name="Разряд"),
                 ),
                 (
                     "medical_certificate",
@@ -67,9 +64,7 @@ class Migration(migrations.Migration):
                 ("date", models.DateTimeField(verbose_name="Дата и время занятия")),
                 (
                     "duration",
-                    models.IntegerField(
-                        verbose_name="Продолжительность занятия (мин.)"
-                    ),
+                    models.IntegerField(verbose_name="Продолжительность занятия (мин.)"),
                 ),
                 (
                     "location",
@@ -134,9 +129,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "name",
-                    models.CharField(
-                        max_length=100, verbose_name="Название соревнования"
-                    ),
+                    models.CharField(max_length=100, verbose_name="Название соревнования"),
                 ),
                 ("date", models.DateField(verbose_name="Дата проведения")),
                 (
@@ -145,9 +138,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "description",
-                    models.TextField(
-                        blank=True, null=True, verbose_name="Описание соревнования"
-                    ),
+                    models.TextField(blank=True, null=True, verbose_name="Описание соревнования"),
                 ),
             ],
             options={
@@ -197,9 +188,7 @@ class Migration(migrations.Migration):
                 ("surname", models.CharField(max_length=100, verbose_name="Фамилия")),
                 (
                     "middlename",
-                    models.CharField(
-                        blank=True, max_length=100, null=True, verbose_name="Отчество"
-                    ),
+                    models.CharField(blank=True, max_length=100, null=True, verbose_name="Отчество"),
                 ),
                 ("date_of_birth", models.DateField(verbose_name="Дата рождения")),
                 (
@@ -213,15 +202,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "phone",
-                    models.CharField(
-                        blank=True, max_length=15, null=True, verbose_name="Телефон"
-                    ),
+                    models.CharField(blank=True, max_length=15, null=True, verbose_name="Телефон"),
                 ),
                 (
                     "telegram",
-                    models.CharField(
-                        blank=True, max_length=100, null=True, verbose_name="Telegram"
-                    ),
+                    models.CharField(blank=True, max_length=100, null=True, verbose_name="Telegram"),
                 ),
                 (
                     "comment",
@@ -344,9 +329,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "coaches",
-                    models.ManyToManyField(
-                        related_name="groups", to="school.coach", verbose_name="Тренеры"
-                    ),
+                    models.ManyToManyField(related_name="groups", to="school.coach", verbose_name="Тренеры"),
                 ),
             ],
             options={
@@ -483,15 +466,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "trial_lesson",
-                    models.BooleanField(
-                        default=False, verbose_name="Запись на пробное занятие"
-                    ),
+                    models.BooleanField(default=False, verbose_name="Запись на пробное занятие"),
                 ),
                 (
                     "first_month_paid",
-                    models.BooleanField(
-                        default=False, verbose_name="Оплатил первый месяц"
-                    ),
+                    models.BooleanField(default=False, verbose_name="Оплатил первый месяц"),
                 ),
                 (
                     "comments",
@@ -531,15 +510,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "description",
-                    models.TextField(
-                        blank=True, null=True, verbose_name="Описание сбора"
-                    ),
+                    models.TextField(blank=True, null=True, verbose_name="Описание сбора"),
                 ),
                 (
                     "classes",
-                    models.ManyToManyField(
-                        related_name="camps", to="school.class", verbose_name="Занятия"
-                    ),
+                    models.ManyToManyField(related_name="camps", to="school.class", verbose_name="Занятия"),
                 ),
             ],
             options={

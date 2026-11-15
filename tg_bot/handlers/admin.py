@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -8,13 +8,13 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
-from tg_bot.handlers.auth import build_authenticated_keyboard, _format_login_instructions
+from school.models import Person
+from tg_bot.handlers.auth import build_authenticated_keyboard
 from tg_bot.services.notifications import (
     notify_admins_context,
     user_is_admin,
     user_is_manager,
 )
-from school.models import Person
 from users.models import User, UserPersonLink, UserPersonLinkStatus
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ def _pending_keyboard(users: Iterable[User]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-async def _get_admin_user(tg_id: Optional[int]) -> Optional[User]:
+async def _get_admin_user(tg_id: int | None) -> User | None:
     if not tg_id:
         return None
     return await sync_to_async(
@@ -128,7 +128,7 @@ def _build_user_link_card(user: User, link: UserPersonLink | None) -> str:
     return "\n".join(lines)
 
 
-def _confirm_suggested_link_sync(user_id: int, admin_user_id: Optional[int]) -> tuple[User, UserPersonLink]:
+def _confirm_suggested_link_sync(user_id: int, admin_user_id: int | None) -> tuple[User, UserPersonLink]:
     admin_user = None
     if admin_user_id:
         admin_user = User.objects.filter(pk=admin_user_id).first()
@@ -146,7 +146,7 @@ def _confirm_suggested_link_sync(user_id: int, admin_user_id: Optional[int]) -> 
     return user, link
 
 
-def _set_person_link_sync(user_id: int, person_id: int, admin_user_id: Optional[int]) -> tuple[User, UserPersonLink]:
+def _set_person_link_sync(user_id: int, person_id: int, admin_user_id: int | None) -> tuple[User, UserPersonLink]:
     admin_user = None
     if admin_user_id:
         admin_user = User.objects.filter(pk=admin_user_id).first()
@@ -166,7 +166,7 @@ def _set_person_link_sync(user_id: int, person_id: int, admin_user_id: Optional[
     return user, link
 
 
-def _reject_link_sync(user_id: int, admin_user_id: Optional[int]) -> tuple[User, UserPersonLink]:
+def _reject_link_sync(user_id: int, admin_user_id: int | None) -> tuple[User, UserPersonLink]:
     admin_user = None
     if admin_user_id:
         admin_user = User.objects.filter(pk=admin_user_id).first()
@@ -181,21 +181,21 @@ def _reject_link_sync(user_id: int, admin_user_id: Optional[int]) -> tuple[User,
     return user, link
 
 
-async def _confirm_suggested_link(user_id: int, admin_user_id: Optional[int]) -> tuple[User, UserPersonLink]:
+async def _confirm_suggested_link(user_id: int, admin_user_id: int | None) -> tuple[User, UserPersonLink]:
     return await sync_to_async(
         _confirm_suggested_link_sync,
         thread_sensitive=True,
     )(user_id, admin_user_id)
 
 
-async def _set_person_link(user_id: int, person_id: int, admin_user_id: Optional[int]) -> tuple[User, UserPersonLink]:
+async def _set_person_link(user_id: int, person_id: int, admin_user_id: int | None) -> tuple[User, UserPersonLink]:
     return await sync_to_async(
         _set_person_link_sync,
         thread_sensitive=True,
     )(user_id, person_id, admin_user_id)
 
 
-async def _reject_link(user_id: int, admin_user_id: Optional[int]) -> tuple[User, UserPersonLink]:
+async def _reject_link(user_id: int, admin_user_id: int | None) -> tuple[User, UserPersonLink]:
     return await sync_to_async(
         _reject_link_sync,
         thread_sensitive=True,
@@ -256,15 +256,15 @@ def _build_pending_overview_lines(pending_users: Iterable[User], *, include_ids:
         text_lines.append(summary_line)
         if link and link.suggested_person_id:
             suggested = link.suggested_person
-            text_lines.append(
-                f"  Предложение: {suggested.surname} {suggested.name}"
-            )
+            text_lines.append(f"  Предложение: {suggested.surname} {suggested.name}")
         if link and link.user_comment:
             text_lines.append(f"  Комментарий: {link.user_comment}")
     return text_lines
 
 
-async def build_pending_overview_payload(*, include_ids: bool = True) -> tuple[str | None, InlineKeyboardMarkup | None]:
+async def build_pending_overview_payload(
+    *, include_ids: bool = True
+) -> tuple[str | None, InlineKeyboardMarkup | None]:
     pending_users = await _fetch_pending_users()
     if not pending_users:
         return None, None
@@ -447,8 +447,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 "initiator_id": update.effective_user.id if update.effective_user else None,
             }
             await query.message.reply_text(
-                "Введите фамилию члена клуба для поиска. "
-                "Будут показаны только участники без привязанных аккаунтов.",
+                "Введите фамилию члена клуба для поиска. Будут показаны только участники без привязанных аккаунтов.",
             )
             return
 
@@ -521,9 +520,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 "user_id": user_id,
                 "initiator_id": update.effective_user.id if update.effective_user else None,
             }
-            await query.message.reply_text(
-                "Автосвязь не найдена. Введите фамилию члена клуба для ручного выбора."
-            )
+            await query.message.reply_text("Автосвязь не найдена. Введите фамилию члена клуба для ручного выбора.")
             return
 
         await notify_admins_context(
@@ -570,8 +567,7 @@ async def handle_person_search_message(update: Update, context: ContextTypes.DEF
         }
     else:
         await update.message.reply_text(
-            "Не удалось найти подходящих кандидатов. "
-            "Введите другую фамилию или нажмите кнопку «⬅️ Назад».",
+            "Не удалось найти подходящих кандидатов. Введите другую фамилию или нажмите кнопку «⬅️ Назад».",
             reply_markup=keyboard,
         )
     return True

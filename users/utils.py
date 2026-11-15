@@ -1,11 +1,9 @@
-from typing import Iterable
-
 from django.db import models
 from django.db.models import QuerySet
 
-from school.models import FamilyMember, Person, Athlete, Group, Class, Coach
-from users.models import UserAthleteLink
 from members.models import PersonMergeRedirect
+from school.models import Athlete, Class, Coach, FamilyMember, Group, Person
+from users.models import UserAthleteLink
 
 
 def get_person_queryset_for_user(user) -> QuerySet:
@@ -14,11 +12,7 @@ def get_person_queryset_for_user(user) -> QuerySet:
         return Person.objects.exclude(id__in=redirected_sources)
 
     family_ids = user.get_accessible_family_ids()
-    person_ids = list(
-        FamilyMember.objects.filter(
-            family_id__in=family_ids
-        ).values_list("person_id", flat=True)
-    )
+    person_ids = list(FamilyMember.objects.filter(family_id__in=family_ids).values_list("person_id", flat=True))
     if user.person_id:
         person_ids.append(user.person_id)
 
@@ -50,9 +44,7 @@ def get_class_queryset_for_user(user) -> QuerySet:
         return Class.objects.all()
 
     athlete_ids = get_athlete_queryset_for_user(user).values_list("id", flat=True)
-    return Class.objects.filter(
-        enrollments__athlete_id__in=athlete_ids
-    ).distinct()
+    return Class.objects.filter(enrollments__athlete_id__in=athlete_ids).distinct()
 
 
 def get_user_linked_athlete_queryset(user) -> QuerySet:
@@ -62,11 +54,7 @@ def get_user_linked_athlete_queryset(user) -> QuerySet:
 def get_coach_club_ids_for_user(user) -> set[int]:
     if not user.person_id:
         return set()
-    coach = (
-        Coach.objects.select_related("person__club")
-        .filter(person_id=user.person_id)
-        .first()
-    )
+    coach = Coach.objects.select_related("person__club").filter(person_id=user.person_id).first()
     if not coach or not coach.person or not coach.person.club_id:
         return set()
     return {coach.person.club_id}

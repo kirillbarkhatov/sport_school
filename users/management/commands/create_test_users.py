@@ -15,9 +15,7 @@ class Command(BaseCommand):
             group = Group.objects.get(name="Менеджер")
         except ObjectDoesNotExist:
             group = Group.objects.create(name="Менеджер")
-            cancel_mailing_permission = Permission.objects.get(
-                codename="can_cancel_mailing"
-            )
+            cancel_mailing_permission = Permission.objects.get(codename="can_cancel_mailing")
             block_user_permission = Permission.objects.get(codename="can_block_user")
             group.permissions.add(cancel_mailing_permission, block_user_permission)
             group.save()
@@ -59,9 +57,7 @@ class Command(BaseCommand):
         user.set_password("123qwe456rty")
         user.save()
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Успешно создан тестовый пользователь с email {user.email} с паролем 123qwe456rty "
-            )
+            self.style.SUCCESS(f"Успешно создан тестовый пользователь с email {user.email} с паролем 123qwe456rty ")
         )
 
         # создание тестового юзера №2
@@ -77,7 +73,5 @@ class Command(BaseCommand):
         user.set_password("123qwe456rty")
         user.save()
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Успешно создан тестовый пользователь с email {user.email} с паролем 123qwe456rty "
-            )
+            self.style.SUCCESS(f"Успешно создан тестовый пользователь с email {user.email} с паролем 123qwe456rty ")
         )

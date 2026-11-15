@@ -18,9 +18,7 @@ class TelegramChat(models.Model):
         verbose_name="Тип чата",
     )
     title = models.CharField(max_length=255, blank=True, verbose_name="Название")
-    username = models.CharField(
-        max_length=255, blank=True, verbose_name="Username чата"
-    )
+    username = models.CharField(max_length=255, blank=True, verbose_name="Username чата")
     description = models.TextField(blank=True, verbose_name="Описание")
     invite_link = models.URLField(blank=True, verbose_name="Инвайт-ссылка")
     first_seen = models.DateTimeField(auto_now_add=True, verbose_name="Впервые замечен")
@@ -57,9 +55,7 @@ class TelegramParticipant(models.Model):
     is_bot = models.BooleanField(default=False, verbose_name="Является ботом")
     first_name = models.CharField(max_length=255, blank=True, verbose_name="Имя")
     last_name = models.CharField(max_length=255, blank=True, verbose_name="Фамилия")
-    username = models.CharField(
-        max_length=255, blank=True, verbose_name="Username пользователя"
-    )
+    username = models.CharField(max_length=255, blank=True, verbose_name="Username пользователя")
     phone = models.CharField(max_length=32, blank=True, verbose_name="Телефон")
     language_code = models.CharField(max_length=12, blank=True, verbose_name="Язык")
     status = models.CharField(
@@ -68,9 +64,7 @@ class TelegramParticipant(models.Model):
         default=MemberStatus.UNKNOWN,
         verbose_name="Статус в чате",
     )
-    custom_title = models.CharField(
-        max_length=255, blank=True, verbose_name="Пользовательский титул"
-    )
+    custom_title = models.CharField(max_length=255, blank=True, verbose_name="Пользовательский титул")
     linked_person = models.ForeignKey(
         "school.Person",
         on_delete=models.SET_NULL,

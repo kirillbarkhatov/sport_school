@@ -4,17 +4,17 @@ from django.http import JsonResponse
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import (
-    ListView,
-    DetailView,
     CreateView,
-    UpdateView,
     DeleteView,
+    DetailView,
+    ListView,
+    UpdateView,
 )
 
 from school.forms import GroupForm
 from school.models import Group
 from users.mixins import ApprovedUserRequiredMixin
-from users.utils import get_group_queryset_for_user, get_athlete_queryset_for_user
+from users.utils import get_athlete_queryset_for_user, get_group_queryset_for_user
 
 
 class GroupListView(ApprovedUserRequiredMixin, ListView):
@@ -32,9 +32,7 @@ class GroupListView(ApprovedUserRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         user = self.request.user
         context["available_athletes"] = (
-            get_athlete_queryset_for_user(user)
-            .select_related("person")
-            .order_by("person__surname", "person__name")
+            get_athlete_queryset_for_user(user).select_related("person").order_by("person__surname", "person__name")
         )
         return context
 
@@ -86,12 +84,7 @@ class GroupMembershipUpdateView(ApprovedUserRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, pk):
-        group = (
-            get_group_queryset_for_user(request.user)
-            .prefetch_related("athletes__person")
-            .filter(pk=pk)
-            .first()
-        )
+        group = get_group_queryset_for_user(request.user).prefetch_related("athletes__person").filter(pk=pk).first()
         if not group:
             return JsonResponse({"error": "not_found"}, status=404)
 
@@ -107,12 +100,10 @@ class GroupMembershipUpdateView(ApprovedUserRequiredMixin, View):
 
         try:
             athlete_ids = [int(athlete_id) for athlete_id in athlete_ids]
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return JsonResponse({"error": "invalid_athlete_ids"}, status=400)
 
-        allowed_athletes = set(
-            get_athlete_queryset_for_user(request.user).values_list("id", flat=True)
-        )
+        allowed_athletes = set(get_athlete_queryset_for_user(request.user).values_list("id", flat=True))
         valid_ids = [athlete_id for athlete_id in athlete_ids if athlete_id in allowed_athletes]
 
         if not valid_ids:
@@ -129,19 +120,13 @@ class GroupMembershipUpdateView(ApprovedUserRequiredMixin, View):
 
 
 def _serialize_group_members(group: Group) -> list[dict[str, object]]:
-    members = group.athletes.select_related("person").order_by(
-        "person__surname", "person__name"
-    )
+    members = group.athletes.select_related("person").order_by("person__surname", "person__name")
     serialized: list[dict[str, object]] = []
     for athlete in members:
         person = athlete.person
         full_name = ""
         if person:
-            full_name = " ".join(
-                part
-                for part in (person.surname, person.name, person.middlename)
-                if part
-            ).strip()
+            full_name = " ".join(part for part in (person.surname, person.name, person.middlename) if part).strip()
         serialized.append(
             {
                 "id": athlete.id,

@@ -1,11 +1,14 @@
-from decimal import Decimal
 import uuid
+from decimal import Decimal
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.urls import reverse
 from django.templatetags.static import static
+from django.urls import reverse
 from django.utils import timezone
+
+from users.telegram_identity import parse_telegram_reference, telegram_url_from_username
+
 from .choices import (
     ClassCoachStatus,
     ClassCreationSource,
@@ -15,7 +18,6 @@ from .choices import (
 )
 from .competition_standards import discipline_label
 from .training_rules import apply_training_rules
-from users.telegram_identity import parse_telegram_reference, telegram_url_from_username
 
 
 class DiscountType(models.TextChoices):
@@ -49,6 +51,7 @@ class PaymentType(models.TextChoices):
 def default_birth_year_from():
     return timezone.now().year - 7
 
+
 # всё из чат-гпт, проверить
 class Person(models.Model):
     """Модель «Человек»"""
@@ -60,30 +63,22 @@ class Person(models.Model):
 
     name = models.CharField(max_length=100, verbose_name="Имя")
     surname = models.CharField(max_length=100, verbose_name="Фамилия")
-    middlename = models.CharField(
-        max_length=100, blank=True, null=True, verbose_name="Отчество"
-    )
+    middlename = models.CharField(max_length=100, blank=True, null=True, verbose_name="Отчество")
     date_of_birth = models.DateField(
         blank=True,
         null=True,
         verbose_name="Дата рождения",
     )
     email = models.EmailField(blank=True, null=True, verbose_name="Электронная почта")
-    phone = models.CharField(
-        max_length=15, blank=True, null=True, verbose_name="Телефон"
-    )
-    telegram = models.CharField(
-        max_length=100, blank=True, null=True, verbose_name="Telegram"
-    )
+    phone = models.CharField(max_length=15, blank=True, null=True, verbose_name="Телефон")
+    telegram = models.CharField(max_length=100, blank=True, null=True, verbose_name="Telegram")
     telegram_id = models.BigIntegerField(
         blank=True,
         null=True,
         db_index=True,
         verbose_name="Telegram ID",
     )
-    photo = models.ImageField(
-        upload_to="person/photos", blank=True, null=True, verbose_name="Фото"
-    )
+    photo = models.ImageField(upload_to="person/photos", blank=True, null=True, verbose_name="Фото")
     club = models.ForeignKey(
         "Club",
         on_delete=models.SET_NULL,
@@ -167,9 +162,7 @@ class Athlete(models.Model):
         ("МСМК", "МСМК"),
     ]
 
-    person = models.OneToOneField(
-        Person, on_delete=models.CASCADE, verbose_name="Человек"
-    )
+    person = models.OneToOneField(Person, on_delete=models.CASCADE, verbose_name="Человек")
     level = models.CharField(
         max_length=50,
         choices=LEVEL_CHOICES,
@@ -182,9 +175,7 @@ class Athlete(models.Model):
         null=True,
         verbose_name="Разряд",
     )
-    medical_certificate = models.CharField(
-        max_length=100, blank=True, null=True, verbose_name="Справка-допуск"
-    )
+    medical_certificate = models.CharField(max_length=100, blank=True, null=True, verbose_name="Справка-допуск")
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
     def __str__(self):
@@ -201,12 +192,8 @@ class Athlete(models.Model):
 class Coach(models.Model):
     """Модель «Тренер»"""
 
-    person = models.OneToOneField(
-        Person, on_delete=models.CASCADE, verbose_name="Человек"
-    )
-    specialization = models.CharField(
-        max_length=100, blank=True, null=True, verbose_name="Специализация"
-    )
+    person = models.OneToOneField(Person, on_delete=models.CASCADE, verbose_name="Человек")
+    specialization = models.CharField(max_length=100, blank=True, null=True, verbose_name="Специализация")
 
     def __str__(self):
         return f"{self.person.surname} - {self.specialization}"
@@ -219,17 +206,11 @@ class Coach(models.Model):
 class PotentialClient(models.Model):
     """Модель «Потенциальный клиент»"""
 
-    person = models.OneToOneField(
-        Person, on_delete=models.CASCADE, verbose_name="Человек"
-    )
+    person = models.OneToOneField(Person, on_delete=models.CASCADE, verbose_name="Человек")
     interested_in = models.TextField(verbose_name="Интересующие услуги")
     source = models.CharField(max_length=100, verbose_name="Откуда узнал")
-    trial_lesson = models.BooleanField(
-        default=False, verbose_name="Запись на пробное занятие"
-    )
-    first_month_paid = models.BooleanField(
-        default=False, verbose_name="Оплатил первый месяц"
-    )
+    trial_lesson = models.BooleanField(default=False, verbose_name="Запись на пробное занятие")
+    first_month_paid = models.BooleanField(default=False, verbose_name="Оплатил первый месяц")
     comments = models.TextField(blank=True, null=True, verbose_name="Комментарий")
 
     def __str__(self):
@@ -244,15 +225,9 @@ class Group(models.Model):
     """Модель «Группа»"""
 
     name = models.CharField(max_length=100, verbose_name="Название группы")
-    level = models.CharField(
-        max_length=50, blank=True, null=True, verbose_name="Уровень подготовки"
-    )
-    coaches = models.ManyToManyField(
-        Coach, blank=True, related_name="groups", verbose_name="Тренеры"
-    )
-    athletes = models.ManyToManyField(
-        Athlete, blank=True, related_name="groups_athletes", verbose_name="Спортсмены"
-    )
+    level = models.CharField(max_length=50, blank=True, null=True, verbose_name="Уровень подготовки")
+    coaches = models.ManyToManyField(Coach, blank=True, related_name="groups", verbose_name="Тренеры")
+    athletes = models.ManyToManyField(Athlete, blank=True, related_name="groups_athletes", verbose_name="Спортсмены")
 
     def __str__(self):
         return self.name
@@ -302,9 +277,7 @@ class Class(models.Model):
         blank=True,
         null=True,
     )
-    type = models.CharField(
-        max_length=10, choices=TYPE_CHOICES, verbose_name="Тип занятия"
-    )
+    type = models.CharField(max_length=10, choices=TYPE_CHOICES, verbose_name="Тип занятия")
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
     creation_source = models.CharField(
         max_length=16,
@@ -433,9 +406,7 @@ class TrainingCamp(models.Model):
     end_date = models.DateField(verbose_name="Дата окончания сбора")
     location = models.CharField(max_length=100, verbose_name="Место проведения")
     description = models.TextField(blank=True, null=True, verbose_name="Описание сбора")
-    classes = models.ManyToManyField(
-        Class, blank=True, related_name="camps", verbose_name="Занятия"
-    )
+    classes = models.ManyToManyField(Class, blank=True, related_name="camps", verbose_name="Занятия")
 
     def __str__(self):
         return f"Сбор с {self.start_date} по {self.end_date}"
@@ -536,12 +507,8 @@ class Competition(models.Model):
         default="sport",
         verbose_name="Тип соревнований",
     )
-    discipline = models.CharField(
-        max_length=100, blank=True, null=True, verbose_name="Дисциплина"
-    )
-    description = models.TextField(
-        blank=True, null=True, verbose_name="Описание соревнования"
-    )
+    discipline = models.CharField(max_length=100, blank=True, null=True, verbose_name="Дисциплина")
+    description = models.TextField(blank=True, null=True, verbose_name="Описание соревнования")
     birth_year_from = models.PositiveIntegerField(
         verbose_name="Год рождения (с)",
         help_text="Самый ранний год рождения участников (старшие). Обязательно.",
@@ -763,6 +730,8 @@ class DocumentType(models.TextChoices):
     RANK_BOOK = "rank_book", "Разрядная книжка"
     RUSADA_CERTIFICATE = "rusada_certificate", "Сертификат РУСАДА"
     OTHER = "other", "Прочее"
+
+
 class Document(models.Model):
     """Базовый загружаемый файл."""
 
@@ -1143,7 +1112,7 @@ class Family(models.Model):
         # Если фамилия семьи не указана, берем её из фамилии контактного лица
         if not self.family_name and self.contact_person:
             self.family_name = self.contact_person.surname
-        super(Family, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Семья"
@@ -1167,9 +1136,7 @@ class FamilyMember(models.Model):
         ("granddaughter", "Внучка"),
     ]
 
-    family = models.ForeignKey(
-        Family, on_delete=models.CASCADE, related_name="members", verbose_name="Семья"
-    )
+    family = models.ForeignKey(Family, on_delete=models.CASCADE, related_name="members", verbose_name="Семья")
     person = models.ForeignKey(
         Person,
         on_delete=models.SET_NULL,
@@ -1177,9 +1144,7 @@ class FamilyMember(models.Model):
         null=True,
         blank=True,
     )
-    relation = models.CharField(
-        max_length=50, choices=FAMILY_RELATION, verbose_name="Отношение"
-    )
+    relation = models.CharField(max_length=50, choices=FAMILY_RELATION, verbose_name="Отношение")
 
     def __str__(self):
         person_display = str(self.person) if self.person else "Удалённый участник"
@@ -1249,8 +1214,12 @@ class AthleteContract(models.Model):
     issue_date = models.DateField(verbose_name="Дата оформления")
     start_date = models.DateField(verbose_name="Дата начала")
     end_date = models.DateField(verbose_name="Дата окончания")
-    base_fee = models.DecimalField(max_digits=9, decimal_places=2, default=Decimal("12000.00"), verbose_name="Базовый платёж")
-    discount_value = models.DecimalField(max_digits=7, decimal_places=2, default=Decimal("0.00"), verbose_name="Скидка")
+    base_fee = models.DecimalField(
+        max_digits=9, decimal_places=2, default=Decimal("12000.00"), verbose_name="Базовый платёж"
+    )
+    discount_value = models.DecimalField(
+        max_digits=7, decimal_places=2, default=Decimal("0.00"), verbose_name="Скидка"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -1,12 +1,12 @@
-import logging
-from json import JSONDecodeError
-import json
-from datetime import datetime
-import sys
 import hashlib
+import json
+import logging
+import sys
 import uuid
 import zlib
 from contextlib import contextmanager
+from datetime import datetime
+from json import JSONDecodeError
 from time import perf_counter
 from urllib import error, request
 from urllib.parse import quote
@@ -17,8 +17,7 @@ from django.db import connection, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from api.models import StreamRun, extract_source_id
-from api.models import WebhookEvent
+from api.models import StreamRun, WebhookEvent, extract_source_id
 from api.telegram_streaming import SUPPORTED_EVENT_TYPES
 from api.telemetry import log_event
 
@@ -283,7 +282,11 @@ def reset_online_results_stream_state(run_id: int, *, requested_by=None) -> Stre
     )
 
     launch_payload = dict(source_run.launch_payload_json or {})
-    created_by = requested_by if requested_by is not None and getattr(requested_by, "is_authenticated", False) else source_run.created_by
+    created_by = (
+        requested_by
+        if requested_by is not None and getattr(requested_by, "is_authenticated", False)
+        else source_run.created_by
+    )
 
     replacement = StreamRun.objects.create(
         stream_id=f"pending-{uuid.uuid4().hex[:10]}",
@@ -432,12 +435,16 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
             update_fields.add("started_at")
         if event_type == "stream_snapshot":
             stream_output["competition_phase"] = str(payload.get("competition_phase") or "running")
-            stream_output["competition_format"] = str(payload.get("competition_format") or stream_output.get("competition_format") or "two_run")
+            stream_output["competition_format"] = str(
+                payload.get("competition_format") or stream_output.get("competition_format") or "two_run"
+            )
             stream_output["status_text"] = str(payload.get("status_text") or "")
             snapshot_current_group_key = str(payload.get("current_group_key") or "").strip()
             if snapshot_current_group_key:
                 stream_output["current_group_key"] = snapshot_current_group_key
-            stream_output["competition_title"] = str(payload.get("competition_title") or stream_output.get("competition_title") or "")
+            stream_output["competition_title"] = str(
+                payload.get("competition_title") or stream_output.get("competition_title") or ""
+            )
             teams = payload.get("teams")
             if isinstance(teams, list):
                 normalized_teams = sorted({str(team).strip() for team in teams if str(team).strip()}, key=str.lower)
@@ -474,13 +481,19 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                             competition_format = str(stream_output.get("competition_format") or "two_run")
                             completed_groups = stream_output.setdefault("completed_groups", {})
                             if isinstance(completed_groups, dict):
-                                run_label = _build_run_label(run_stage=run_stage, competition_format=competition_format)
+                                run_label = _build_run_label(
+                                    run_stage=run_stage, competition_format=competition_format
+                                )
                                 completed_data = data if isinstance(data, dict) else {}
                                 completed_lines = lines_plain
                                 if run_stage == 1:
                                     completed_data = _build_run1_group_table_snapshot(completed_data)
-                                    completed_lines = _payload_lines(completed_data.get("lines_plain")) or completed_lines
-                                completed_groups[_build_completed_group_key(group_key=group_key, run_stage=run_stage)] = {
+                                    completed_lines = (
+                                        _payload_lines(completed_data.get("lines_plain")) or completed_lines
+                                    )
+                                completed_groups[
+                                    _build_completed_group_key(group_key=group_key, run_stage=run_stage)
+                                ] = {
                                     "group_key": group_key,
                                     "sheet_name": str(item.get("sheet_name") or ""),
                                     "group_name": str(item.get("group_name") or ""),
@@ -489,7 +502,9 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                                     "table_lines_plain": completed_lines,
                                     "club_stats_lines": [],
                                     "club_stats_lines_plain": [],
-                                    "data": {"group_table": completed_data} if isinstance(completed_data, dict) else {},
+                                    "data": {"group_table": completed_data}
+                                    if isinstance(completed_data, dict)
+                                    else {},
                                     "run_stage": run_stage,
                                     "run_label": run_label,
                                     "option_label": _build_option_label(
@@ -502,7 +517,9 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                                     "is_finalized": True,
                                 }
                                 if run_stage == 2:
-                                    run1_data = _build_run1_group_table_snapshot(data if isinstance(data, dict) else {})
+                                    run1_data = _build_run1_group_table_snapshot(
+                                        data if isinstance(data, dict) else {}
+                                    )
                                     _upsert_completed_snapshot(
                                         completed_groups=completed_groups,
                                         group_key=group_key,
@@ -533,8 +550,12 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                     "rows": rows,
                     "updated_at": event_time.isoformat(),
                 }
-            stream_output["competition_phase"] = str(payload.get("competition_phase") or stream_output.get("competition_phase") or "running")
-            stream_output["competition_format"] = str(payload.get("competition_format") or stream_output.get("competition_format") or "two_run")
+            stream_output["competition_phase"] = str(
+                payload.get("competition_phase") or stream_output.get("competition_phase") or "running"
+            )
+            stream_output["competition_format"] = str(
+                payload.get("competition_format") or stream_output.get("competition_format") or "two_run"
+            )
             stream_output["status_text"] = str(payload.get("status_text") or stream_output.get("status_text") or "")
             forecast_current_group_key = str(payload.get("current_group_key") or "").strip()
             if forecast_current_group_key:
@@ -544,8 +565,12 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                 "ts": str(payload.get("ts") or ""),
                 "changed_count": int(payload.get("changed_count") or 0),
             }
-            stream_output["competition_phase"] = str(payload.get("competition_phase") or stream_output.get("competition_phase") or "running")
-            stream_output["competition_format"] = str(payload.get("competition_format") or stream_output.get("competition_format") or "two_run")
+            stream_output["competition_phase"] = str(
+                payload.get("competition_phase") or stream_output.get("competition_phase") or "running"
+            )
+            stream_output["competition_format"] = str(
+                payload.get("competition_format") or stream_output.get("competition_format") or "two_run"
+            )
             stream_output["status_text"] = str(payload.get("status_text") or stream_output.get("status_text") or "")
             tick_current_group_key = str(payload.get("current_group_key") or "").strip()
             if tick_current_group_key:
@@ -576,9 +601,7 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                         "lines_plain": _payload_lines(payload.get("lines_plain")) or lines,
                         "data": data if isinstance(data, dict) else {},
                         "is_finalized": bool(
-                            previous_table.get("is_finalized")
-                            if isinstance(previous_table, dict)
-                            else False
+                            previous_table.get("is_finalized") if isinstance(previous_table, dict) else False
                         ),
                         "last_updated_at": event_time.isoformat(),
                     }
@@ -593,20 +616,26 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                         completed_data = data if isinstance(data, dict) else (completed_item.get("data") or {})
                         completed_lines = _payload_lines(payload.get("lines_plain")) or lines
                         if run_stage == 1:
-                            completed_data = _build_run1_group_table_snapshot(completed_data if isinstance(completed_data, dict) else {})
+                            completed_data = _build_run1_group_table_snapshot(
+                                completed_data if isinstance(completed_data, dict) else {}
+                            )
                             completed_lines = _payload_lines(completed_data.get("lines_plain")) or completed_lines
                         completed_item.update(
                             {
                                 "sheet_name": str(payload.get("sheet_name") or completed_item.get("sheet_name") or ""),
                                 "group_name": str(payload.get("group_name") or completed_item.get("group_name") or ""),
-                                "order_index": int(payload.get("order_index") or completed_item.get("order_index") or 0),
+                                "order_index": int(
+                                    payload.get("order_index") or completed_item.get("order_index") or 0
+                                ),
                                 "table_lines": completed_lines or completed_item.get("table_lines") or [],
                                 "table_lines_plain": completed_lines,
                                 "data": completed_data,
                                 "run_stage": run_stage,
                                 "run_label": run_label,
                                 "option_label": _build_option_label(
-                                    group_name=str(payload.get("group_name") or completed_item.get("group_name") or ""),
+                                    group_name=str(
+                                        payload.get("group_name") or completed_item.get("group_name") or ""
+                                    ),
                                     run_label=run_label,
                                     competition_format=competition_format,
                                 ),
@@ -631,7 +660,9 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                         completed_data = data if isinstance(data, dict) else (existing.get("data") or {})
                         completed_lines = _payload_lines(payload.get("lines_plain")) or lines
                         if inferred_final_stage == 1:
-                            completed_data = _build_run1_group_table_snapshot(completed_data if isinstance(completed_data, dict) else {})
+                            completed_data = _build_run1_group_table_snapshot(
+                                completed_data if isinstance(completed_data, dict) else {}
+                            )
                             completed_lines = _payload_lines(completed_data.get("lines_plain")) or completed_lines
                         completed_groups[completed_key] = {
                             "group_key": group_key,
@@ -655,7 +686,9 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                             "is_finalized": True,
                         }
                         if inferred_final_stage == 2:
-                            run1_data = _build_run1_group_table_snapshot(completed_data if isinstance(completed_data, dict) else {})
+                            run1_data = _build_run1_group_table_snapshot(
+                                completed_data if isinstance(completed_data, dict) else {}
+                            )
                             _upsert_completed_snapshot(
                                 completed_groups=completed_groups,
                                 group_key=group_key,
@@ -682,7 +715,9 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                 if isinstance(completed_groups, dict):
                     completed_data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
                     if run_stage == 1:
-                        completed_data = _build_run1_group_table_snapshot(completed_data.get("group_table", completed_data))
+                        completed_data = _build_run1_group_table_snapshot(
+                            completed_data.get("group_table", completed_data)
+                        )
                     completed_groups[completed_key] = {
                         "group_key": group_key,
                         "sheet_name": str(payload.get("sheet_name") or ""),
@@ -691,7 +726,8 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                         "table_lines": table_lines,
                         "table_lines_plain": _payload_lines(payload.get("table_lines_plain")) or table_lines,
                         "club_stats_lines": club_stats_lines,
-                        "club_stats_lines_plain": _payload_lines(payload.get("club_stats_lines_plain")) or club_stats_lines,
+                        "club_stats_lines_plain": _payload_lines(payload.get("club_stats_lines_plain"))
+                        or club_stats_lines,
                         "data": completed_data if isinstance(completed_data, dict) else {},
                         "run_stage": run_stage,
                         "run_label": run_label,
@@ -706,9 +742,7 @@ def _apply_webhook_event_to_stream_run(run: StreamRun, event: WebhookEvent) -> N
                     }
                     if run_stage == 2:
                         run1_data = _build_run1_group_table_snapshot(
-                            payload.get("data", {}).get("group_table")
-                            if isinstance(payload.get("data"), dict)
-                            else {}
+                            payload.get("data", {}).get("group_table") if isinstance(payload.get("data"), dict) else {}
                         )
                         _upsert_completed_snapshot(
                             completed_groups=completed_groups,
@@ -1050,7 +1084,9 @@ def _is_sheet_run_closed(stream_output: dict[str, object], *, sheet_name: str, r
     return True
 
 
-def _update_focus_from_result_data(*, stream_output: dict[str, object], data: dict[str, object], event_time: datetime) -> None:
+def _update_focus_from_result_data(
+    *, stream_output: dict[str, object], data: dict[str, object], event_time: datetime
+) -> None:
     updates = _extract_significant_time_updates(data)
     _update_focus_from_candidates(stream_output=stream_output, candidates=updates, event_time=event_time)
 
@@ -1170,7 +1206,9 @@ def _upsert_completed_snapshot(
         "table_lines_plain": lines_plain or _payload_lines(existing.get("table_lines_plain")),
         "club_stats_lines": _payload_lines(existing.get("club_stats_lines")),
         "club_stats_lines_plain": _payload_lines(existing.get("club_stats_lines_plain")),
-        "data": data if isinstance(data, dict) else (existing.get("data") if isinstance(existing.get("data"), dict) else {}),
+        "data": data
+        if isinstance(data, dict)
+        else (existing.get("data") if isinstance(existing.get("data"), dict) else {}),
         "run_stage": run_stage,
         "run_label": run_label,
         "option_label": _build_option_label(
@@ -1240,9 +1278,7 @@ def _build_run1_group_table_snapshot(data: dict[str, object]) -> dict[str, objec
     run1_analytics = data.get("run1_analytics") if isinstance(data.get("run1_analytics"), dict) else {}
     run1_analytics_headers = run1_analytics.get("headers") if isinstance(run1_analytics.get("headers"), list) else []
     run1_values_by_athlete = (
-        run1_analytics.get("values_by_athlete")
-        if isinstance(run1_analytics.get("values_by_athlete"), dict)
-        else {}
+        run1_analytics.get("values_by_athlete") if isinstance(run1_analytics.get("values_by_athlete"), dict) else {}
     )
 
     normalized_rows: list[dict[str, object]] = []
@@ -1397,7 +1433,7 @@ def _build_option_label(*, group_name: str, run_label: str, competition_format: 
 def _safe_int(value: object, default: int) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 
@@ -1568,7 +1604,7 @@ def _parse_remote_ts(value: str) -> float:
         return 0.0
     try:
         return float(parsed.timestamp())
-    except (OverflowError, OSError, ValueError):
+    except OverflowError, OSError, ValueError:
         return 0.0
 
 
@@ -1799,7 +1835,7 @@ def _stream_webhook_processing_lock(stream_id: str):
 
 
 def _stream_webhook_lock_key(stream_id: str) -> int:
-    digest = hashlib.sha256(f"webhook:{stream_id}".encode("utf-8")).digest()
+    digest = hashlib.sha256(f"webhook:{stream_id}".encode()).digest()
     value = int.from_bytes(digest[:8], byteorder="big", signed=True)
     if value == 0:
         return 7

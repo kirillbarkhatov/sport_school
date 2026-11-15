@@ -3,7 +3,6 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("api", "0004_alter_streamrun_status"),
     ]
@@ -19,7 +18,11 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True, db_index=True)),
                 (
                     "stream_run",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="public_access_links", to="api.streamrun"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="public_access_links",
+                        to="api.streamrun",
+                    ),
                 ),
             ],
             options={

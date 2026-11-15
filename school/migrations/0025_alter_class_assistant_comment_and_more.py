@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0024_class_assistant_fields"),
     ]
@@ -13,9 +12,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="class",
             name="assistant_comment",
-            field=models.TextField(
-                blank=True, default="", verbose_name="Комментарий ассистента"
-            ),
+            field=models.TextField(blank=True, default="", verbose_name="Комментарий ассистента"),
         ),
         migrations.AlterField(
             model_name="class",

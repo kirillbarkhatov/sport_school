@@ -1,5 +1,5 @@
 import asyncio
-from typing import Iterable
+from collections.abc import Iterable
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -32,7 +32,7 @@ class Command(BaseCommand):
             for raw_id in chat_ids:
                 try:
                     chat_id = int(raw_id)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     self.stderr.write(self.style.ERROR(f"Некорректный chat_id: {raw_id}. Пропускаю."))
                     continue
 
@@ -41,18 +41,10 @@ class Command(BaseCommand):
                 try:
                     chat_obj = await sync_chat_snapshot(bot, chat_id)
                 except TelegramError as exc:
-                    self.stderr.write(
-                        self.style.ERROR(f"Не удалось получить данные по {chat_id}: {exc}")
-                    )
+                    self.stderr.write(self.style.ERROR(f"Не удалось получить данные по {chat_id}: {exc}"))
                     continue
                 except Exception as exc:  # noqa: BLE001
-                    self.stderr.write(
-                        self.style.ERROR(f"Неожиданная ошибка для {chat_id}: {exc}")
-                    )
+                    self.stderr.write(self.style.ERROR(f"Неожиданная ошибка для {chat_id}: {exc}"))
                     continue
 
-                self.stdout.write(
-                    self.style.SUCCESS(
-                        f"✅ Чат {chat_id} сохранён (ID в БД: {chat_obj.pk})."
-                    )
-                )
+                self.stdout.write(self.style.SUCCESS(f"✅ Чат {chat_id} сохранён (ID в БД: {chat_obj.pk})."))

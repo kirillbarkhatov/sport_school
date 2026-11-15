@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("classes", "0006_alter_trainingtemplate_equipment"),
     ]

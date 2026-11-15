@@ -1,7 +1,8 @@
-from django.db import models
-from django.utils import timezone
 import re
 from urllib import parse
+
+from django.db import models
+from django.utils import timezone
 
 GOOGLE_ID_PATTERN = re.compile(r"/d/([a-zA-Z0-9_-]{20,})")
 PLAIN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{20,}$")

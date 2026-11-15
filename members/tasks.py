@@ -11,4 +11,3 @@ def run_person_dedup_job_task(job_id: int) -> int:
     job = PersonDedupJob.objects.get(pk=job_id)
     run_dedup_job(job)
     return job_id
-

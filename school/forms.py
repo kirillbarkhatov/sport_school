@@ -1,46 +1,45 @@
 import hashlib
 
 from django import forms
-from django.forms import BooleanField, BaseFormSet, formset_factory, inlineformset_factory
-
+from django.forms import BooleanField, formset_factory, inlineformset_factory
 from django.utils import timezone
+
+from users.models import User
+from users.telegram_identity import (
+    normalize_person_telegram_fields,
+    parse_telegram_reference,
+    telegram_url_from_username,
+)
 
 from .choices import TrainingEquipment, TrainingKind, TrainingLocation
 from .competition_standards import DISCIPLINE_CHOICES, normalize_discipline_value
+from .models import (
+    Athlete,
+    AthleteContract,
+    Class,
+    Club,
+    Competition,
+    CompetitionDocument,
+    CompetitionScoringGroup,
+    CompetitionVenue,
+    Document,
+    DocumentAIAnalysis,
+    DocumentType,
+    Family,
+    FamilyAthleteProfile,
+    FamilyMember,
+    FamilyPayment,
+    FamilyService,
+    Group,
+    Person,
+)
+from .services import compute_contract_defaults
 from .training_rules import (
     apply_training_rules,
     get_allowed_equipment,
     get_allowed_training_for_location,
     get_default_equipment_for_training,
     normalize_training_selection,
-)
-from .models import (
-    Athlete,
-    Person,
-    Family,
-    FamilyMember,
-    FamilyAthleteProfile,
-    FamilyService,
-    FamilyPayment,
-    AthleteContract,
-    Class,
-    ClassEnrollment,
-    Group,
-    Competition,
-    CompetitionVenue,
-    CompetitionScoringGroup,
-    Club,
-    Document,
-    CompetitionDocument,
-    DocumentAIAnalysis,
-)
-from .services import compute_contract_defaults
-from .models import DocumentType
-from users.models import User
-from users.telegram_identity import (
-    normalize_person_telegram_fields,
-    parse_telegram_reference,
-    telegram_url_from_username,
 )
 
 
@@ -78,9 +77,7 @@ class AthleteForm(StyleFormMixin, forms.ModelForm):
 
 
 class AthleteCompactForm(StyleFormMixin, forms.ModelForm):
-    main_group = forms.ModelChoiceField(
-        queryset=Group.objects.none(), required=False, label=""
-    )
+    main_group = forms.ModelChoiceField(queryset=Group.objects.none(), required=False, label="")
 
     class Meta:
         model = Athlete
@@ -124,7 +121,7 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
                 attrs={
                     "type": "date",
                     "class": "form-control",
-                }
+                },
             ),
             "gender": forms.Select(attrs={"class": "form-select"}),
             "comment": forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
@@ -141,9 +138,7 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
             self.fields["date_of_birth"].required = False
             self.fields["date_of_birth"].input_formats = ["%Y-%m-%d"]
             if self.instance and self.instance.date_of_birth:
-                self.initial.setdefault(
-                    "date_of_birth", self.instance.date_of_birth.strftime("%Y-%m-%d")
-                )
+                self.initial.setdefault("date_of_birth", self.instance.date_of_birth.strftime("%Y-%m-%d"))
         if "telegram_id" in self.fields:
             self.fields["telegram_id"].required = False
             self.fields["telegram_id"].widget.attrs["placeholder"] = "Например: 123456789"
@@ -164,8 +159,7 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
 
         if normalized_tg_id and not normalized_telegram:
             user_with_username = (
-                User.objects
-                .filter(tg_id=normalized_tg_id)
+                User.objects.filter(tg_id=normalized_tg_id)
                 .exclude(tg_username__isnull=True)
                 .exclude(tg_username="")
                 .first()
@@ -176,8 +170,7 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
                 from bot.models import TelegramParticipant
 
                 participant_with_username = (
-                    TelegramParticipant.objects
-                    .filter(user_id=normalized_tg_id)
+                    TelegramParticipant.objects.filter(user_id=normalized_tg_id)
                     .exclude(username="")
                     .order_by("-last_seen")
                     .first()
@@ -186,22 +179,14 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
                     normalized_telegram = telegram_url_from_username(participant_with_username.username)
 
         if username_key and not normalized_tg_id:
-            user_with_tg_id = (
-                User.objects
-                .filter(tg_username__iexact=username_key)
-                .exclude(tg_id__isnull=True)
-                .first()
-            )
+            user_with_tg_id = User.objects.filter(tg_username__iexact=username_key).exclude(tg_id__isnull=True).first()
             if user_with_tg_id and user_with_tg_id.tg_id:
                 normalized_tg_id = user_with_tg_id.tg_id
             if not normalized_tg_id:
                 from bot.models import TelegramParticipant
 
                 participant_with_id = (
-                    TelegramParticipant.objects
-                    .filter(username__iexact=username_key)
-                    .order_by("-last_seen")
-                    .first()
+                    TelegramParticipant.objects.filter(username__iexact=username_key).order_by("-last_seen").first()
                 )
                 if participant_with_id and participant_with_id.user_id:
                     normalized_tg_id = participant_with_id.user_id
@@ -219,6 +204,7 @@ class PersonForm(StyleFormMixin, forms.ModelForm):
     @staticmethod
     def _sync_telegram_participants(person: Person) -> None:
         from django.db.models import Q
+
         from bot.models import TelegramParticipant
 
         person_username, _, _ = parse_telegram_reference(person.telegram)
@@ -257,9 +243,7 @@ class PersonCompactForm(StyleFormMixin, forms.ModelForm):
             self.fields["date_of_birth"].required = False
             self.fields["date_of_birth"].input_formats = ["%Y-%m-%d"]
             if self.instance and self.instance.date_of_birth:
-                self.initial.setdefault(
-                    "date_of_birth", self.instance.date_of_birth.strftime("%Y-%m-%d")
-                )
+                self.initial.setdefault("date_of_birth", self.instance.date_of_birth.strftime("%Y-%m-%d"))
         if "club" in self.fields:
             self.fields["club"].queryset = Club.objects.order_by("name")
             self.fields["club"].widget.attrs.setdefault("class", "form-select")
@@ -287,9 +271,7 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
             "comment",
         ]
         widgets = {
-            "date": forms.DateTimeInput(
-                attrs={"type": "datetime-local", "placeholder": "2024-11-07T17:30"}
-            ),
+            "date": forms.DateTimeInput(attrs={"type": "datetime-local", "placeholder": "2024-11-07T17:30"}),
             "duration": forms.NumberInput(attrs={"min": 0, "step": 5}),
             "comment": forms.Textarea(attrs={"rows": 3}),
         }
@@ -350,16 +332,10 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
 
         allowed_training = get_allowed_training_for_location(selected_location)
         if allowed_training is not None:
-            training_choices = [
-                (value, label)
-                for value, label in TrainingKind.choices
-                if value in allowed_training
-            ]
+            training_choices = [(value, label) for value, label in TrainingKind.choices if value in allowed_training]
             existing_values = {value for value, _ in training_choices}
             if current_training and current_training not in existing_values:
-                training_choices.append(
-                    (current_training, training_label_map.get(current_training, current_training))
-                )
+                training_choices.append((current_training, training_label_map.get(current_training, current_training)))
             if training_choices:
                 self.fields["training_type"].choices = training_choices
 
@@ -375,14 +351,10 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
 
             if not self.is_bound and not current_equipment and allowed_set:
                 default_candidates = [
-                    value
-                    for value in get_default_equipment_for_training(current_training)
-                    if value in allowed_set
+                    value for value in get_default_equipment_for_training(current_training) if value in allowed_set
                 ]
                 if not default_candidates:
-                    ordered_allowed = [
-                        value for value, _ in TrainingEquipment.choices if value in allowed_set
-                    ]
+                    ordered_allowed = [value for value, _ in TrainingEquipment.choices if value in allowed_set]
                     default_candidates = ordered_allowed[:1]
                 if default_candidates:
                     equipment_field.initial = default_candidates
@@ -465,7 +437,9 @@ class FamilyMemberInlineForm(forms.Form):
     surname = forms.CharField(required=False, label="Фамилия")
     name = forms.CharField(required=False, label="Имя")
     middlename = forms.CharField(required=False, label="Отчество", widget=forms.TextInput())
-    date_of_birth = forms.DateField(required=False, label="Дата рождения", widget=forms.DateInput(attrs={"type": "date"}))
+    date_of_birth = forms.DateField(
+        required=False, label="Дата рождения", widget=forms.DateInput(attrs={"type": "date"})
+    )
     gender = forms.ChoiceField(required=False, choices=Person.GENDER_CHOICES, label="Пол")
     relation = forms.ChoiceField(choices=FamilyMember.FAMILY_RELATION, label="Отношение", required=False)
     is_athlete = forms.BooleanField(required=False, label="Создать как спортсмена")
@@ -495,6 +469,7 @@ class FamilyAthleteProfileForm(StyleFormMixin, forms.ModelForm):
             "current_month_paid",
             "notes",
         ]
+
 
 FamilyMemberInlineFormSet = formset_factory(FamilyMemberInlineForm, extra=2, can_delete=False)
 
@@ -527,11 +502,15 @@ class FamilyServiceForm(StyleFormMixin, forms.ModelForm):
     def __init__(self, *args, family=None, **kwargs):
         super().__init__(*args, **kwargs)
         if family:
-            self.fields["profile"].queryset = FamilyAthleteProfile.objects.filter(family=family).select_related("athlete__person")
+            self.fields["profile"].queryset = FamilyAthleteProfile.objects.filter(family=family).select_related(
+                "athlete__person"
+            )
         else:
             self.fields["profile"].queryset = FamilyAthleteProfile.objects.none()
         self.fields["profile"].empty_label = "—"
-        self.fields["profile"].label_from_instance = lambda obj: f"{obj.athlete.person.surname} {obj.athlete.person.name}"
+        self.fields["profile"].label_from_instance = lambda obj: (
+            f"{obj.athlete.person.surname} {obj.athlete.person.name}"
+        )
         self.fields["profile"].widget.attrs.update({"data-profile-select": "true"})
         self.fields["service_type"].widget.attrs.update({"data-service-type": "true"})
         name_widget = self.fields["name"].widget
@@ -676,7 +655,9 @@ class CompetitionForm(StyleFormMixin, forms.ModelForm):
         location_qs = CompetitionVenue.objects.select_related("parent").filter(is_active=True)
         current_location_id = getattr(self.instance, "location_id", None)
         if current_location_id:
-            location_qs = location_qs | CompetitionVenue.objects.select_related("parent").filter(id=current_location_id)
+            location_qs = location_qs | CompetitionVenue.objects.select_related("parent").filter(
+                id=current_location_id
+            )
         self.fields["location"].queryset = location_qs.order_by("parent__short_name", "short_name").distinct()
         self.fields["location"].required = False
         self.fields["location"].empty_label = "Локация не выбрана"
@@ -993,12 +974,9 @@ class DocumentAIAnalysisFilterForm(forms.Form):
         for field_name in ("status", "doc_type", "entity"):
             self.fields[field_name].widget.attrs.setdefault("class", "form-select")
 
+
 def _next_contract_number(family):
-    last = (
-        AthleteContract.objects.filter(profile__family=family)
-        .order_by("-created_at")
-        .first()
-    )
+    last = AthleteContract.objects.filter(profile__family=family).order_by("-created_at").first()
     if last and last.number and last.number.isdigit():
         return str(int(last.number) + 1)
     return ""

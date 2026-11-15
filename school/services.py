@@ -1,6 +1,6 @@
+import locale
 from datetime import date, timedelta
 from decimal import Decimal
-import locale
 
 from django.utils import timezone
 

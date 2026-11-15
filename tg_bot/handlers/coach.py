@@ -1,6 +1,5 @@
 import logging
 from datetime import timedelta
-from typing import Optional
 
 from asgiref.sync import sync_to_async
 from django.utils import timezone
@@ -10,13 +9,13 @@ from telegram.ext import ContextTypes
 from classes.telegram import (
     COACH_CALLBACK_PREFIX,
     build_edit_keyboard,
+    build_equipment_keyboard,
     build_location_keyboard,
     build_main_actions_keyboard,
-    build_equipment_keyboard,
     build_training_type_keyboard,
     format_class_summary,
 )
-from school.choices import ClassCoachStatus, TrainingKind, TrainingLocation, TrainingEquipment
+from school.choices import ClassCoachStatus, TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Class
 from school.training_rules import get_allowed_equipment
 from tg_bot.services.notifications import user_is_coach
@@ -41,12 +40,8 @@ async def coach_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton(
-                    "Сегодня", callback_data=f"{COACH_CALLBACK_PREFIX}:list:today"
-                ),
-                InlineKeyboardButton(
-                    "Завтра", callback_data=f"{COACH_CALLBACK_PREFIX}:list:tomorrow"
-                ),
+                InlineKeyboardButton("Сегодня", callback_data=f"{COACH_CALLBACK_PREFIX}:list:today"),
+                InlineKeyboardButton("Завтра", callback_data=f"{COACH_CALLBACK_PREFIX}:list:tomorrow"),
             ],
             [
                 InlineKeyboardButton(
@@ -90,7 +85,7 @@ async def _fetch_classes(scope: str) -> list[Class]:
     return []
 
 
-async def _load_class(class_id: int) -> Optional[Class]:
+async def _load_class(class_id: int) -> Class | None:
     return await sync_to_async(Class.objects.select_related("group").filter(pk=class_id).first)()
 
 

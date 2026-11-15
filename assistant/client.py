@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urljoin
 
 import requests
@@ -33,7 +33,7 @@ class AssistantEndpointConfig:
     trainings: str
 
     @classmethod
-    def from_settings(cls) -> "AssistantEndpointConfig":
+    def from_settings(cls) -> AssistantEndpointConfig:
         return cls(
             members=getattr(settings, "AI_ASSISTANT_ENDPOINT_MEMBERS", "/api/v1/sync/members/"),
             taxonomy=getattr(settings, "AI_ASSISTANT_ENDPOINT_TAXONOMY", "/api/v1/sync/taxonomy/"),
@@ -44,7 +44,7 @@ class AssistantEndpointConfig:
 class AssistantClient:
     """HTTP клиент для обмена данными с AI-помощником."""
 
-    def __init__(self, *, service_account: Optional[ServiceAccount] = None):
+    def __init__(self, *, service_account: ServiceAccount | None = None):
         if not is_integration_enabled():
             raise AssistantIntegrationDisabled("Интеграция с AI ассистентом отключена настройками.")
 

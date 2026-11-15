@@ -1,7 +1,6 @@
+from asgiref.sync import async_to_sync
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from asgiref.sync import async_to_sync
-
 from telegram import Bot
 
 from config.settings import BOT_TOKEN

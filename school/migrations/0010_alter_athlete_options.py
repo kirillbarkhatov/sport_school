@@ -4,7 +4,6 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0009_alter_group_athletes_alter_group_coaches"),
     ]

@@ -14,10 +14,13 @@ class UserAdmin(DjangoUserAdmin):
         (_("Важные даты"), {"fields": ("last_login", "date_joined")}),
     )
     add_fieldsets = (
-        (None, {
-            "classes": ("wide",),
-            "fields": ("email", "password1", "password2", "is_approved", "bot_access"),
-        }),
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": ("email", "password1", "password2", "is_approved", "bot_access"),
+            },
+        ),
     )
     list_display = ("email", "tg_id", "is_approved", "bot_access", "is_staff", "person")
     list_filter = ("is_approved", "bot_access", "is_staff", "person")

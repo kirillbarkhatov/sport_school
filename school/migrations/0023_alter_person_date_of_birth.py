@@ -9,7 +9,6 @@ def clear_placeholder_birthdays(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0022_alter_family_contact_person_and_more"),
     ]

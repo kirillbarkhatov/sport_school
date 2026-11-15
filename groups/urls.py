@@ -2,8 +2,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path
 
-from .apps import GroupsConfig
 from . import views
+from .apps import GroupsConfig
 
 app_name = GroupsConfig.name
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Sequence
 
 from django.db import transaction
 from django.utils import timezone
@@ -10,6 +10,7 @@ from django.utils import timezone
 from school.choices import ClassCoachStatus, ClassCreationSource
 from school.models import Class
 from users.utils import get_class_queryset_for_user
+
 from .models import TrainingTemplate
 
 

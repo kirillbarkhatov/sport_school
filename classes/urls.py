@@ -2,9 +2,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path
 
-from .apps import ClassesConfig
-
 from . import views
+from .apps import ClassesConfig
 
 app_name = ClassesConfig.name
 

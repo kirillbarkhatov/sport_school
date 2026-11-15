@@ -4,7 +4,6 @@ from django.conf import settings
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0038_merge_20260222_1530"),
         ("users", "0028_user_bot_access"),

@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [
@@ -48,9 +47,7 @@ class Migration(migrations.Migration):
                 ("start_time", models.TimeField(verbose_name="Время начала")),
                 (
                     "duration_minutes",
-                    models.PositiveSmallIntegerField(
-                        default=90, verbose_name="Продолжительность (мин.)"
-                    ),
+                    models.PositiveSmallIntegerField(default=90, verbose_name="Продолжительность (мин.)"),
                 ),
                 (
                     "season_start_month",
@@ -139,9 +136,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "comment",
-                    models.CharField(
-                        blank=True, max_length=255, verbose_name="Комментарий"
-                    ),
+                    models.CharField(blank=True, max_length=255, verbose_name="Комментарий"),
                 ),
                 (
                     "is_active",

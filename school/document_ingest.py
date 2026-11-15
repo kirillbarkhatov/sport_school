@@ -93,12 +93,7 @@ def ingest_single_document(
     meta = source_meta or {}
     existing = None
     if deduplicate:
-        existing = (
-            Document.objects.filter(size=size, content_hash=content_hash)
-            .only("id")
-            .order_by("id")
-            .first()
-        )
+        existing = Document.objects.filter(size=size, content_hash=content_hash).only("id").order_by("id").first()
 
     if existing:
         should_enqueue = bool(enqueue_analysis and enqueue_existing)

@@ -108,15 +108,12 @@ def send_training_reminders_task() -> int:
     bot = Bot(token=BOT_TOKEN)
     sent_messages = 0
 
-    users = (
-        User.objects.filter(
-            is_active=True,
-            is_approved=True,
-            training_reminders_enabled=True,
-            tg_id__isnull=False,
-        )
-        .order_by("id")
-    )
+    users = User.objects.filter(
+        is_active=True,
+        is_approved=True,
+        training_reminders_enabled=True,
+        tg_id__isnull=False,
+    ).order_by("id")
 
     for user in users:
         trainings = get_upcoming_trainings_for_user(user, until=end_of_day)

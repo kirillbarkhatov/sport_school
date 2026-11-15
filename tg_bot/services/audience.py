@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from asgiref.sync import sync_to_async
 from django.utils import timezone
@@ -23,7 +23,7 @@ __all__ = [
 ]
 
 
-def _coalesce(value: Optional[str]) -> str:
+def _coalesce(value: str | None) -> str:
     return value or ""
 
 
@@ -66,7 +66,7 @@ def _chat_extra(chat: Chat) -> dict:
     return extra
 
 
-def _participant_extra(message: Optional[Message] = None) -> dict:
+def _participant_extra(message: Message | None = None) -> dict:
     """Store lightweight context about participant interaction."""
     if not message:
         return {}
@@ -81,7 +81,7 @@ def _participant_extra(message: Optional[Message] = None) -> dict:
     return payload
 
 
-def _map_member_status(status: Optional[str]) -> str:
+def _map_member_status(status: str | None) -> str:
     if not status:
         return TelegramParticipant.MemberStatus.UNKNOWN
 
@@ -97,7 +97,7 @@ def _map_member_status(status: Optional[str]) -> str:
     return mapping.get(status, TelegramParticipant.MemberStatus.UNKNOWN)
 
 
-async def _upsert_chat(chat: Chat, *, member_count: Optional[int] = None) -> TelegramChat:
+async def _upsert_chat(chat: Chat, *, member_count: int | None = None) -> TelegramChat:
     now = timezone.now()
     defaults = {
         "type": chat.type or TelegramChat.ChatType.UNKNOWN,
@@ -123,11 +123,11 @@ async def _upsert_participant(
     chat_obj: TelegramChat,
     user: User,
     *,
-    status: Optional[str] = None,
-    custom_title: Optional[str] = None,
-    message: Optional[Message] = None,
-    extra: Optional[dict] = None,
-    phone: Optional[str] = None,
+    status: str | None = None,
+    custom_title: str | None = None,
+    message: Message | None = None,
+    extra: dict | None = None,
+    phone: str | None = None,
 ) -> None:
     now = timezone.now()
     defaults = {
@@ -213,7 +213,7 @@ async def _register_sender_chat(message: Message) -> None:
 async def track_audience(update: Update, _: object) -> None:
     """Gather chat/users activity from any update."""
     try:
-        messages: Iterable[Optional[Message]] = (
+        messages: Iterable[Message | None] = (
             update.message,
             update.edited_message,
             update.channel_post,
@@ -257,7 +257,7 @@ async def track_audience(update: Update, _: object) -> None:
 
 async def handle_chat_member_update(update: Update, _: object) -> None:
     """Persist changes in chat membership (group/channel)."""
-    event: Optional[ChatMemberUpdated] = update.chat_member or update.my_chat_member
+    event: ChatMemberUpdated | None = update.chat_member or update.my_chat_member
     if not event:
         return
     try:
@@ -292,9 +292,7 @@ async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
     member_count = None
     try:
         member_count = await bot.get_chat_member_count(chat_id)
-        await notify_admins_bot(
-            bot, f"📊 Количество участников в чате {chat_id}: {member_count}"
-        )
+        await notify_admins_bot(bot, f"📊 Количество участников в чате {chat_id}: {member_count}")
     except TelegramError as exc:
         logger.info("Не удалось получить количество участников %s: %s", chat_id, exc)
     await notify_admins_bot(bot, f"ℹ️ Информация о чате {chat_id}:\n{chat.to_dict()}")
@@ -307,14 +305,10 @@ async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
 
     try:
         administrators = await bot.get_chat_administrators(chat_id)
-        await notify_admins_bot(
-            bot, f"👥 Получено администраторов: {len(administrators)} для чата {chat_id}"
-        )
+        await notify_admins_bot(bot, f"👥 Получено администраторов: {len(administrators)} для чата {chat_id}")
     except TelegramError as exc:
         logger.warning("Не удалось получить администраторов чата %s: %s", chat_id, exc)
-        await notify_admins_bot(
-            bot, f"⚠️ Не удалось получить администраторов чата {chat_id}: {exc}"
-        )
+        await notify_admins_bot(bot, f"⚠️ Не удалось получить администраторов чата {chat_id}: {exc}")
         return chat_obj
 
     for member in administrators:
@@ -336,9 +330,7 @@ async def sync_chat_snapshot(bot: Bot, chat_id: int) -> TelegramChat:
             extra=extra,
         )
 
-    await notify_admins_bot(
-        bot, f"✅ Синхронизация завершена для чата {chat_id} (БД id={chat_obj.pk})"
-    )
+    await notify_admins_bot(bot, f"✅ Синхронизация завершена для чата {chat_id} (БД id={chat_obj.pk})")
     return chat_obj
 
 

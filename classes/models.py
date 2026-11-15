@@ -7,8 +7,8 @@ from django.db import models
 from django.utils import timezone
 
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
-from school.training_rules import apply_training_rules
 from school.models import Class, Group
+from school.training_rules import apply_training_rules
 
 
 class Weekday(models.IntegerChoices):
@@ -99,9 +99,7 @@ class TrainingTemplate(models.Model):
         ]
 
     def __str__(self) -> str:
-        return (
-            f"{self.group.name} · {Weekday(self.day_of_week).label} {self.start_time:%H:%M}"
-        )
+        return f"{self.group.name} · {Weekday(self.day_of_week).label} {self.start_time:%H:%M}"
 
     def applies_to_date(self, target_date: date) -> bool:
         month = target_date.month

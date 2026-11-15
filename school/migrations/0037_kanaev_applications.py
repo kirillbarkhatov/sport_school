@@ -74,9 +74,7 @@ def import_kanaev(apps, schema_editor):
 
     person_map = {}
     for person in Person.objects.all():
-        full = _normalize_key(
-            " ".join(filter(None, [person.surname, person.name, person.middlename or ""]))
-        )
+        full = _normalize_key(" ".join(filter(None, [person.surname, person.name, person.middlename or ""])))
         short = _normalize_key(f"{person.surname} {person.name}")
         if full:
             person_map.setdefault(full, person)

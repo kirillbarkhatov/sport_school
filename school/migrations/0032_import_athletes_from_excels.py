@@ -144,7 +144,6 @@ def noop_reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0031_club_person_club_competition_dates"),
     ]

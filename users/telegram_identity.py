@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import re
-from typing import Optional, Tuple
 
 PHONE_CLEAN_PATTERN = re.compile(r"\D+")
 TG_URL_PATTERN = re.compile(r"^(?:https?://)?t\.me/(?P<value>[\w@+\d_]+)$", re.IGNORECASE)
 TG_DEEP_LINK_PATTERN = re.compile(r"^tg://user\?id=(?P<id>\d+)$", re.IGNORECASE)
 
 
-def normalize_phone(phone: Optional[str]) -> str:
+def normalize_phone(phone: str | None) -> str:
     if not phone:
         return ""
     digits = PHONE_CLEAN_PATTERN.sub("", str(phone))
@@ -23,7 +22,7 @@ def normalize_phone(phone: Optional[str]) -> str:
     return digits
 
 
-def normalize_username(username: Optional[str]) -> str:
+def normalize_username(username: str | None) -> str:
     if not username:
         return ""
     value = str(username).strip()
@@ -40,14 +39,14 @@ def _safe_tg_id(raw: str | None) -> int | None:
         return None
     try:
         tg_id = int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if tg_id <= 0:
         return None
     return tg_id
 
 
-def parse_telegram_reference(value: Optional[str]) -> Tuple[str, str, int | None]:
+def parse_telegram_reference(value: str | None) -> tuple[str, str, int | None]:
     """
     Return (username_key, phone_key, telegram_id).
     username_key: normalized username without '@'

@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0017_class_comment_class_equipment_class_training_type_and_more"),
     ]
@@ -14,9 +13,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="class",
             name="coach_comment",
-            field=models.TextField(
-                blank=True, null=True, verbose_name="Комментарий тренера"
-            ),
+            field=models.TextField(blank=True, null=True, verbose_name="Комментарий тренера"),
         ),
         migrations.AddField(
             model_name="class",
@@ -35,9 +32,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="class",
             name="coach_status_set_at",
-            field=models.DateTimeField(
-                blank=True, null=True, verbose_name="Обработано тренером"
-            ),
+            field=models.DateTimeField(blank=True, null=True, verbose_name="Обработано тренером"),
         ),
         migrations.AddField(
             model_name="class",

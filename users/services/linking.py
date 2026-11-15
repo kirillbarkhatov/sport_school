@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections import defaultdict
-from typing import Iterable, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
 
 from django.conf import settings
 from django.contrib.auth.models import Group
@@ -26,25 +26,25 @@ from users.telegram_identity import (
 )
 
 
-def _normalize_username(username: Optional[str]) -> str:
+def _normalize_username(username: str | None) -> str:
     return normalize_username(username)
 
 
-def _split_telegram_reference(value: Optional[str]) -> Tuple[str, str]:
+def _split_telegram_reference(value: str | None) -> tuple[str, str]:
     username, phone, _ = parse_telegram_reference(value)
     return username, phone
 
 
 @dataclasses.dataclass(slots=True)
 class UserTelegramProfile:
-    tg_id: Optional[int]
+    tg_id: int | None
     username: str
     first_name: str
     last_name: str
     phone: str
 
     @classmethod
-    def from_telegram(cls, tg_user: TelegramUser) -> "UserTelegramProfile":
+    def from_telegram(cls, tg_user: TelegramUser) -> UserTelegramProfile:
         return cls(
             tg_id=getattr(tg_user, "id", None),
             username=_normalize_username(getattr(tg_user, "username", "")),
@@ -180,7 +180,7 @@ def _collect_person_candidates(
     return matches
 
 
-def find_best_person_match(user: User) -> Tuple[Optional[Person], list[str]]:
+def find_best_person_match(user: User) -> tuple[Person | None, list[str]]:
     redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
     if user.tg_id:
         tg_id_matches = Person.objects.exclude(id__in=redirected_sources).filter(telegram_id=user.tg_id)
@@ -212,7 +212,7 @@ def find_best_person_match(user: User) -> Tuple[Optional[Person], list[str]]:
 
 
 @transaction.atomic
-def refresh_user_person_link(user: User, *, force: bool = False) -> Tuple[UserPersonLink, bool]:
+def refresh_user_person_link(user: User, *, force: bool = False) -> tuple[UserPersonLink, bool]:
     link, _ = UserPersonLink.objects.select_for_update().get_or_create(user=user)
 
     if link.status == UserPersonLinkStatus.APPROVED and not force:
@@ -232,15 +232,17 @@ def refresh_user_person_link(user: User, *, force: bool = False) -> Tuple[UserPe
 
     if changed or force:
         link.reset_to_pending()
-        link.save(update_fields=[
-            "suggested_person",
-            "matched_reasons",
-            "status",
-            "decided_by",
-            "decided_at",
-            "decision_note",
-            "updated_at",
-        ])
+        link.save(
+            update_fields=[
+                "suggested_person",
+                "matched_reasons",
+                "status",
+                "decided_by",
+                "decided_at",
+                "decision_note",
+                "updated_at",
+            ]
+        )
 
     return link, changed
 
@@ -251,15 +253,17 @@ def update_user_comment(user: User, comment: str) -> UserPersonLink:
     link.user_comment = comment.strip()
     link.user_comment_updated_at = timezone.now()
     link.reset_to_pending()
-    link.save(update_fields=[
-        "user_comment",
-        "user_comment_updated_at",
-        "status",
-        "decided_by",
-        "decided_at",
-        "decision_note",
-        "updated_at",
-    ])
+    link.save(
+        update_fields=[
+            "user_comment",
+            "user_comment_updated_at",
+            "status",
+            "decided_by",
+            "decided_at",
+            "decision_note",
+            "updated_at",
+        ]
+    )
     return link
 
 
@@ -289,7 +293,7 @@ def assign_groups_from_env(user: User) -> None:
 
 
 @transaction.atomic
-def ensure_user_for_start(profile: UserTelegramProfile, token: Optional[str]) -> tuple[User, bool]:
+def ensure_user_for_start(profile: UserTelegramProfile, token: str | None) -> tuple[User, bool]:
     if not profile.tg_id:
         raise ValueError("Telegram profile must include tg_id")
 
@@ -338,20 +342,22 @@ def ensure_user_for_start(profile: UserTelegramProfile, token: Optional[str]) ->
             UserPersonLinkStatus.APPROVED,
             note="auto approved: exact telegram_id match",
         )
-        link.save(update_fields=[
-            "status",
-            "decided_by",
-            "decided_at",
-            "decision_note",
-            "updated_at",
-        ])
+        link.save(
+            update_fields=[
+                "status",
+                "decided_by",
+                "decided_at",
+                "decision_note",
+                "updated_at",
+            ]
+        )
         _ensure_person_telegram_link(user, profile)
 
     return user, created, link
 
 
 @transaction.atomic
-def sync_existing_user(profile: UserTelegramProfile) -> Optional[User]:
+def sync_existing_user(profile: UserTelegramProfile) -> User | None:
     if not profile.tg_id:
         return None
     user = User.objects.filter(tg_id=profile.tg_id).first()

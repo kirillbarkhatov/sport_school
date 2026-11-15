@@ -16,13 +16,9 @@ def build_training_reminder_text(summary: TrainingSummary, *, reminders_enabled:
     lines.extend(build_attendance_lines(summary))
     lines.append("")
     if reminders_enabled:
-        lines.append(
-            "Если планы изменились, обновите статус участия или отключите напоминания ниже."
-        )
+        lines.append("Если планы изменились, обновите статус участия или отключите напоминания ниже.")
     else:
-        lines.append(
-            "Напоминания сейчас выключены. Вы можете включить их обратно ниже или через главное меню."
-        )
+        lines.append("Напоминания сейчас выключены. Вы можете включить их обратно ниже или через главное меню.")
     return "\n".join(lines)
 
 

@@ -44,9 +44,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "username",
-                    models.CharField(
-                        blank=True, max_length=255, verbose_name="Username чата"
-                    ),
+                    models.CharField(blank=True, max_length=255, verbose_name="Username чата"),
                 ),
                 (
                     "description",
@@ -58,21 +56,15 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "first_seen",
-                    models.DateTimeField(
-                        auto_now_add=True, verbose_name="Впервые замечен"
-                    ),
+                    models.DateTimeField(auto_now_add=True, verbose_name="Впервые замечен"),
                 ),
                 (
                     "last_seen",
-                    models.DateTimeField(
-                        auto_now=True, verbose_name="Последнее взаимодействие"
-                    ),
+                    models.DateTimeField(auto_now=True, verbose_name="Последнее взаимодействие"),
                 ),
                 (
                     "extra_data",
-                    models.JSONField(
-                        blank=True, default=dict, verbose_name="Доп. данные"
-                    ),
+                    models.JSONField(blank=True, default=dict, verbose_name="Доп. данные"),
                 ),
             ],
             options={
@@ -111,9 +103,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "username",
-                    models.CharField(
-                        blank=True, max_length=255, verbose_name="Username пользователя"
-                    ),
+                    models.CharField(blank=True, max_length=255, verbose_name="Username пользователя"),
                 ),
                 (
                     "language_code",
@@ -138,27 +128,19 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "custom_title",
-                    models.CharField(
-                        blank=True, max_length=255, verbose_name="Пользовательский титул"
-                    ),
+                    models.CharField(blank=True, max_length=255, verbose_name="Пользовательский титул"),
                 ),
                 (
                     "first_seen",
-                    models.DateTimeField(
-                        auto_now_add=True, verbose_name="Впервые замечен"
-                    ),
+                    models.DateTimeField(auto_now_add=True, verbose_name="Впервые замечен"),
                 ),
                 (
                     "last_seen",
-                    models.DateTimeField(
-                        auto_now=True, verbose_name="Последнее взаимодействие"
-                    ),
+                    models.DateTimeField(auto_now=True, verbose_name="Последнее взаимодействие"),
                 ),
                 (
                     "extra_data",
-                    models.JSONField(
-                        blank=True, default=dict, verbose_name="Доп. данные"
-                    ),
+                    models.JSONField(blank=True, default=dict, verbose_name="Доп. данные"),
                 ),
                 (
                     "chat",
@@ -179,14 +161,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="telegramparticipant",
-            index=models.Index(
-                fields=["chat", "username"], name="bot_tp_chat_username_idx"
-            ),
+            index=models.Index(fields=["chat", "username"], name="bot_tp_chat_username_idx"),
         ),
         migrations.AddIndex(
             model_name="telegramparticipant",
-            index=models.Index(
-                fields=["chat", "last_seen"], name="bot_tp_chat_last_seen_idx"
-            ),
+            index=models.Index(fields=["chat", "last_seen"], name="bot_tp_chat_last_seen_idx"),
         ),
     ]

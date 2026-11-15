@@ -13,7 +13,6 @@ def ensure_links(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0022_alter_family_contact_person_and_more"),
         ("users", "0004_user_is_approved_person_family"),
@@ -27,16 +26,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="user",
             name="first_bot_interaction_at",
-            field=models.DateTimeField(
-                blank=True, null=True, verbose_name="Первое взаимодействие с ботом"
-            ),
+            field=models.DateTimeField(blank=True, null=True, verbose_name="Первое взаимодействие с ботом"),
         ),
         migrations.AddField(
             model_name="user",
             name="last_bot_interaction_at",
-            field=models.DateTimeField(
-                blank=True, null=True, verbose_name="Последнее взаимодействие с ботом"
-            ),
+            field=models.DateTimeField(blank=True, null=True, verbose_name="Последнее взаимодействие с ботом"),
         ),
         migrations.CreateModel(
             name="UserPersonLink",
@@ -52,9 +47,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "matched_reasons",
-                    models.JSONField(
-                        blank=True, default=list, verbose_name="Причины совпадения"
-                    ),
+                    models.JSONField(blank=True, default=list, verbose_name="Причины совпадения"),
                 ),
                 (
                     "status",
@@ -71,21 +64,15 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "decided_at",
-                    models.DateTimeField(
-                        blank=True, null=True, verbose_name="Дата решения"
-                    ),
+                    models.DateTimeField(blank=True, null=True, verbose_name="Дата решения"),
                 ),
                 (
                     "decision_note",
-                    models.TextField(
-                        blank=True, verbose_name="Комментарий администратора"
-                    ),
+                    models.TextField(blank=True, verbose_name="Комментарий администратора"),
                 ),
                 (
                     "user_comment",
-                    models.TextField(
-                        blank=True, verbose_name="Комментарий пользователя"
-                    ),
+                    models.TextField(blank=True, verbose_name="Комментарий пользователя"),
                 ),
                 (
                     "user_comment_updated_at",

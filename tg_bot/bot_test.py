@@ -7,6 +7,7 @@ Basic example for a bot that works with polls. Only 3 people are allowed to inte
 poll/quiz the bot generates. The preview command generates a closed poll/quiz, exactly like the
 one the user sends the bot
 """
+
 import logging
 
 from telegram import (
@@ -29,9 +30,7 @@ from telegram.ext import (
 )
 
 # Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 # set higher logging level for httpx to avoid all GET and POST requests being logged
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
@@ -44,8 +43,7 @@ TOTAL_VOTER_COUNT = 3
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Inform user about what this bot can do"""
     await update.message.reply_text(
-        "Please select /poll to get a Poll, /quiz to get a Quiz or /preview"
-        " to generate a preview for your poll"
+        "Please select /poll to get a Poll, /quiz to get a Quiz or /preview to generate a preview for your poll"
     )
 
 
@@ -105,9 +103,7 @@ async def quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "How many eggs do you need for a cake?", questions, type=Poll.QUIZ, correct_option_id=2
     )
     # Save some info about the poll the bot_data for later use in receive_quiz_answer
-    payload = {
-        message.poll.id: {"chat_id": update.effective_chat.id, "message_id": message.message_id}
-    }
+    payload = {message.poll.id: {"chat_id": update.effective_chat.id, "message_id": message.message_id}}
     context.bot_data.update(payload)
 
 

@@ -2,7 +2,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("school", "0045_alter_competition_birth_year_from_documentaijob_and_more"),
     ]
@@ -28,7 +27,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="athletedocument",
-            constraint=models.UniqueConstraint(fields=("athlete", "document"), name="uniq_athlete_document_athlete_document"),
+            constraint=models.UniqueConstraint(
+                fields=("athlete", "document"), name="uniq_athlete_document_athlete_document"
+            ),
         ),
         migrations.AddConstraint(
             model_name="athletedocument",

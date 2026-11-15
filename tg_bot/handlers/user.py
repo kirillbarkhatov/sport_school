@@ -2,36 +2,36 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
-from typing import Sequence
 
 from asgiref.sync import sync_to_async
 from django.utils import timezone
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from school.models import Athlete as AthleteModel
-
-from users.models import User
-from users.tasks import notify_pending_user_task
-from tg_bot.services.user_sync import update_user_comment_async
+from tg_bot.handlers.auth import build_authenticated_keyboard
+from tg_bot.handlers.auth import start as start_command
+from tg_bot.handlers.onboarding import cancel_onboarding
 from tg_bot.services.family_overview import get_family_overview
+from tg_bot.services.notifications import user_is_admin, user_is_coach, user_is_manager
+from tg_bot.services.reminders import (
+    build_training_reminder_markup,
+    build_training_reminder_text,
+)
 from tg_bot.services.training_overview import (
     build_training_details_text,
     get_training_summary,
     get_upcoming_trainings_for_user,
     update_attendance_status,
 )
-from tg_bot.services.reminders import (
-    build_training_reminder_markup,
-    build_training_reminder_text,
-)
-from tg_bot.handlers.auth import build_authenticated_keyboard, start as start_command
-from tg_bot.handlers.onboarding import cancel_onboarding
-from tg_bot.services.notifications import user_is_admin, user_is_coach, user_is_manager
-from users.utils import get_person_queryset_for_user
+from tg_bot.services.user_sync import update_user_comment_async
+from users.models import User
 from users.services import normalize_phone
+from users.tasks import notify_pending_user_task
+from users.utils import get_person_queryset_for_user
 
 FAMILY_EDIT_STATE_KEY = "family_edit_state"
 COMMENT_STATE_KEY = "awaiting_comment"
@@ -410,11 +410,7 @@ def _compose_member_editor_text(person) -> str:
 
 async def _get_member_editor_data(user: User, person_id: int):
     def fetch():
-        qs = (
-            get_person_queryset_for_user(user)
-            .select_related("athlete")
-            .filter(id=person_id)
-        )
+        qs = get_person_queryset_for_user(user).select_related("athlete").filter(id=person_id)
         return qs.first()
 
     person = await sync_to_async(fetch, thread_sensitive=True)()
@@ -470,11 +466,7 @@ async def _apply_family_edit(user: User, person_id: int, field_key: str, raw_val
         return False, "Это поле недоступно для редактирования."
 
     def fetch():
-        qs = (
-            get_person_queryset_for_user(user)
-            .select_related("athlete")
-            .filter(id=person_id)
-        )
+        qs = get_person_queryset_for_user(user).select_related("athlete").filter(id=person_id)
         return qs.first()
 
     person = await sync_to_async(fetch, thread_sensitive=True)()
@@ -577,6 +569,7 @@ async def _update_family_member_editor_card(
         "message_id": message.message_id,
     }
 
+
 def _format_schedule_list_text(trainings) -> str:
     if not trainings:
         return "На ближайшую неделю тренировки не найдены."
@@ -584,9 +577,7 @@ def _format_schedule_list_text(trainings) -> str:
     lines = ["Выберите тренировку, чтобы обновить статус участия:"]
     for idx, summary in enumerate(trainings, start=1):
         date_text = summary.start.strftime("%d.%m %H:%M")
-        lines.append(
-            f"{idx}. {summary.emoji} {summary.training_type_display} — {date_text} ({summary.group_name})"
-        )
+        lines.append(f"{idx}. {summary.emoji} {summary.training_type_display} — {date_text} ({summary.group_name})")
     return "\n".join(lines)
 
 
@@ -595,9 +586,7 @@ def _build_schedule_keyboard(trainings) -> InlineKeyboardMarkup:
     for summary in trainings:
         date_text = summary.start.strftime("%d.%m %H:%M")
         label = f"{summary.emoji} {date_text}"
-        rows.append(
-            [InlineKeyboardButton(label, callback_data=f"schedule:view:{summary.class_id}")]
-        )
+        rows.append([InlineKeyboardButton(label, callback_data=f"schedule:view:{summary.class_id}")])
     rows.append([InlineKeyboardButton("🔄 Обновить", callback_data="schedule:list")])
     rows.append([InlineKeyboardButton("🏠 Главное меню", callback_data="user:menu")])
     return InlineKeyboardMarkup(rows)
@@ -761,17 +750,13 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if data == "user:comment":
         context.user_data[COMMENT_STATE_KEY] = True
-        await query.message.reply_text(
-            "💬 Напишите сообщение – мы передадим его администратору."
-        )
+        await query.message.reply_text("💬 Напишите сообщение – мы передадим его администратору.")
         return
 
     if data.startswith("reminder:"):
         user = await _load_user(tg_id)
         if not user:
-            await query.message.reply_text(
-                "Не удалось найти ваш профиль. Нажмите /start и попробуйте снова."
-            )
+            await query.message.reply_text("Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
             return
         await _handle_reminder_callback(query, user, data)
         return
@@ -783,38 +768,31 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await _clear_query_keyboard(query)
         user = await _load_user(tg_id)
         if not user:
-            await query.message.reply_text(
-                "Не удалось найти ваш профиль. Нажмите /start и попробуйте снова."
-            )
+            await query.message.reply_text("Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
             return
         await _send_main_menu(context.bot, query.message.chat_id, user)
         return
 
-    actionable = (
-        data in {
-            "user:schedule",
-            "schedule:list",
-            "user:plan",
-            "user:family",
-            "user:camps",
-            "user:payments",
-            "user:reminders",
-        }
-        or data.startswith(
-            (
-                "schedule:view:",
-                "attendance:",
-                "family:",
-            )
+    actionable = data in {
+        "user:schedule",
+        "schedule:list",
+        "user:plan",
+        "user:family",
+        "user:camps",
+        "user:payments",
+        "user:reminders",
+    } or data.startswith(
+        (
+            "schedule:view:",
+            "attendance:",
+            "family:",
         )
     )
 
     if actionable:
         user = await _load_user(tg_id)
         if not user:
-            await query.message.reply_text(
-                "Не удалось найти ваш профиль. Нажмите /start и попробуйте снова."
-            )
+            await query.message.reply_text("Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
             return
 
         is_privileged = await user_is_admin(tg_id) or await user_is_manager(tg_id) or await user_is_coach(tg_id)
@@ -839,7 +817,7 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if data.startswith("schedule:view:"):
             try:
                 class_id = int(data.split(":", 2)[2])
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 await query.message.reply_text("Не удалось распознать выбранную тренировку.")
                 return
             await _send_training_detail(query, user, class_id, origin="schedule", edit=True)
@@ -896,7 +874,7 @@ async def handle_user_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         if data.startswith("family:edit:"):
             try:
                 person_id = int(data.split(":", 2)[2])
-            except (ValueError, IndexError):
+            except ValueError, IndexError:
                 await query.answer("Не удалось распознать члена семьи.", show_alert=True)
                 return
             state = context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
@@ -1000,9 +978,7 @@ async def handle_family_edit_message(update: Update, context: ContextTypes.DEFAU
     if not user:
         await _clear_family_prompt_keyboard(context.bot, state)
         context.user_data.pop(FAMILY_EDIT_STATE_KEY, None)
-        await update.effective_message.reply_text(
-            "Не удалось найти ваш профиль. Нажмите /start и попробуйте снова."
-        )
+        await update.effective_message.reply_text("Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
         return True
 
     success, message = await _apply_family_edit(user, state["person_id"], state["field"], message_text)
@@ -1080,16 +1056,22 @@ async def handle_main_menu_text(update: Update, context: ContextTypes.DEFAULT_TY
         await message.reply_text("⚠️ Не удалось найти ваш профиль. Нажмите /start и попробуйте снова.")
         return True
 
-    is_privileged = await user_is_admin(update.effective_user.id) or await user_is_manager(update.effective_user.id) or await user_is_coach(update.effective_user.id)
+    is_privileged = (
+        await user_is_admin(update.effective_user.id)
+        or await user_is_manager(update.effective_user.id)
+        or await user_is_coach(update.effective_user.id)
+    )
     if not is_privileged and not user.is_bot_full_access:
-        await message.reply_text(
-            "Доступ к функциям бота пока ограничен. Администратор откроет его после одобрения."
-        )
+        await message.reply_text("Доступ к функциям бота пока ограничен. Администратор откроет его после одобрения.")
         return True
 
     link = user.person_link
     is_confirmed = bool(user.is_approved and user.person_id)
-    is_privileged = await user_is_admin(update.effective_user.id) or await user_is_manager(update.effective_user.id) or await user_is_coach(update.effective_user.id)
+    is_privileged = (
+        await user_is_admin(update.effective_user.id)
+        or await user_is_manager(update.effective_user.id)
+        or await user_is_coach(update.effective_user.id)
+    )
 
     if not is_confirmed and not is_privileged:
         await start_command(update, context)

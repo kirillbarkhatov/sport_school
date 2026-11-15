@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 SEASON_START_MONTH = 7  # 1 July
 
 
@@ -69,13 +68,31 @@ class StandardCategory:
 
 
 STANDARD_U_CATEGORIES: dict[str, StandardCategory] = {
-    "AGE4": StandardCategory(code="AGE4", button_label="4г.", age_min=3, age_max=3, male_label="Мальчики", female_label="Девочки"),
-    "AGE5": StandardCategory(code="AGE5", button_label="5л.", age_min=4, age_max=4, male_label="Мальчики", female_label="Девочки"),
-    "AGE6": StandardCategory(code="AGE6", button_label="6л.", age_min=5, age_max=5, male_label="Мальчики", female_label="Девочки"),
-    "U8": StandardCategory(code="U8", button_label="U8", age_min=6, age_max=7, male_label="Мальчики", female_label="Девочки"),
-    "U10": StandardCategory(code="U10", button_label="U10", age_min=8, age_max=9, male_label="Мальчики", female_label="Девочки"),
-    "U12": StandardCategory(code="U12", button_label="U12", age_min=10, age_max=11, male_label="Мальчики", female_label="Девочки"),
-    "U14": StandardCategory(code="U14", button_label="U14", age_min=12, age_max=13, male_label="Юноши", female_label="Девушки"),
-    "U16": StandardCategory(code="U16", button_label="U16", age_min=14, age_max=15, male_label="Юноши", female_label="Девушки"),
-    "SENIOR": StandardCategory(code="SENIOR", button_label="Senior", age_min=16, age_max=None, male_label="Мужчины", female_label="Женщины"),
+    "AGE4": StandardCategory(
+        code="AGE4", button_label="4г.", age_min=3, age_max=3, male_label="Мальчики", female_label="Девочки"
+    ),
+    "AGE5": StandardCategory(
+        code="AGE5", button_label="5л.", age_min=4, age_max=4, male_label="Мальчики", female_label="Девочки"
+    ),
+    "AGE6": StandardCategory(
+        code="AGE6", button_label="6л.", age_min=5, age_max=5, male_label="Мальчики", female_label="Девочки"
+    ),
+    "U8": StandardCategory(
+        code="U8", button_label="U8", age_min=6, age_max=7, male_label="Мальчики", female_label="Девочки"
+    ),
+    "U10": StandardCategory(
+        code="U10", button_label="U10", age_min=8, age_max=9, male_label="Мальчики", female_label="Девочки"
+    ),
+    "U12": StandardCategory(
+        code="U12", button_label="U12", age_min=10, age_max=11, male_label="Мальчики", female_label="Девочки"
+    ),
+    "U14": StandardCategory(
+        code="U14", button_label="U14", age_min=12, age_max=13, male_label="Юноши", female_label="Девушки"
+    ),
+    "U16": StandardCategory(
+        code="U16", button_label="U16", age_min=14, age_max=15, male_label="Юноши", female_label="Девушки"
+    ),
+    "SENIOR": StandardCategory(
+        code="SENIOR", button_label="Senior", age_min=16, age_max=None, male_label="Мужчины", female_label="Женщины"
+    ),
 }

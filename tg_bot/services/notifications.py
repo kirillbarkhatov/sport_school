@@ -1,12 +1,12 @@
 import logging
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from telegram import Bot
-from telegram.ext import ContextTypes
 from telegram.error import TelegramError
+from telegram.ext import ContextTypes
 
 from users.constants import (
     ADMIN_GROUP_NAME,
@@ -54,9 +54,7 @@ def get_manager_env_chat_ids() -> Sequence[str]:
 
 async def _fetch_group_chat_ids(group_name: str) -> list[int]:
     queryset = (
-        User.objects.filter(groups__name=group_name, tg_id__isnull=False)
-        .values_list("tg_id", flat=True)
-        .distinct()
+        User.objects.filter(groups__name=group_name, tg_id__isnull=False).values_list("tg_id", flat=True).distinct()
     )
     return await sync_to_async(list, thread_sensitive=True)(queryset)
 
@@ -72,7 +70,7 @@ async def _resolve_recipient_ids(
     for raw_id in env_ids:
         try:
             recipients.add(int(raw_id))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             logger.warning("Некорректный chat_id в настройках %s: %s", group_name, raw_id)
 
     for chat_id in await _fetch_group_chat_ids(group_name):
@@ -133,9 +131,7 @@ async def notify_coaches_bot(bot: Bot, message: str, reply_markup=None) -> None:
 
 
 async def notify_managers_bot(bot: Bot, message: str, reply_markup=None) -> None:
-    admin_ids = set(
-        await _resolve_recipient_ids(ADMIN_GROUP_NAME, get_admin_env_chat_ids())
-    )
+    admin_ids = set(await _resolve_recipient_ids(ADMIN_GROUP_NAME, get_admin_env_chat_ids()))
     manager_ids = await _resolve_recipient_ids(
         MANAGER_GROUP_NAME,
         get_manager_env_chat_ids(),

@@ -4,15 +4,15 @@ import hashlib
 import html
 import logging
 from dataclasses import dataclass
+from time import perf_counter
 from urllib.parse import urlsplit
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Max
 from django.urls import reverse
-from django.db import transaction
 from django.utils import timezone
-from time import perf_counter
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, TelegramError
@@ -399,7 +399,7 @@ def _build_group_table_payload(payload: dict[str, object]) -> GroupTablePayload 
         group_name = str(data.get("group_name") or "").strip()
 
     run_stage = _detect_run_stage(payload=payload, rows=rows)
-    is_single_run = all(int((row.get("runs_count") or 2)) <= 1 for row in rows)
+    is_single_run = all(int(row.get("runs_count") or 2) <= 1 for row in rows)
     message_text = _render_table_message(
         group_name=group_name,
         run_stage=run_stage,
@@ -429,7 +429,9 @@ def _detect_run_stage(*, payload: dict[str, object], rows: list[dict[str, object
     return 1
 
 
-def _render_table_message(*, group_name: str, run_stage: int, is_single_run: bool, rows: list[dict[str, object]]) -> str:
+def _render_table_message(
+    *, group_name: str, run_stage: int, is_single_run: bool, rows: list[dict[str, object]]
+) -> str:
     # Compact fixed-width view for Telegram channel posts.
     limits = (2, 3, 5, 5, 5, 7, 5)
     headers = ("Мс", "Ст№", "ФамИ", "Run 1", _strike_text("Run 2") if is_single_run else "Run 2", "Итог", "Инт.")
@@ -448,8 +450,7 @@ def _render_table_message(*, group_name: str, run_stage: int, is_single_run: boo
             )
         )
     header_cells = tuple(
-        _normalize(header, limit, align="left")
-        for header, limit in zip(headers, limits, strict=False)
+        _normalize(header, limit, align="left") for header, limit in zip(headers, limits, strict=False)
     )
 
     def _fmt(cells: tuple[str, ...]) -> str:
@@ -700,7 +701,11 @@ def _is_local_base_url(url: str) -> bool:
 
 def _publish_link_message(*, run: StreamRun, bot: Bot, link_payload: LinkPayload, force_new: bool) -> bool:
     chat_id = run.telegram_channel.chat_id
-    if not force_new and run.telegram_link_message_id is not None and run.telegram_link_last_hash == link_payload.message_hash:
+    if (
+        not force_new
+        and run.telegram_link_message_id is not None
+        and run.telegram_link_last_hash == link_payload.message_hash
+    ):
         return False
 
     if force_new and run.telegram_link_message_id is not None:
@@ -812,7 +817,9 @@ def _publish_bootstrap_state(*, run: StreamRun) -> None:
     if not settings.BOT_TOKEN:
         _set_last_error(run, "BOT_TOKEN is not configured")
         return
-    stream_output = run.external_response_json.get("stream_output") if isinstance(run.external_response_json, dict) else {}
+    stream_output = (
+        run.external_response_json.get("stream_output") if isinstance(run.external_response_json, dict) else {}
+    )
     if not isinstance(stream_output, dict):
         stream_output = {}
     upcoming_phase = str(stream_output.get("competition_phase") or "").strip().lower() == "upcoming"
