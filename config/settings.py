@@ -408,6 +408,11 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        "results": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
         "online_results.telemetry": {
             "handlers": ["online_results_telemetry_file"],
             "level": "INFO",
