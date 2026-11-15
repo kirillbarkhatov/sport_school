@@ -2,6 +2,12 @@
 set -euo pipefail
 umask 077
 
+expected="${1:-}"
+if [[ ! "$expected" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Usage: deploy_dev.sh <tested-commit-sha>" >&2
+  exit 1
+fi
+
 cd /srv/projects/sport_school
 exec 9>"$HOME/.sport-school-deploy.lock"
 flock -w 300 9
@@ -10,6 +16,10 @@ export GIT_TERMINAL_PROMPT=0
 export GIT_SSH_COMMAND='ssh -o BatchMode=yes'
 git fetch --quiet origin dev
 target="$(git rev-parse origin/dev)"
+if [ "$expected" != "$target" ]; then
+  printf 'Skipping %s because dev is now %s\n' "$expected" "$target"
+  exit 0
+fi
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/sport-school"
 state_file="$state_dir/deployed-dev"
 if [ -f "$state_file" ] && [ "$target" = "$(cat "$state_file")" ]; then

@@ -1,0 +1,25 @@
+{% extends 'school/base.html' %}
+{% block title %}{% if object %}{{ object.title }}{% else %}Новая трансляция{% endif %}{% endblock %}
+{% block content %}
+<div class="pt-3 pb-2 mb-3 border-bottom"><h2>{% if object %}Настройки: {{ object.title }}{% else %}Новая трансляция{% endif %}</h2></div>
+<form method="post" enctype="multipart/form-data" class="row g-3" style="max-width: 900px">
+    {% csrf_token %}
+    {% for field in form %}
+    <div class="{% if field.field.widget.input_type == 'checkbox' %}col-12 form-check ms-2{% elif field.name in 'poll_interval_sec idle_interval_sec finalize_timeout_sec finalize_max_missing' %}col-md-3{% else %}col-md-6{% endif %}">
+        {% if field.field.widget.input_type == 'checkbox' %}
+            {{ field }} <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {% else %}
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+        {% endif %}
+        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+        {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+    {% endfor %}
+    {% for error in form.non_field_errors %}<div class="col-12 text-danger">{{ error }}</div>{% endfor %}
+    <div class="col-12">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+        <a class="btn btn-link" href="{% if object %}{% url 'results:event_detail' object.pk %}{% else %}{% url 'results:event_list' %}{% endif %}">Отмена</a>
+    </div>
+</form>
+{% endblock %}

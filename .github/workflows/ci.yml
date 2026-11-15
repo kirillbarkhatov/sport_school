@@ -30,3 +30,41 @@ jobs:
             sleep 1
           done
           docker run --rm --network ss_test -e POSTGRES_HOST=ss_test_pg sport_school:test pytest
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+    concurrency:
+      group: sport-school-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy tested commit over SSH
+        env:
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_PORT: ${{ vars.SSH_PORT }}
+          SSH_USER: ${{ vars.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${SSH_HOST:?Missing SSH_HOST}" "${SSH_PORT:?Missing SSH_PORT}" "${SSH_USER:?Missing SSH_USER}"
+          : "${SSH_PRIVATE_KEY:?Missing SSH_PRIVATE_KEY}" "${SSH_KNOWN_HOSTS:?Missing SSH_KNOWN_HOSTS}"
+          [[ "$SSH_PORT" =~ ^[1-9][0-9]{0,4}$ ]]
+          (( SSH_PORT <= 65535 ))
+          umask 077
+          ssh_dir="$(mktemp -d)"
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          unset SSH_PRIVATE_KEY SSH_KNOWN_HOSTS
+          ssh -T -o BatchMode=yes -o ConnectTimeout=15 -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
+            -o UserKnownHostsFile="$ssh_dir/known_hosts" -i "$ssh_dir/key" \
+            -p "$SSH_PORT" -l "$SSH_USER" -- "$SSH_HOST" \
+            "bash -s -- $GITHUB_SHA" < scripts/deploy_dev.sh

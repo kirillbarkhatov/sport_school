@@ -1,0 +1,22 @@
+<script>
+(function () {
+    const root = document.getElementById("live-root");
+    if (!root) return;
+    let version = root.dataset.version;
+    const url = root.dataset.url;
+    async function refresh() {
+        if (document.hidden) return;
+        try {
+            const response = await fetch(url + "?v=" + encodeURIComponent(version), {cache: "no-store", credentials: "same-origin"});
+            if (response.status !== 200) return;
+            const html = await response.text();
+            const open = new Set([...root.querySelectorAll("details[open]")].map((el) => el.dataset.key));
+            root.innerHTML = html;
+            root.querySelectorAll("details").forEach((el) => { if (open.has(el.dataset.key)) el.open = true; });
+            version = response.headers.get("X-Results-Version") || version;
+        } catch (e) { /* сеть пропала — попробуем на следующем тике */ }
+    }
+    setInterval(refresh, 3000);
+    document.addEventListener("visibilitychange", refresh);
+})();
+</script>

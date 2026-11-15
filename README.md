@@ -6,7 +6,7 @@ CRM спортшколы: спортсмены, семьи и договоры, 
 **Стек:** Python 3.15 · Django 6.1 · PostgreSQL 18 · Celery 5.7 + Redis 7 · python-telegram-bot 22 ·
 Bootstrap 5.3 · Poetry · Docker Compose.
 
-Документация по отдельным подсистемам: [AI-анализ документов](docs/documents-ai.md).
+Документация по отдельным подсистемам: [онлайн-результаты](docs/results.md), [AI-анализ документов](docs/documents-ai.md).
 
 ---
 
@@ -42,12 +42,14 @@ docker run --rm --network ss_test -e POSTGRES_HOST=ss_test_pg sport_school:test 
 
 - `tests/test_smoke.py` — каждая страница под каждой ролью (гость, неподтверждённый, пользователь, тренер,
   менеджер, админ, суперпользователь) открывается без 500.
-- `api/tests.py` — онлайн-результаты (вебхук, трансляции, публикация в Telegram).
+- `results/tests/` — онлайн-результаты: ядро (разбор, места, фокус) и интеграция (воркер, страницы, Telegram).
+- `api/tests.py` — старая интеграция с online_results_script (вебхук, трансляции, публикация в Telegram).
 
 ### Docker Compose
 
 Сервисы: `postgres` (18), `redis` (7), `migrate` (одноразовый: проверка БД → миграции → collectstatic),
-`web` (gunicorn), `bot`, `celery_worker_docs`, `celery_worker_default` (со встроенным beat).
+`web` (gunicorn), `bot`, `celery_worker_docs`, `celery_worker_default` (со встроенным beat),
+`results_worker` (опрос источников онлайн-результатов).
 
 Нужны `.env` (см. `.env.sample`) и `.env.postgres` (см. `.env.postgres.example`).
 
@@ -94,15 +96,19 @@ Redis остаётся на 7; Tailwind пробуем на отдельной �
 
 ### Этап 2. `results` — новый сервис онлайн-результатов (вместо online_results_script)
 
-- [ ] Фикстуры реальных протоколов + эталонные результаты (golden-тесты)
-- [ ] Модели: `ResultsEvent`, `Source`, `Group`, `Entry` (FK → `school.Athlete`), `RunResult` (мс + статус), `EventLog`, `RawSnapshot`
-- [ ] `parsing/`: адаптеры источников (Google Sheets, XLSX, загрузка файла, ручной ввод), разметка колонок в БД, dry-run
-- [ ] `engine/`: чистые функции `state + now → места, фаза, фокус, прогноз` — единственное место логики заездов
-- [ ] Воркер (management command + сервис в compose): подхват активных трансляций после рестарта, адаптивный интервал опроса
-- [ ] Запись `RawSnapshot` и команда `results_replay` для офлайн-воспроизведения трансляции
-- [ ] Веб: live-страница и админка трансляции (старт/стоп, предпросмотр, ручные правки)
-- [ ] Telegram: закреплённое live-сообщение, итоги групп, сводка; очередь с лимитами
-- [ ] Связка участников протокола со спортсменами школы
+Подробно: [docs/results.md](docs/results.md).
+
+- [x] Фикстуры протоколов и эталонные тесты — синтетические, во всех известных форматах (A, A-lite, B, старый)
+- [ ] Добавить в фикстуры 2–3 реальных протокола (обезличенных) — нужны выгрузки XLSX
+- [x] Модели: `ResultsEvent`, `ResultGroup`, `ResultEntry` (FK → `school.Athlete`, ручные правки), `EventLog`, `RawSnapshot`, `TelegramPublication`
+- [x] Ядро без Django: время в мс + статус, разбор с автоопределением шапки и ручной разметкой колонок, предпросмотр
+- [x] `engine`: места, фазы, автофинализация, фокус, прогноз старта, аналитика — единственное место логики заездов
+- [x] Источники: Google Таблица, XLSX на Drive, загруженный XLSX, ручной ввод
+- [x] Воркер `results_worker` (сервис в compose): подхват после рестарта, адаптивный интервал, backoff, автозавершение
+- [x] `RawSnapshot` + `manage.py results_replay` для офлайн-воспроизведения
+- [x] Пульт трансляции и live-страницы (для сотрудников и публичная), обновление по версии состояния
+- [x] Telegram: таблица текущей группы, последний финиш, ссылка; очередь без дублей
+- [x] Связка участников протокола со спортсменами школы
 - [ ] 1–2 соревнования параллельно со старым сервисом, сравнение
 - [ ] Удаление онлайн-результатов из `api/`, архив online_results_script
 
@@ -132,8 +138,8 @@ Redis остаётся на 7; Tailwind пробуем на отдельной �
 ### Бэклог
 
 - [ ] Renovate или Dependabot
-- [ ] CI: lint + тесты на PR, деплой только после зелёных тестов
-- [x] Деплой на сервере через systemd и Git по SSH, без `docker compose down`
+- [x] Тесты на PR и пушах в dev, деплой после зелёных тестов
+- [x] Деплой через GitHub Actions по SSH, без `docker compose down`
 - [ ] Sentry / GlitchTip для ошибок (облачный Sentry может быть недоступен из РФ)
 - [ ] Бэкапы Postgres по расписанию (например, `pg_dump` в Object Storage)
 - [ ] Squash старых миграций `school` (сейчас проходят, но их 50)
@@ -144,24 +150,16 @@ Redis остаётся на 7; Tailwind пробуем на отдельной �
 
 ## Деплой этой ветки (переезд на Postgres 18)
 
-На продакшене таймер systemd проверяет `origin/dev` раз в минуту. Деплой выполняется на
-`home-server-2`, куда GitHub-hosted runner не может подключиться по локальному адресу.
-GitHub Actions отдельно запускает тесты с PostgreSQL 18.
+Пуш в `dev` запускает тесты в GitHub Actions. После их успешного прохождения workflow
+подключается к `home-server-2` по SSH и разворачивает проверенный коммит. Настройки
+доступа хранятся в GitHub Environment `dev`:
 
-На сервере от пользователя `kb`:
+- Переменные `SSH_HOST`, `SSH_PORT`, `SSH_USER`.
+- Секреты `SSH_PRIVATE_KEY` и `SSH_KNOWN_HOSTS`. Для нестандартного порта запись
+  `known_hosts` начинается с `[хост]:порт`.
 
-```bash
-install -D -m 0755 scripts/deploy_dev.sh ~/.local/bin/sport-school-deploy
-install -D -m 0644 deploy/systemd/sport-school-deploy.service ~/.config/systemd/user/sport-school-deploy.service
-install -D -m 0644 deploy/systemd/sport-school-deploy.timer ~/.config/systemd/user/sport-school-deploy.timer
-sudo loginctl enable-linger kb
-systemctl --user daemon-reload
-systemctl --user enable --now sport-school-deploy.timer
-journalctl --user -u sport-school-deploy.service -n 30
-```
-
-Скрипт проверяет, что рабочая база PostgreSQL 18 уже инициализирована, прежде чем обновлять
-код и контейнеры. Успешно развёрнутый коммит сохраняется в
+Скрипт проверяет, что PostgreSQL 18 инициализирован и проверенный коммит остаётся вершиной
+`dev`. После успешной проверки HTTPS SHA сохраняется в
 `~/.local/state/sport-school/deployed-dev`.
 
 **До мержа**, на сервере в `/srv/projects/sport_school`:

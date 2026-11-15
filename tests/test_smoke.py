@@ -39,6 +39,8 @@ STATIC_PAGES = [
     "online-results-stream-runs",
     "online-results-webhook-events",
     "online-results-live",
+    "results:event_list",
+    "results:event_create",
 ]
 
 # Страницы с объектом: (имя URL, функция sample_data -> kwargs).

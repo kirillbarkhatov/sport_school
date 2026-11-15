@@ -175,3 +175,4 @@ staticfiles/
 .ruff_cache/
 !.env.sample
 backups/
+secrets/

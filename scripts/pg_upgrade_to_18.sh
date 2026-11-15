@@ -86,11 +86,11 @@ if [ "$OLD_COUNTS" != "$NEW_COUNTS" ]; then
   echo "Число строк не совпадает — стек НЕ поднимаю. Разберитесь вручную." >&2; exit 1
 fi
 
-echo "==> 5. Права на logs/ и staticfiles/ (uid $APP_UID)"
-mkdir -p logs staticfiles
+echo "==> 5. Права на logs/, staticfiles/ и media/ (uid $APP_UID)"
+mkdir -p logs staticfiles media secrets
 docker run --rm --network none --user 0 --entrypoint chown \
-  -v "$PWD/logs":/logs -v "$PWD/staticfiles":/staticfiles \
-  postgres:18 -R "$APP_UID:$APP_UID" /logs /staticfiles
+  -v "$PWD/logs":/logs -v "$PWD/staticfiles":/staticfiles -v "$PWD/media":/media \
+  postgres:18 -R "$APP_UID:$APP_UID" /logs /staticfiles /media
 
 echo "==> 6. Поднимаю стек"
 build_option=--build
