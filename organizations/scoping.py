@@ -169,3 +169,24 @@ def _m2m_same_organization(sender, instance, action, reverse, model, pk_set, **_
     foreign = model._base_manager.filter(pk__in=pk_set).exclude(organization_id=instance.organization_id)
     if instance.organization_id is not None and foreign.exclude(organization__isnull=True).exists():
         raise ValidationError("Нельзя связать записи разных организаций.")
+
+
+def users_in_organization(queryset=None, organization=None):
+    """CRM-выборка учётных записей (User — платформенная модель, OrgScope к ней не применяется, D13).
+
+    ORGS_ENFORCE_SCOPING=False → queryset без изменений (R1). True → только пользователи с членством
+    (любого статуса) в текущей организации; без организации — пусто. Поиск учётной записи для входа
+    (по tg_id, токену) остаётся платформенным и этим помощником не фильтруется.
+    """
+    from django.contrib.auth import get_user_model
+
+    from .models import Membership
+
+    qs = queryset if queryset is not None else get_user_model().objects.all()
+    if not scoping_enabled():
+        return qs
+    memberships = Membership.objects.all()
+    # организация вычисляется при выполнении запроса (OrgScope), без обращения к базе при построении —
+    # помощник безопасно вызывать из асинхронного кода бота
+    memberships = memberships.filter(organization=organization) if organization else memberships.filter(OrgScope())
+    return qs.filter(pk__in=memberships.values("user_id"))

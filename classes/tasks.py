@@ -13,6 +13,7 @@ from classes.services import ensure_week_ahead_schedule
 from classes.telegram import build_main_actions_keyboard, format_class_summary
 from config.settings import BOT_TOKEN
 from organizations.context import for_each_organization
+from organizations.scoping import users_in_organization
 from school.choices import ClassCoachStatus
 from school.models import Class
 from tg_bot.services.notifications import notify_coaches_bot
@@ -113,12 +114,14 @@ def send_training_reminders_task() -> int:
     bot = Bot(token=BOT_TOKEN)
     sent_messages = 0
 
-    users = User.objects.filter(
-        is_active=True,
-        is_approved=True,
-        training_reminders_enabled=True,
-        tg_id__isnull=False,
-    ).order_by("id")
+    users = users_in_organization(
+        User.objects.filter(
+            is_active=True,
+            is_approved=True,
+            training_reminders_enabled=True,
+            tg_id__isnull=False,
+        ).order_by("id")
+    )
 
     for user in users:
         trainings = get_upcoming_trainings_for_user(user, until=end_of_day)

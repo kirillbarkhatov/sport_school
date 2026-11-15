@@ -439,3 +439,103 @@ def test_requests_do_not_leak_context(enforced):
     assert not context.context_is_set()
     assert context.get_current_organization() is None
     assert NO_ORGANIZATION is not None
+
+
+# --- D13: учётные записи в CRM-выборках и API ограничены членством в текущей организации ---------------
+
+
+def _only_member_of(email, organization, role=None):
+    user = User.objects.create(email=email, is_approved=True)
+    Membership.objects.filter(user=user).delete()  # синхронизация создала членство в ksclub
+    m = Membership.objects.create(user=user, organization=organization, status=Membership.Status.ACTIVE)
+    if role:
+        RoleAssignment.objects.create(membership=m, role=OrgRole.objects.get(code=role))
+    return user
+
+
+@pytest.fixture
+def accounts(enforced, settings):
+    """Режим memberships: владельцы обеих организаций, участники только одной и обеих."""
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    users = {
+        "owner_KS": _only_member_of("owner-ks@example.com", enforced.orgs["KS"], OrgRole.OWNER),
+        "owner_OT": _only_member_of("owner-ot@example.com", enforced.orgs["OT"], OrgRole.OWNER),
+        "member_KS": _only_member_of("member-ks@example.com", enforced.orgs["KS"]),
+        "member_OT": _only_member_of("member-ot@example.com", enforced.orgs["OT"]),
+        "both": _only_member_of("both@example.com", enforced.orgs["KS"]),
+    }
+    Membership.objects.create(user=users["both"], organization=enforced.orgs["OT"], status=Membership.Status.ACTIVE)
+    return SimpleNamespace(**vars(enforced), users=users)
+
+
+def _own_and_foreign(accounts, tag):
+    own = {accounts.users[f"owner_{tag}"], accounts.users[f"member_{tag}"], accounts.users["both"]}
+    foreign = {accounts.users[f"owner_{OTHER[tag]}"], accounts.users[f"member_{OTHER[tag]}"]}
+    return own, foreign
+
+
+@pytest.mark.parametrize("tag", ["KS", "OT"])
+def test_d13_api_user_list_only_accounts_of_current_organization(accounts, tag):
+    response = client_for(accounts.users[f"owner_{tag}"], tag).get(reverse("api:user-list"))
+    assert response.status_code == 200
+    body = response.content.decode()
+    own, foreign = _own_and_foreign(accounts, tag)
+    assert all(user.email in body for user in own)
+    assert not any(user.email in body for user in foreign)
+
+
+@pytest.mark.parametrize("tag", ["KS", "OT"])
+def test_d13_api_user_detail_of_foreign_account_is_not_found(accounts, tag):
+    client = client_for(accounts.users[f"owner_{tag}"], tag)
+    own, foreign = _own_and_foreign(accounts, tag)
+    for user in own:
+        assert client.get(reverse("api:user-detail", kwargs={"pk": user.pk})).status_code == 200
+    for user in foreign:
+        assert client.get(reverse("api:user-detail", kwargs={"pk": user.pk})).status_code == 404
+        assert (
+            client.patch(
+                reverse("api:user-detail", kwargs={"pk": user.pk}),
+                {"first_name": "Взлом"},
+                content_type="application/json",
+            ).status_code
+            == 404
+        )
+        user.refresh_from_db()
+        assert user.first_name != "Взлом"
+
+
+@pytest.mark.parametrize("tag", ["KS", "OT"])
+def test_d13_owner_has_no_api_access_in_foreign_organization(accounts, tag):
+    client = client_for(accounts.users[f"owner_{tag}"], OTHER[tag])
+    assert client.get(reverse("api:user-list")).status_code == 403
+    assert client.get(reverse("api:person-list")).status_code == 403
+
+
+@pytest.mark.parametrize("tag", ["KS", "OT"])
+def test_d13_crm_user_selections_follow_organization(accounts, tag):
+    from asgiref.sync import async_to_sync
+
+    from organizations.scoping import users_in_organization
+    from tg_bot.handlers.manager import _load_user_by_id, _search_users
+
+    own, foreign = _own_and_foreign(accounts, tag)
+    with organization_context(accounts.orgs[tag]):
+        selected = set(users_in_organization())
+        found = set(async_to_sync(_search_users)("", limit=1000))
+        loaded_foreign = [async_to_sync(_load_user_by_id)(user.pk) for user in foreign]
+    assert own <= selected and not (foreign & selected)
+    assert own <= found and not (foreign & found)
+    assert loaded_foreign == [None] * len(foreign)
+    with organization_context(NO_ORGANIZATION):
+        assert not users_in_organization().exists()
+
+
+def test_d13_flag_off_keeps_r1_user_lists(accounts, settings):
+    from organizations.scoping import users_in_organization
+
+    settings.ORGS_ENFORCE_SCOPING = False
+    settings.ORGS_ROLES_SOURCE = "legacy"
+    with organization_context(accounts.orgs["KS"]):
+        assert set(accounts.users.values()) <= set(users_in_organization())
+    body = client_for(accounts.superuser, "KS").get(reverse("api:user-list")).content.decode()
+    assert all(user.email in body for user in accounts.users.values())
