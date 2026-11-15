@@ -11,9 +11,23 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      - id: check-yaml  # строгая проверка всех YAML, кроме staging-compose (тег !override)
+        exclude: ^docker-compose\.staging\.yml$
       - id: check-yaml
+        name: check yaml (staging compose, только синтаксис)
+        args: [--unsafe]
+        files: ^docker-compose\.staging\.yml$
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=1024]
       - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: compose-config
+        name: docker compose config (прод и staging)
+        entry: scripts/check_compose_config.sh
+        language: script
+        files: ^docker-compose(\.staging)?\.yml$
+        pass_filenames: false

@@ -312,7 +312,13 @@ def validate_analyzer_response(data: dict[str, Any]) -> AnalyzerBatchResult:
     )
 
 
+class AnalyzerDisabledError(RuntimeError):
+    """Вызов AI-анализатора запрещён (STAGING_MODE)."""
+
+
 def call_docs_analyzer(*, payload: dict[str, Any]) -> AnalyzerBatchResult:
+    if getattr(settings, "STAGING_MODE", False):
+        raise AnalyzerDisabledError("STAGING_MODE: вызовы AI-анализатора документов отключены.")
     base_url = getattr(settings, "DOCS_ANALYZER_URL", "http://192.168.0.4:8001").rstrip("/")
     timeout = float(getattr(settings, "DOCS_ANALYZER_TIMEOUT_SEC", 30))
     url = f"{base_url}/v1/analyze"

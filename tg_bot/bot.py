@@ -91,6 +91,9 @@ async def log_unmatched_callback(update: Update, context):
 
 
 def build_application():
+    from organizations.context import activate_default_organization
+
+    activate_default_organization()  # пока бот один на «ksclub»; выбор организации — R3-1
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     application.add_handler(
         TypeHandler(Update, track_audience_entry, block=False),
@@ -160,9 +163,20 @@ def build_application():
     return application
 
 
+def staging_guard() -> bool:
+    """На staging бот не запускается: иначе он перехватит апдейты боевого бота и начнёт писать людям."""
+    from django.conf import settings
+
+    if getattr(settings, "STAGING_MODE", False):
+        print("STAGING_MODE: Telegram-бот на staging не запускается")
+        return True
+    return False
+
+
 if __name__ == "__main__":
-    print("запуск бота")
-    build_application().run_polling()
+    if not staging_guard():
+        print("запуск бота")
+        build_application().run_polling()
 
 
 # import logging
