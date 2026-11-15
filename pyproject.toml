@@ -55,5 +55,5 @@ ignore = ["E501", "DJ001", "DJ012"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings_test"
-python_files = ["tests.py", "test_*.py", "tests/*.py"]
+python_files = ["tests.py", "test_*.py"]
 addopts = "-ra --reuse-db"
