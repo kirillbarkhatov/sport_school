@@ -13,6 +13,7 @@
 #   6. Поднимает весь стек.
 # Старый том не удаляется: откат — вернуть старый docker-compose.yml (git checkout) и docker compose up -d.
 set -euo pipefail
+umask 077
 
 PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
 OLD_VOLUME="${OLD_VOLUME:-${PROJECT}_postgres_data}"
@@ -34,13 +35,13 @@ compose() { docker compose -p "$PROJECT" "$@"; }
 count_rows() {  # $1 — контейнер
   for t in $CHECK_TABLES; do
     printf '%s=' "$t"
-    docker exec "$1" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM $t" 2>/dev/null || echo "нет"
+    docker exec "$1" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT count(*) FROM $t" || return 1
   done
 }
 
 wait_ready() {  # $1 — контейнер
   for _ in $(seq 1 60); do
-    docker exec "$1" pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 && return 0
+    docker exec "$1" pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 && return 0
     sleep 1
   done
   echo "Postgres в $1 не поднялся" >&2; exit 1
@@ -50,7 +51,10 @@ echo "==> 1. Останавливаю приложение и старый Postg
 compose stop web bot celery_worker_default celery_worker_docs migrate 2>/dev/null || true
 docker stop "${PROJECT}-celery_beat-1" 2>/dev/null || true
 # Старый контейнер Postgres удаляем (том остаётся), чтобы compose создал новый на postgres18_data
-docker rm -f "${PROJECT}-postgres-1" 2>/dev/null || true
+if docker container inspect "${PROJECT}-postgres-1" >/dev/null 2>&1; then
+  docker stop -t 45 "${PROJECT}-postgres-1" >/dev/null
+  docker rm "${PROJECT}-postgres-1" >/dev/null
+fi
 
 echo "==> 2. Дамп со старого тома $OLD_VOLUME ($OLD_IMAGE)"
 mkdir -p "$BACKUP_DIR"
@@ -72,7 +76,7 @@ EXISTING="$(docker exec "$NEW_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_
 if [ "$EXISTING" != "0" ]; then
   echo "В новой БД уже есть данные — восстановление пропущено (проверьте вручную)." >&2; exit 1
 fi
-docker exec -i "$NEW_CONTAINER" pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error < "$DUMP_FILE"
+docker exec -i "$NEW_CONTAINER" pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error --single-transaction < "$DUMP_FILE"
 
 echo "==> 4. Сверка числа строк"
 NEW_COUNTS="$(count_rows "$NEW_CONTAINER")"
@@ -84,9 +88,15 @@ fi
 
 echo "==> 5. Права на logs/ и staticfiles/ (uid $APP_UID)"
 mkdir -p logs staticfiles
-docker run --rm -v "$PWD":/w alpine chown -R "$APP_UID:$APP_UID" /w/logs /w/staticfiles
+docker run --rm --network none --user 0 --entrypoint chown \
+  -v "$PWD/logs":/logs -v "$PWD/staticfiles":/staticfiles \
+  postgres:18 -R "$APP_UID:$APP_UID" /logs /staticfiles
 
 echo "==> 6. Поднимаю стек"
-compose up -d --build --remove-orphans
+build_option=--build
+if [ "${SKIP_BUILD:-0}" = "1" ]; then
+  build_option=--no-build
+fi
+compose up -d "$build_option" --remove-orphans --wait --wait-timeout 120
 compose ps
 echo "Готово. Старый том $OLD_VOLUME сохранён; удалить после проверки: docker volume rm $OLD_VOLUME"

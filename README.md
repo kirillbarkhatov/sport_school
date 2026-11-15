@@ -144,9 +144,9 @@ Redis остаётся на 7; Tailwind пробуем на отдельной �
 
 ## Деплой этой ветки (переезд на Postgres 18)
 
-Мерж в `dev` автоматически деплоится на сервер (`.github/workflows/ci.yml`). Новый compose использует **новый
-том** `postgres18_data`, поэтому после деплоя `migrate` остановится на пустой базе (защита), и сайт будет
-недоступен, пока не восстановлен дамп. С базой ~25 МБ это пара минут.
+Пуш в `dev` запускает деплой (`.github/workflows/ci.yml`). Workflow проверяет, что рабочая
+база уже переведена на PostgreSQL 18 и содержит миграции, прежде чем пересоздавать контейнеры.
+При первом переходе на 18 запустите скрипт переноса на сервере, затем перезапустите workflow.
 
 **До мержа**, на сервере в `/srv/projects/sport_school`:
 
@@ -161,10 +161,11 @@ mv .dockerignore ~/sport_school-dockerignore.bak         # файл теперь
 - `CELERY_RESULT_BACKEND` больше не используется;
 - при необходимости задать `ALLOWED_HOSTS` явно (по умолчанию: `ksclub.ru`, `www.ksclub.ru`, хост вебхука, localhost).
 
-**После мержа** (когда CI отработал):
+**После мержа** на сервере (первый workflow остановится на проверке версии БД):
 
 ```bash
 cd /srv/projects/sport_school
+git pull --ff-only origin dev
 ./scripts/pg_upgrade_to_18.sh
 curl -s http://127.0.0.1:8010/healthz/    # {"status": "ok"}
 ```

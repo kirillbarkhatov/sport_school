@@ -3,8 +3,11 @@ name: Django CI/CD
 on:
   push:
     branches: [dev]
-  pull_request:
-    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: sport-school-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -14,19 +17,38 @@ jobs:
       - name: Install sshpass
         run: sudo apt-get update && sudo apt-get install -y sshpass
 
-      - name: Deploy to Server
+      - name: Deploy to server
         env:
-          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SERVER_IP: ${{ secrets.SERVER_IP }}
         run: |
-          sshpass -p "$SSH_PASSWORD" ssh -T -o StrictHostKeyChecking=no ${SSH_USER}@${SERVER_IP} << 'EOF'
+          known_hosts="$(mktemp)"
+          printf '%s\n' 'sport-school-production ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBpKWyRjKAx1puI5+dXxfz3f3LVwbjCMHVBFAHM+iKv4' > "$known_hosts"
+          sshpass -e ssh -T -o ConnectTimeout=10 \
+            -o StrictHostKeyChecking=yes -o HostKeyAlias=sport-school-production \
+            -o UserKnownHostsFile="$known_hosts" "${SSH_USER}@${SERVER_IP}" bash -se <<'DEPLOY'
+          set -o pipefail
+          cd /srv/projects/sport_school
+          exec 9>"$HOME/.sport-school-deploy.lock"
+          flock -w 300 9
 
-            cd /srv/projects/sport_school  # Убедитесь, что путь правильный!
+          if ! docker exec sport_school-postgres-1 sh -ec '
+            psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
+              "SELECT current_setting('\''server_version_num'\'')::int >= 180000 AND EXISTS (SELECT 1 FROM django_migrations)" |
+            grep -qx t
+          '; then
+            echo "Production requires an initialized PostgreSQL 18 database. See the deployment section in README.md." >&2
+            exit 1
+          fi
 
-            docker compose down
-            git pull
-            docker compose up -d --build --remove-orphans
+          git fetch origin dev
+          git merge --ff-only origin/dev
+          docker compose config --quiet
 
-            docker image prune -f
-          EOF
+          docker compose build web
+          docker compose up -d --no-build --remove-orphans --wait --wait-timeout 120
+          curl --fail --silent --show-error --max-time 10 \
+            --resolve ksclub.ru:443:127.0.0.1 https://ksclub.ru/healthz/
+          docker compose ps
+          DEPLOY

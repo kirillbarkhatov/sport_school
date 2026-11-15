@@ -9,6 +9,7 @@ x-app: &app
   restart: always
   volumes:
     - ./logs:/app/logs
+    - ./media:/app/media
 
 x-app-depends: &app-depends
   migrate:
