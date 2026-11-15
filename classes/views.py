@@ -247,9 +247,11 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
         athlete_ids = class_instance.enrollments.values_list("athlete_id", flat=True)
         person_ids = list(Athlete.objects.filter(id__in=athlete_ids).values_list("person_id", flat=True))
         family_ids = list(FamilyMember.objects.filter(person_id__in=person_ids).values_list("family_id", flat=True))
+        # Пользователь связан с семьёй через свою Person (поле User.family удалено в users.0005)
+        family_person_ids = FamilyMember.objects.filter(family_id__in=family_ids).values_list("person_id", flat=True)
 
         return (
-            User.objects.filter(models.Q(family_id__in=family_ids) | models.Q(person_id__in=person_ids))
+            User.objects.filter(models.Q(person_id__in=family_person_ids) | models.Q(person_id__in=person_ids))
             .filter(is_approved=True)
             .distinct()
         )
