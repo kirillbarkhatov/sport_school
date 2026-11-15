@@ -197,6 +197,12 @@ def push_membership_to_legacy(membership: Membership) -> None:
     if organization is None or membership.organization_id != organization.pk:
         return
     user = membership.user
+    if membership.status == Membership.Status.LEFT:
+        # выпускник: с доступом к истории is_approved не снимается (без неявного отзыва), без него — снимается
+        from .alumni import history_access_enabled
+
+        if history_access_enabled(organization):
+            return
     approved = membership.status == Membership.Status.ACTIVE
     if user.is_approved != approved:
         with _sync_guard():

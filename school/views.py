@@ -19,6 +19,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
+from organizations.externals import EXTERNAL_FILTER_PARAM, apply_external_filter
 from organizations.permissions import authorize, is_privileged  # noqa: F401
 from school.competition_groups import (
     build_manual_group_name,
@@ -286,16 +287,19 @@ class AthleteListView(ApprovedUserRequiredMixin, ListView):
     model = Athlete
 
     def get_queryset(self):
-        return (
+        return apply_external_filter(
             get_athlete_queryset_for_user(self.request.user)
             .select_related("person")
             .prefetch_related("groups_athletes")
-            .order_by("person__surname", "person__name")
+            .order_by("person__surname", "person__name"),
+            self.request,
+            "person__",
         )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
+        context["external_filter"] = self.request.GET.get(EXTERNAL_FILTER_PARAM, "")
         context["level_choices"] = Athlete.LEVEL_CHOICES
         context["groups"] = get_group_queryset_for_user(user).prefetch_related("athletes").order_by("name")
         return context
@@ -313,6 +317,7 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
             .select_related("person", "person__club")
             .prefetch_related(Prefetch("groups_athletes", queryset=Group.objects.order_by("name")))
         )
+        queryset = apply_external_filter(queryset, self.request, "person__")
         club_id = self.request.GET.get("club")
         if club_id:
             queryset = queryset.filter(person__club_id=club_id)
@@ -330,6 +335,7 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["order"] = self.request.GET.get("order") or ""
+        context["external_filter"] = self.request.GET.get(EXTERNAL_FILTER_PARAM, "")
         context["clubs"] = Club.objects.order_by("name")
         context["selected_club"] = self.request.GET.get("club") or ""
         context["can_use_extended_filters"] = _is_extended_athlete_filters_user(self.request.user)

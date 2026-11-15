@@ -190,3 +190,28 @@ def users_in_organization(queryset=None, organization=None):
     # помощник безопасно вызывать из асинхронного кода бота
     memberships = memberships.filter(organization=organization) if organization else memberships.filter(OrgScope())
     return qs.filter(pk__in=memberships.values("user_id"))
+
+
+def legacy_results_allowed() -> bool:
+    """Наследие online_results_script (api.StreamRun, WebhookEvent, PublicStreamAccess) принадлежит ksclub (D15).
+
+    Флаг выключен — как в R1. Включён — только в организации по умолчанию; в других организациях,
+    без организации и на чужом хосте старые интерфейсы и ссылки недоступны.
+    """
+    if not scoping_enabled():
+        return True
+    from .migration_utils import default_slug
+
+    organization = scope_organization()
+    return organization is not None and organization.slug == default_slug()
+
+
+class LegacyResultsOrganizationMixin:
+    """Для представлений наследия: вне ksclub при включённой изоляции — 404."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if not legacy_results_allowed():
+            from django.http import Http404
+
+            raise Http404("Старые трансляции доступны только в организации по умолчанию.")
+        return super().dispatch(request, *args, **kwargs)

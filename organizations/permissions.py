@@ -101,7 +101,12 @@ def has_site_access(user, organization=None) -> bool:
         return False
     if roles_source() == LEGACY:
         return bool(user.is_approved or user.is_staff or user.is_superuser)
-    return active_membership(user, organization) is not None
+    if active_membership(user, organization) is not None:
+        return True
+    # выпускник: «ушёл» + настройка организации — просмотр своей истории (изменения режет HistoryReadOnlyMiddleware)
+    from .alumni import history_only_membership
+
+    return history_only_membership(user, _current_organization(organization)) is not None
 
 
 def authorize(user, action: str, obj=None, organization=None) -> bool:

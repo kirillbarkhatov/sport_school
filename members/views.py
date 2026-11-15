@@ -17,8 +17,10 @@ from bot.models import TelegramParticipant
 from members.models import PersonDedupJob, PersonDuplicateCluster, PersonMergeRedirect
 from members.services import apply_cluster_merge, build_cluster_payload, build_job_payload
 from members.tasks import run_person_dedup_job_task
+from organizations.accounts import set_user_approval
+from organizations.externals import EXTERNAL_FILTER_PARAM, apply_external_filter
 from organizations.permissions import authorize, is_privileged  # noqa: F401
-from organizations.scoping import users_in_organization
+from organizations.scoping import scoping_enabled, users_in_organization
 from school.forms import (
     AthleteContractForm,
     ExistingFamilyMemberFormSet,
@@ -191,6 +193,7 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
             .exclude(id__in=redirected_sources)
             .prefetch_related("familymember_set__family", "linked_users")
         )
+        qs = apply_external_filter(qs, self.request)
         club_id = self.request.GET.get("club")
         if club_id:
             qs = qs.filter(club_id=club_id)
@@ -202,6 +205,7 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
         context["can_manage_people"] = can_manage
         context["clubs"] = Club.objects.order_by("name")
         context["selected_club"] = self.request.GET.get("club") or ""
+        context["external_filter"] = self.request.GET.get(EXTERNAL_FILTER_PARAM, "")
         if can_manage:
             context["families"] = list(Family.objects.order_by("family_name"))
             context["relation_choices"] = FamilyMember.FAMILY_RELATION
@@ -584,9 +588,8 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
         if user.person_id != person.id:
             user.person = person
             user_updates.append("person")
-        if not user.is_approved:
-            user.is_approved = True
-            user_updates.append("is_approved")
+        if scoping_enabled() or not user.is_approved:  # R1: только если не подтверждён; иначе — членство
+            user_updates.extend(set_user_approval(user, True))
         if user_updates:
             user.save(update_fields=user_updates)
 

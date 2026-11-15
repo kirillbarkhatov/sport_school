@@ -498,7 +498,7 @@ def test_d13_api_user_detail_of_foreign_account_is_not_found(accounts, tag):
                 {"first_name": "Взлом"},
                 content_type="application/json",
             ).status_code
-            == 404
+            in (403, 404)  # запись глобальной учётки закрыта для CRM-ролей (D16) раньше фильтра (D13)
         )
         user.refresh_from_db()
         assert user.first_name != "Взлом"
