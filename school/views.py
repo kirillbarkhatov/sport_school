@@ -19,6 +19,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from school.competition_groups import (
     build_manual_group_name,
     ensure_competition_scoring_groups_from_analysis,
@@ -78,8 +79,7 @@ from school.tasks import (
     monitor_athlete_document_analysis_status,
     rebind_unbound_competition_documents_task,
 )
-from users.constants import ADMIN_GROUP_NAME, COACH_GROUP_NAME, MANAGER_GROUP_NAME
-from users.mixins import ApprovedUserRequiredMixin
+from users.mixins import ApprovedUserRequiredMixin, StaffAreaRequiredMixin, staff_area_required
 from users.utils import (
     ensure_user_athlete_links,
     get_athlete_queryset_for_user,
@@ -97,14 +97,11 @@ KANAEV_CLUB_NAME = "Канаев Ски Клаб"
 
 
 def _is_regular_person_user(user) -> bool:
-    return bool(user and user.is_authenticated and not user.is_staff and not user.is_superuser and user.person_id)
+    return bool(user and user.is_authenticated and not is_privileged(user) and user.person_id)
 
 
 def _is_extended_athlete_filters_user(user) -> bool:
-    if user.is_staff or user.is_superuser:
-        return True
-    role_names = {ADMIN_GROUP_NAME, COACH_GROUP_NAME, MANAGER_GROUP_NAME}
-    return user.groups.filter(name__in=role_names).exists()
+    return authorize(user, "athletes.extended_filters")
 
 
 def _can_manage_athlete_certificates(user) -> bool:
@@ -230,7 +227,7 @@ class IndexView(ApprovedUserRequiredMixin, TemplateView):
         classes_qs = get_class_queryset_for_user(user)
 
         context.update(
-            family_count=len(user.get_accessible_family_ids()) if not user.is_staff else Family.objects.count(),
+            family_count=len(user.get_accessible_family_ids()) if not is_privileged(user) else Family.objects.count(),
             person_count=person_qs.count(),
             athlete_count=athlete_qs.count(),
             group_count=group_qs.count(),
@@ -394,7 +391,7 @@ class AthleteSimpleListView(ApprovedUserRequiredMixin, ListView):
 def edit_athlete(request, athlete_id):
     athlete = get_object_or_404(Athlete, id=athlete_id)
 
-    if not request.user.is_staff and not request.user.is_superuser:
+    if not is_privileged(request.user):
         allowed = get_athlete_queryset_for_user(request.user)
         if not allowed.filter(id=athlete.id).exists():
             if request.user.is_approved:
@@ -459,7 +456,7 @@ class AthleteCompactEditView(ApprovedUserRequiredMixin, View):
 
     def get_athlete(self, request, pk):
         athlete = get_object_or_404(Athlete, pk=pk)
-        if request.user.is_staff or request.user.is_superuser:
+        if is_privileged(request.user):
             return athlete
         allowed = get_available_athlete_queryset_for_user(request.user, ensure_family_links=True)
         if allowed.filter(id=athlete.id).exists():
@@ -876,7 +873,7 @@ def _get_visible_competition_entries(user, competition: Competition, available_a
         "athlete__person",
         "athlete__person__club",
     )
-    if user.is_staff or user.is_superuser:
+    if is_privileged(user):
         return base_qs
 
     coach_club_ids = get_coach_club_ids_for_user(user)
@@ -980,7 +977,7 @@ def _standard_u_category_payload(competition: Competition | None) -> list[dict[s
     return payload
 
 
-class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
+class CompetitionCreateUpdateView(StaffAreaRequiredMixin, View):
     template_name = "competitions/competition_form.html"
 
     def get_object(self, pk):
@@ -1117,7 +1114,7 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
         return render(request, self.template_name, context)
 
 
-class CompetitionScoringGroupListCreateView(ApprovedUserRequiredMixin, View):
+class CompetitionScoringGroupListCreateView(StaffAreaRequiredMixin, View):
     template_name = "competitions/competition_groups.html"
 
     def get_competition(self, pk: int) -> Competition:
@@ -1167,7 +1164,7 @@ class CompetitionScoringGroupListCreateView(ApprovedUserRequiredMixin, View):
         return render(request, self.template_name, self._build_context(competition=competition, create_form=form))
 
 
-class CompetitionScoringGroupUpdateView(ApprovedUserRequiredMixin, View):
+class CompetitionScoringGroupUpdateView(StaffAreaRequiredMixin, View):
     template_name = "competitions/competition_group_form.html"
 
     def get_object(self, pk: int, group_id: int) -> CompetitionScoringGroup:
@@ -1192,7 +1189,7 @@ class CompetitionScoringGroupUpdateView(ApprovedUserRequiredMixin, View):
         return render(request, self.template_name, {"group": group, "competition": group.competition, "form": form})
 
 
-class CompetitionScoringGroupDeleteView(ApprovedUserRequiredMixin, View):
+class CompetitionScoringGroupDeleteView(StaffAreaRequiredMixin, View):
     def post(self, request, pk, group_id):
         group = get_object_or_404(CompetitionScoringGroup, pk=group_id, competition_id=pk)
         competition_id = group.competition_id
@@ -1201,7 +1198,7 @@ class CompetitionScoringGroupDeleteView(ApprovedUserRequiredMixin, View):
         return redirect("school:competition_groups", pk=competition_id)
 
 
-class CompetitionScoringGroupAutofillView(ApprovedUserRequiredMixin, View):
+class CompetitionScoringGroupAutofillView(StaffAreaRequiredMixin, View):
     def post(self, request, pk):
         competition = get_object_or_404(Competition, pk=pk)
         created = ensure_competition_scoring_groups_from_competition_documents(
@@ -1215,7 +1212,7 @@ class CompetitionScoringGroupAutofillView(ApprovedUserRequiredMixin, View):
         return redirect("school:competition_groups", pk=competition.pk)
 
 
-class CompetitionScoringGroupPresetCreateView(ApprovedUserRequiredMixin, View):
+class CompetitionScoringGroupPresetCreateView(StaffAreaRequiredMixin, View):
     def post(self, request, pk, preset_code):
         competition = get_object_or_404(Competition, pk=pk)
         created = ensure_standard_u_category_groups(competition=competition, category_code=preset_code)
@@ -1279,7 +1276,7 @@ class CompetitionVenueRecheckUnboundDocumentsView(ApprovedUserRequiredMixin, Vie
         return redirect("school:competition_venue_list")
 
 
-class CompetitionDocumentUploadView(ApprovedUserRequiredMixin, View):
+class CompetitionDocumentUploadView(StaffAreaRequiredMixin, View):
     """Загрузка документов соревнования (общих)."""
 
     def post(self, request, pk):
@@ -1294,7 +1291,7 @@ class CompetitionDocumentUploadView(ApprovedUserRequiredMixin, View):
         return redirect("school:competition_edit", pk=pk)
 
 
-class CompetitionDocumentDeleteView(ApprovedUserRequiredMixin, View):
+class CompetitionDocumentDeleteView(StaffAreaRequiredMixin, View):
     """Удаление документа соревнования."""
 
     def post(self, request, pk, doc_id):
@@ -1343,7 +1340,7 @@ class SignedDocumentAccessView(View):
         return response
 
 
-class BulkDocumentUploadView(ApprovedUserRequiredMixin, View):
+class BulkDocumentUploadView(StaffAreaRequiredMixin, View):
     template_name = "school/document_bulk_upload.html"
 
     def _get_form(self, request, *, data=None, files=None):
@@ -1417,7 +1414,7 @@ class BulkDocumentUploadView(ApprovedUserRequiredMixin, View):
         return redirect("school:documents_bulk_upload")
 
 
-class DocumentAIAnalysisListView(ApprovedUserRequiredMixin, ListView):
+class DocumentAIAnalysisListView(StaffAreaRequiredMixin, ListView):
     model = Document
     template_name = "school/document_ai_analysis_list.html"
     context_object_name = "items"
@@ -1508,14 +1505,14 @@ class DocumentAIAnalysisListView(ApprovedUserRequiredMixin, ListView):
         return context
 
 
-class DocumentBindingContextView(ApprovedUserRequiredMixin, View):
+class DocumentBindingContextView(StaffAreaRequiredMixin, View):
     def get(self, request, document_id):
         document = get_object_or_404(Document.objects.select_related("ai_analysis"), pk=document_id)
         context = get_binding_context(document)
         return JsonResponse(context)
 
 
-class DocumentBindCompetitionView(ApprovedUserRequiredMixin, View):
+class DocumentBindCompetitionView(StaffAreaRequiredMixin, View):
     def post(self, request, document_id):
         document = get_object_or_404(Document, pk=document_id)
         competition = get_object_or_404(Competition, pk=request.POST.get("competition_id"))
@@ -1559,7 +1556,7 @@ class DocumentBindCompetitionView(ApprovedUserRequiredMixin, View):
         return redirect("school:documents_analysis_list")
 
 
-class DocumentBindAthleteView(ApprovedUserRequiredMixin, View):
+class DocumentBindAthleteView(StaffAreaRequiredMixin, View):
     def post(self, request, document_id):
         document = get_object_or_404(Document, pk=document_id)
         athlete = get_object_or_404(Athlete, pk=request.POST.get("athlete_id"))
@@ -1620,7 +1617,7 @@ class DocumentBindAthleteView(ApprovedUserRequiredMixin, View):
         return redirect("school:documents_analysis_list")
 
 
-class DocumentCreateCompetitionFromAIView(ApprovedUserRequiredMixin, View):
+class DocumentCreateCompetitionFromAIView(StaffAreaRequiredMixin, View):
     def post(self, request, document_id):
         document = get_object_or_404(Document.objects.select_related("ai_analysis"), pk=document_id)
         if not getattr(document, "ai_analysis", None):
@@ -1647,7 +1644,7 @@ class DocumentCreateCompetitionFromAIView(ApprovedUserRequiredMixin, View):
         return redirect("school:documents_analysis_list")
 
 
-class DocumentCreateAthleteFromAIView(ApprovedUserRequiredMixin, View):
+class DocumentCreateAthleteFromAIView(StaffAreaRequiredMixin, View):
     def post(self, request, document_id):
         document = get_object_or_404(Document.objects.select_related("ai_analysis"), pk=document_id)
         if not getattr(document, "ai_analysis", None):
@@ -1679,7 +1676,7 @@ class DocumentCreateAthleteFromAIView(ApprovedUserRequiredMixin, View):
         return redirect("school:documents_analysis_list")
 
 
-class CompetitionEntryToggleView(ApprovedUserRequiredMixin, View):
+class CompetitionEntryToggleView(StaffAreaRequiredMixin, View):
     """Add/remove athletes in a competition without page reload (staff form)."""
 
     def get_object(self, pk):
@@ -1980,6 +1977,7 @@ def _excel_date_from_serial(serial):
         return None
 
 
+@staff_area_required
 def competition_export(request, pk):
     competition = get_object_or_404(Competition, pk=pk)
     entries = competition.entries.select_related("athlete__person", "athlete__person__club").order_by(
@@ -2155,6 +2153,7 @@ def _group_entries_by_birth_year(entries):
     return result
 
 
+@staff_area_required
 def competition_export_type2(request, pk):
     competition = get_object_or_404(Competition, pk=pk)
     entries = list(competition.entries.select_related("athlete__person", "athlete__person__club").all())
@@ -2306,6 +2305,7 @@ def _medical_value(entry):
     return "Да"  # default marker like on примеры
 
 
+@staff_area_required
 def competition_export_word_type1(request, pk):
     competition = get_object_or_404(Competition, pk=pk)
     entries = list(competition.entries.select_related("athlete__person", "athlete__person__club").all())
@@ -2428,6 +2428,7 @@ def _set_font(run, size=12, bold=False, underline=False, color=None):
         run.font.color.rgb = color
 
 
+@staff_area_required
 def competition_export_word_type2(request, pk):
     competition = get_object_or_404(Competition, pk=pk)
     entries = list(
@@ -2533,6 +2534,7 @@ def competition_export_word_type2(request, pk):
     return resp
 
 
+@staff_area_required
 def competition_export_word_type3(request, pk):
     competition = get_object_or_404(Competition, pk=pk)
     entries = list(
@@ -2623,6 +2625,7 @@ def competition_export_word_type3(request, pk):
     return resp
 
 
+@staff_area_required
 def competition_export_word_type4(request, pk):
     competition = get_object_or_404(Competition, pk=pk)
     entries = list(

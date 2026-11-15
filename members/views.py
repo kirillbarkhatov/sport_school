@@ -17,6 +17,7 @@ from bot.models import TelegramParticipant
 from members.models import PersonDedupJob, PersonDuplicateCluster, PersonMergeRedirect
 from members.services import apply_cluster_merge, build_cluster_payload, build_job_payload
 from members.tasks import run_person_dedup_job_task
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from school.forms import (
     AthleteContractForm,
     ExistingFamilyMemberFormSet,
@@ -44,7 +45,6 @@ from school.services import (
     ensure_monthly_service_for_contract,
     get_month_range,
 )
-from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.models import User, UserPersonLink, UserPersonLinkStatus
 from users.telegram_identity import (
@@ -155,11 +155,7 @@ def _extract_name_tokens(*values: str | None) -> list[str]:
 
 
 def _can_manage_people_records(user) -> bool:
-    if not user or not user.is_authenticated:
-        return False
-    if user.is_staff or user.is_superuser:
-        return True
-    return user.groups.filter(name__in={ADMIN_GROUP_NAME, MANAGER_GROUP_NAME}).exists()
+    return bool(user) and authorize(user, "people.manage")
 
 
 def _group_users_by_person(person_ids):
@@ -201,7 +197,7 @@ class PersonListView(ApprovedUserRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        can_manage = self.request.user.is_staff or self.request.user.is_superuser
+        can_manage = is_privileged(self.request.user)
         context["can_manage_people"] = can_manage
         context["clubs"] = Club.objects.order_by("name")
         context["selected_club"] = self.request.GET.get("club") or ""
@@ -242,7 +238,7 @@ class PersonCreateView(ApprovedUserRequiredMixin, CreateView):
     success_url = reverse_lazy("members:members_list")
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
@@ -339,7 +335,7 @@ class PersonUpdateView(ApprovedUserRequiredMixin, UpdateView):
         return get_person_queryset_for_user(self.request.user)
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
@@ -355,7 +351,7 @@ class PersonDeleteView(ApprovedUserRequiredMixin, DeleteView):
         return get_person_queryset_for_user(self.request.user)
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
@@ -715,7 +711,7 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
         club_id = self.request.GET.get("club")
         if club_id:
             base_qs = base_qs.filter(members__person__club_id=club_id).distinct()
-        if self.request.user.is_staff or self.request.user.is_superuser:
+        if is_privileged(self.request.user):
             return base_qs.order_by("family_name")
         family_ids = self.request.user.get_accessible_family_ids()
         return base_qs.filter(id__in=family_ids).order_by("family_name")
@@ -738,12 +734,12 @@ class FamilyListView(ApprovedUserRequiredMixin, ListView):
         }
         linked_map = _group_users_by_person(person_ids)
         context["persons_with_accounts"] = list(linked_map.keys())
-        if self.request.user.is_staff or self.request.user.is_superuser:
+        if is_privileged(self.request.user):
             self._attach_candidate_people(families)
         return context
 
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
 
         self.family_form = FamilyForm(request.POST)
@@ -826,7 +822,7 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
 
     def get_queryset(self):
         base = Family.objects.prefetch_related("members__person")
-        if self.request.user.is_staff or self.request.user.is_superuser:
+        if is_privileged(self.request.user):
             return base
         return base.filter(id__in=self.request.user.get_accessible_family_ids())
 
@@ -955,7 +951,7 @@ class FamilyDetailView(ApprovedUserRequiredMixin, DetailView):
             linked_account_rows=linked_account_rows,
             persons_with_accounts=list(linked_map.keys()),
         )
-        if self.request.user.is_staff or self.request.user.is_superuser:
+        if is_privileged(self.request.user):
             context["contact_people"] = Person.objects.order_by("surname", "name")
             context["status_choices"] = Family.STATUS_CHOICES
         return context
@@ -968,7 +964,7 @@ class FamilyUpdateView(ApprovedUserRequiredMixin, UpdateView):
     success_url = reverse_lazy("members:family_list")
 
     def get_queryset(self):
-        if self.request.user.is_staff or self.request.user.is_superuser:
+        if is_privileged(self.request.user):
             return Family.objects.all()
         return Family.objects.filter(id__in=self.request.user.get_accessible_family_ids())
 
@@ -976,7 +972,7 @@ class FamilyUpdateView(ApprovedUserRequiredMixin, UpdateView):
         return reverse("members:family_detail", kwargs={"pk": self.object.pk})
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
@@ -1016,7 +1012,7 @@ class FamilyFinanceView(ApprovedUserRequiredMixin, DetailView):
 
     def get_queryset(self):
         base = Family.objects.prefetch_related("services__payments", "athlete_profiles__athlete__person")
-        if self.request.user.is_staff or self.request.user.is_superuser:
+        if is_privileged(self.request.user):
             return base
         return base.filter(id__in=self.request.user.get_accessible_family_ids())
 
@@ -1048,7 +1044,7 @@ class FamilyFinanceView(ApprovedUserRequiredMixin, DetailView):
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
 
         action = request.POST.get("action")
@@ -1086,7 +1082,7 @@ class FamilyServiceUpdateView(ApprovedUserRequiredMixin, UpdateView):
     pk_url_kwarg = "service_pk"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
         return super().dispatch(request, *args, **kwargs)
@@ -1121,7 +1117,7 @@ class FamilyServiceDeleteView(ApprovedUserRequiredMixin, DeleteView):
     template_name = "members/family_service_confirm_delete.html"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
         return super().dispatch(request, *args, **kwargs)
@@ -1144,7 +1140,7 @@ class AthleteContractCreateView(ApprovedUserRequiredMixin, CreateView):
     template_name = "members/family_contract_create.html"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
         self.profile = get_object_or_404(FamilyAthleteProfile, pk=self.kwargs["profile_pk"], family=self.family)
@@ -1176,7 +1172,7 @@ class AthleteContractUpdateView(ApprovedUserRequiredMixin, UpdateView):
     pk_url_kwarg = "contract_pk"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         self.family = get_object_or_404(Family, pk=self.kwargs["pk"])
         return super().dispatch(request, *args, **kwargs)
@@ -1205,7 +1201,7 @@ class PersonToggleAthleteView(ApprovedUserRequiredMixin, View):
     """Переключение статуса спортсмена для человека."""
 
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
 
         person = get_object_or_404(Person, pk=self.kwargs["pk"])
@@ -1258,7 +1254,7 @@ class PersonAssignFamilyView(ApprovedUserRequiredMixin, View):
     """Назначение человека в семью или удаление связи."""
 
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
 
         person = get_object_or_404(Person, pk=self.kwargs["pk"])
@@ -1350,7 +1346,7 @@ class FamilyToggleStatusView(ApprovedUserRequiredMixin, View):
     """Переключение статуса семьи между действующей и бывшей."""
 
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
 
         family = get_object_or_404(Family, pk=self.kwargs["pk"])
@@ -1367,7 +1363,7 @@ class FamilyInlineUpdateView(ApprovedUserRequiredMixin, View):
     """Обновление отдельных полей семьи без полной формы."""
 
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
 
         family = get_object_or_404(Family, pk=self.kwargs["pk"])
@@ -1438,7 +1434,7 @@ class FamilyAddMemberView(ApprovedUserRequiredMixin, View):
     """Добавление существующего человека в семью."""
 
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
 
         family = get_object_or_404(Family, pk=self.kwargs["pk"])
@@ -1524,7 +1520,7 @@ class PersonDedupCenterView(ApprovedUserRequiredMixin, ListView):
     context_object_name = "jobs"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
@@ -1544,7 +1540,7 @@ class PersonDedupCenterView(ApprovedUserRequiredMixin, ListView):
 
 class PersonDedupStartView(ApprovedUserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
 
         mode = request.POST.get("mode") or PersonDedupJob.MODE_ANALYZE
@@ -1577,7 +1573,7 @@ class PersonDedupStartView(ApprovedUserRequiredMixin, View):
 
 class PersonDedupJobStatusView(ApprovedUserRequiredMixin, View):
     def get(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
         job = get_object_or_404(PersonDedupJob, pk=kwargs["job_id"])
         return JsonResponse({"success": True, "job": build_job_payload(job)})
@@ -1585,7 +1581,7 @@ class PersonDedupJobStatusView(ApprovedUserRequiredMixin, View):
 
 class PersonDedupClustersView(ApprovedUserRequiredMixin, View):
     def get(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
 
         job = get_object_or_404(PersonDedupJob, pk=kwargs["job_id"])
@@ -1613,7 +1609,7 @@ class PersonDedupClustersView(ApprovedUserRequiredMixin, View):
 
 class PersonDedupClusterDetailView(ApprovedUserRequiredMixin, View):
     def get(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
         cluster = get_object_or_404(
             PersonDuplicateCluster.objects.prefetch_related("items__person__club"),
@@ -1624,7 +1620,7 @@ class PersonDedupClusterDetailView(ApprovedUserRequiredMixin, View):
 
 class PersonDedupClusterSkipView(ApprovedUserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
         cluster = get_object_or_404(PersonDuplicateCluster, pk=kwargs["cluster_id"])
         cluster.status = PersonDuplicateCluster.STATUS_SKIPPED
@@ -1635,7 +1631,7 @@ class PersonDedupClusterSkipView(ApprovedUserRequiredMixin, View):
 
 class PersonDedupClusterMergeView(ApprovedUserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return JsonResponse({"success": False, "error": "forbidden"}, status=403)
 
         cluster = get_object_or_404(

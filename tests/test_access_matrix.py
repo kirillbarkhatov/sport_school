@@ -28,8 +28,8 @@ def _kwargs(name, data):
     return DETAIL_KWARGS[name](data) if name in DETAIL_KWARGS else {}
 
 
-@pytest.fixture
-def world():
+@pytest.fixture(params=["legacy", "memberships"])
+def world(request, settings):
     family = FamilyFactory()
     data = {
         "person": PersonFactory(),
@@ -41,7 +41,15 @@ def world():
         "competition": CompetitionFactory(),
         "notification": NotificationFactory(),
     }
-    return data, {role: _make_user(role) for role in ROLES}
+    settings.ORGS_ROLES_SOURCE = "legacy"
+    users = {role: _make_user(role) for role in ROLES}
+    if request.param == "memberships":
+        # Ровно как при переключении на проде: перенос из старых полей, затем смена источника ролей.
+        from organizations.legacy import import_legacy
+
+        import_legacy()
+        settings.ORGS_ROLES_SOURCE = "memberships"
+    return data, users
 
 
 def test_matrix_covers_every_smoke_page():

@@ -46,9 +46,9 @@ from api.telegram_streaming import disable_stream_telegram_publication, enable_s
 from api.telemetry import log_event
 from bot.models import TelegramChat, TelegramParticipant
 from classes.services import get_assistant_schedule_payload
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Competition, CompetitionDocument, Person
-from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.models import User
 from users.permissions import IsApprovedUser
@@ -82,11 +82,7 @@ def _telegram_channels_queryset():
 
 
 def _can_manage_online_results(user: User) -> bool:
-    if not user.is_authenticated:
-        return False
-    if user.is_staff or user.is_superuser:
-        return True
-    return user.groups.filter(name__in={ADMIN_GROUP_NAME, MANAGER_GROUP_NAME}).exists()
+    return authorize(user, "results.manage")
 
 
 def _build_online_results_callback_url(request) -> str:

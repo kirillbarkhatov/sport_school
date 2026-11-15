@@ -82,14 +82,20 @@ async def _resolve_recipient_ids(
 
 
 async def _user_has_role(tg_id: int | None, group_name: str, env_ids: Sequence[str]) -> bool:
+    """Роль пользователя бота через единый слой прав. TELEGRAM_*_IDS учитываются только в режиме legacy."""
+    from organizations.legacy import GROUP_TO_ROLE
+    from organizations.permissions import LEGACY, has_role, roles_source
+
     if not tg_id:
         return False
-    if str(tg_id) in env_ids:
+    if roles_source() == LEGACY and str(tg_id) in env_ids:
         return True
-    return await sync_to_async(
-        User.objects.filter(tg_id=tg_id, groups__name=group_name).exists,
-        thread_sensitive=True,
-    )()
+
+    def check() -> bool:
+        user = User.objects.filter(tg_id=tg_id).first()
+        return bool(user) and has_role(user, GROUP_TO_ROLE[group_name])
+
+    return await sync_to_async(check, thread_sensitive=True)()
 
 
 async def user_is_admin(tg_id: int | None) -> bool:

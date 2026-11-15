@@ -2,6 +2,7 @@ from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView
 
 from notifications.services import deliver_notification
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from users.mixins import ApprovedUserRequiredMixin
 
 from .forms import NotificationForm
@@ -20,7 +21,7 @@ class NotificationCreateView(ApprovedUserRequiredMixin, CreateView):
     success_url = reverse_lazy("notifications:notification_list")
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
