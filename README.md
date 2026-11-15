@@ -10,7 +10,7 @@ CRM спортшколы: спортсмены, семьи и договоры, 
 Bootstrap 5.3 · Poetry · Docker Compose.
 
 Документация: [платформа: организации, домены, вход, права](docs/platform.md),
-[введение организаций](docs/organizations-intro.md), [спортсмены и семьи между организациями](docs/athletes-across-orgs.md), [онлайн-результаты](docs/results.md),
+[введение организаций](docs/organizations-intro.md), [релизы этапа 4](docs/stage4-releases.md), [спортсмены и семьи между организациями](docs/athletes-across-orgs.md), [онлайн-результаты](docs/results.md),
 [AI-анализ документов](docs/documents-ai.md).
 
 ---
@@ -131,8 +131,10 @@ Redis остаётся на 7; Tailwind пробуем на отдельной �
 
 ### Этап 4. Введение организаций (основа)
 
-Подробно: [docs/organizations-intro.md](docs/organizations-intro.md). Четыре релиза, после каждого система
-полностью рабочая; staging — сервер `dev` с копией продовой базы. Все текущие данные — организация «ksclub».
+Концепция: [docs/organizations-intro.md](docs/organizations-intro.md). Порядок действий по релизам:
+[docs/stage4-releases.md](docs/stage4-releases.md). Четыре релиза, после каждого система полностью рабочая;
+staging — `staging.ksclub.ru` на сервере `dev` с копией продовой базы (DNS `*.ksclub.ru` уже настроен).
+Все текущие данные — организация «ksclub».
 
 **R1. Фундамент** (без изменения поведения)
 - [ ] 4.0. Staging с копией прода, матрица доступа на текущем поведении, сквозные сценарии, тест инвентаризации таблиц
