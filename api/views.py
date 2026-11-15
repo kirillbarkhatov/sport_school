@@ -30,8 +30,10 @@ from rest_framework.views import APIView
 from api.forms import StreamRunLaunchForm
 from api.models import PublicStreamAccess, StreamRun, WebhookEvent
 from api.services import (
+    LEGACY_LAUNCH_DISABLED_MESSAGE,
     _build_run1_group_table_snapshot,
     launch_online_results_stream,
+    legacy_launch_enabled,
     normalize_source_id,
     reset_online_results_stream_state,
 )
@@ -506,7 +508,7 @@ def _resolve_or_recover_stream_run(
     run = StreamRun.objects.filter(stream_id=stream_id).order_by("-created_at").first()
     if run is None:
         return None
-    if not allow_recover:
+    if not allow_recover or not legacy_launch_enabled():
         return run
 
     # If a newer running run for same link already exists, switch to it.
@@ -831,6 +833,7 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
                 "status_choices": StreamRun.Status.choices,
                 "telegram_channels": telegram_channels,
                 "competitions": Competition.objects.order_by("-start_date", "-date", "-id"),
+                "legacy_launch_enabled": legacy_launch_enabled(),
             },
         )
 
@@ -918,6 +921,10 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
             run.competition = None
             run.save(update_fields=["competition", "updated_at"])
             messages.success(request, "Привязка соревнования снята.")
+            return redirect("online-results-stream-runs")
+
+        if not legacy_launch_enabled():
+            messages.error(request, LEGACY_LAUNCH_DISABLED_MESSAGE)
             return redirect("online-results-stream-runs")
 
         form = StreamRunLaunchForm(request.POST)
@@ -1150,6 +1157,8 @@ class OnlineResultsCompetitionHardRefreshView(ApprovedUserRequiredMixin, View):
 
         try:
             refreshed_run = reset_online_results_stream_state(run_id=run.id, requested_by=request.user)
+        except PermissionError as exc:
+            return JsonResponse({"detail": str(exc)}, status=410)
         except RuntimeError as exc:
             return JsonResponse({"detail": str(exc)}, status=502)
         except ValueError as exc:

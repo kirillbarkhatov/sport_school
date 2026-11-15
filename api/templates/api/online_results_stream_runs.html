@@ -15,6 +15,13 @@
     </div>
 </div>
 
+{% if not legacy_launch_enabled %}
+<div class="alert alert-warning">
+    Старая интеграция Online Results выводится из эксплуатации: запуск новых потоков закрыт.
+    История и действующие публичные ссылки доступны. Новые трансляции — в разделе
+    <a href="{% url 'results:event_list' %}">«Онлайн-результаты»</a>.
+</div>
+{% else %}
 <div class="card mb-4">
     <div class="card-header">Запуск потока</div>
     <div class="card-body">
@@ -41,6 +48,7 @@
         </form>
     </div>
 </div>
+{% endif %}
 
 <div class="card">
     <div class="card-header">

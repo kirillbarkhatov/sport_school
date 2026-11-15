@@ -531,6 +531,10 @@ if not DOCS_AI_ORCHESTRATOR_ENABLED:
 AI_ASSISTANT_ENABLED = os.getenv("AI_ASSISTANT_ENABLED", "False") == "True"
 AI_ASSISTANT_BASE_URL = os.getenv("AI_ASSISTANT_BASE_URL", "http://109.207.171.231")
 
+# Старая интеграция online_results_script выводится из эксплуатации: запуск новых потоков закрыт,
+# история и действующие публичные ссылки остаются доступны на чтение.
+LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED = env_bool("LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED")
+
 # Онлайн-результаты (приложение results)
 RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(
     "RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE", str(BASE_DIR / "secrets" / "google-service-account.json")
