@@ -12,6 +12,7 @@ from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from organizations.permissions import BOT_MANAGER_SCOPE
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Athlete, Class, ClassEnrollment, Family, FamilyMember, Group
 from school.training_rules import (
@@ -799,7 +800,8 @@ async def _load_manager_user(tg_id: int) -> User | None:
         thread_sensitive=True,
     )()
     if user:
-        user.is_staff = True
+        # менеджер бота видит все семьи; признак живёт только в памяти (раньше — is_staff=True в памяти)
+        setattr(user, BOT_MANAGER_SCOPE, True)
     return user
 
 

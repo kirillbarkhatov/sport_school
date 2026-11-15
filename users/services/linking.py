@@ -277,7 +277,11 @@ def _env_id_set(raw_ids: Sequence[str]) -> set[str]:
 
 
 def assign_groups_from_env(user: User) -> None:
-    if not user.tg_id:
+    """Legacy: TELEGRAM_*_IDS выдают группы при привязке Telegram. После переключения на memberships
+    списки не читаются (роли выдаются в организации)."""
+    from organizations.permissions import LEGACY, roles_source
+
+    if not user.tg_id or roles_source() != LEGACY:
         return
 
     mappings = (

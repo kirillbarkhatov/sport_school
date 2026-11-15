@@ -68,7 +68,9 @@ class User(AbstractUser):
         verbose_name_plural = "Пользователи"
 
     def get_accessible_family_ids(self):
-        if self.is_staff or self.is_superuser:
+        from organizations.permissions import is_privileged
+
+        if is_privileged(self):
             from school.models import Family
 
             return list(Family.objects.values_list("id", flat=True))

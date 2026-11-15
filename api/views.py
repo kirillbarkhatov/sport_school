@@ -23,7 +23,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -46,12 +46,12 @@ from api.telegram_streaming import disable_stream_telegram_publication, enable_s
 from api.telemetry import log_event
 from bot.models import TelegramChat, TelegramParticipant
 from classes.services import get_assistant_schedule_payload
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Competition, CompetitionDocument, Person
-from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.models import User
-from users.permissions import IsApprovedUser
+from users.permissions import IsApprovedUser, IsPrivilegedUser
 
 from .serializers import (
     AssistantAthleteSerializer,
@@ -82,11 +82,7 @@ def _telegram_channels_queryset():
 
 
 def _can_manage_online_results(user: User) -> bool:
-    if not user.is_authenticated:
-        return False
-    if user.is_staff or user.is_superuser:
-        return True
-    return user.groups.filter(name__in={ADMIN_GROUP_NAME, MANAGER_GROUP_NAME}).exists()
+    return authorize(user, "results.manage")
 
 
 def _build_online_results_callback_url(request) -> str:
@@ -541,7 +537,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     model = Person
     serializer_class = PersonSerializer
     queryset = Person.objects.all()
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsPrivilegedUser]
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -550,7 +546,7 @@ class UserViewSet(viewsets.ModelViewSet):
     model = User
     serializer_class = UserSerializer
     queryset = User.objects.all()
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsPrivilegedUser]
 
 
 class WhatsAppChatSyncView(APIView):

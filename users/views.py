@@ -22,6 +22,7 @@ from config.settings import (
     TELEGRAM_ADMIN_IDS,
     TELEGRAM_LOG_CHAT_ID,
 )
+from organizations.permissions import has_site_access
 
 from .models import User
 
@@ -115,7 +116,7 @@ class LoginPageView(TemplateView):
 
         if self.request.user.is_authenticated:
             context["user"] = self.request.user
-            if self.request.user.is_staff or self.request.user.is_approved:
+            if has_site_access(self.request.user):
                 context["dashboard_url"] = reverse("school:index")
             else:
                 context["dashboard_url"] = reverse("users:awaiting_approval")
@@ -179,9 +180,7 @@ class AwaitingApprovalView(LoginRequiredMixin, TemplateView):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return redirect("users:login_page")
-        if request.user.is_staff or request.user.is_superuser:
-            return redirect("school:index")
-        if request.user.is_approved:
+        if has_site_access(request.user):
             return redirect("school:index")
         return super().dispatch(request, *args, **kwargs)
 
@@ -245,7 +244,7 @@ class TelegramCallbackView(View):
                 return False
             return bool(re.search(r"/competitions/\d+/apply/", url))
 
-        if not user.is_approved and not (user.is_staff or user.is_superuser):
+        if not has_site_access(user):
             if _is_competition_apply(next_url):
                 return redirect(next_url)
             send_admin_message(

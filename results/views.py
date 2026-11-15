@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, ListView, UpdateView
 
-from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from users.mixins import ApprovedUserRequiredMixin
 
 from . import services
@@ -24,11 +24,7 @@ from .telegram import public_url
 
 
 def can_manage_results(user) -> bool:
-    if not user.is_authenticated:
-        return False
-    if user.is_staff or user.is_superuser:
-        return True
-    return user.groups.filter(name__in={ADMIN_GROUP_NAME, MANAGER_GROUP_NAME}).exists()
+    return authorize(user, "results.manage")
 
 
 class ResultsManagerMixin(ApprovedUserRequiredMixin):

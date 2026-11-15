@@ -62,6 +62,7 @@ def _membership_status_for(user) -> str:
 class ImportReport:
     memberships_created: int = 0
     roles_created: int = 0
+    roles_revoked: int = 0
     platform_roles_created: int = 0
     users: int = 0
     by_status: dict[str, int] = field(default_factory=dict)
@@ -79,13 +80,73 @@ def _env_tg_ids(name: str) -> set[int]:
     return result
 
 
+AUTO_MANAGED_ROLES = (OrgRole.OWNER, OrgRole.ADMIN, OrgRole.MANAGER, OrgRole.COACH)
+
+
+def roles_source_is_legacy() -> bool:
+    return getattr(settings, "ORGS_ROLES_SOURCE", "legacy") == "legacy"
+
+
+def legacy_basis(user, *, include_env: bool) -> tuple[set[str], bool]:
+    """Какие роли и нужна ли глобальная роль по старым полям: группы, is_superuser, is_staff, TELEGRAM_*_IDS."""
+    wanted = {GROUP_TO_ROLE[name] for name in user.groups.values_list("name", flat=True) if name in GROUP_TO_ROLE}
+    if include_env and user.tg_id:
+        wanted |= {role for name, role in ENV_TO_ROLE.items() if user.tg_id in _env_tg_ids(name)}
+    if user.is_superuser:
+        wanted.add(OrgRole.OWNER)
+    elif user.is_staff:
+        wanted.add(OrgRole.ADMIN)
+    return wanted, bool(user.is_superuser)
+
+
+def reconcile_user_roles(
+    user, membership: Membership, *, source: str, include_env: bool, revoke: bool
+) -> tuple[int, int, int]:
+    """Привести автоматические роли к основаниям. Ручные назначения (source=manual) не трогаются никогда.
+
+    Отзываются только автоматические назначения (legacy_import/sync) ролей owner/admin/manager/coach, у которых
+    больше нет ни одного основания (группа, is_superuser/is_staff, Telegram-список до переключения).
+    Возвращает (создано назначений, создано глобальных ролей, отозвано).
+    """
+    wanted, wants_global_admin = legacy_basis(user, include_env=include_env)
+    created = platform_created = revoked = 0
+    for code in wanted:
+        _, made = RoleAssignment.objects.get_or_create(
+            membership=membership, role=_role(code), defaults={"source": source}
+        )
+        created += int(made)
+    if wants_global_admin:
+        _, made = PlatformRole.objects.get_or_create(
+            user=user, role=PlatformRole.Role.GLOBAL_ADMIN, defaults={"source": source}
+        )
+        platform_created += int(made)
+    if revoke:
+        stale = RoleAssignment.objects.filter(
+            membership=membership, role__code__in=set(AUTO_MANAGED_ROLES) - wanted, source__in=AUTOMATIC_SOURCES
+        )
+        revoked += stale.count()
+        stale.delete()
+        if not wants_global_admin:
+            stale_platform = PlatformRole.objects.filter(
+                user=user, role=PlatformRole.Role.GLOBAL_ADMIN, source__in=AUTOMATIC_SOURCES
+            )
+            revoked += stale_platform.count()
+            stale_platform.delete()
+    return created, platform_created, revoked
+
+
 def import_legacy() -> ImportReport:
-    """Перенос старых полей. Повторный запуск не дублирует данные и не трогает ручные назначения/статусы."""
+    """Перенос старых полей. Идемпотентен; ручные назначения и явные статусы не меняет.
+
+    До переключения (ORGS_ROLES_SOURCE=legacy) роли сверяются с основаниями, включая TELEGRAM_*_IDS, и
+    потерявшие основание автоматические роли отзываются (D07). После переключения источник правды — членство:
+    импорт только заводит членства новым пользователям, роли не трогает и Telegram-списки не читает.
+    """
     organization = default_organization()
     if organization is None:
         raise RuntimeError("Нет организации по умолчанию (ORGS_DEFAULT_ORGANIZATION_SLUG)")
     report = ImportReport()
-    env_roles = {role: _env_tg_ids(name) for name, role in ENV_TO_ROLE.items()}
+    before_switch = roles_source_is_legacy()
     User = get_user_model()
     with transaction.atomic(), _sync_guard():
         for user in User.objects.prefetch_related("groups"):
@@ -100,24 +161,13 @@ def import_legacy() -> ImportReport:
                 if membership.status == Membership.Status.ACTIVE:
                     membership.approved_at = timezone.now()
                     membership.save(update_fields=["approved_at"])
-
-            wanted = {GROUP_TO_ROLE[g.name] for g in user.groups.all() if g.name in GROUP_TO_ROLE}
-            for role_code, tg_ids in env_roles.items():
-                if user.tg_id and user.tg_id in tg_ids:
-                    wanted.add(role_code)
-            if user.is_superuser:
-                wanted.add(OrgRole.OWNER)
-                _, made = PlatformRole.objects.get_or_create(
-                    user=user, role=PlatformRole.Role.GLOBAL_ADMIN, defaults={"source": Source.LEGACY_IMPORT}
+            if before_switch:
+                made, platform_made, revoked = reconcile_user_roles(
+                    user, membership, source=Source.LEGACY_IMPORT, include_env=True, revoke=True
                 )
-                report.platform_roles_created += int(made)
-            elif user.is_staff:
-                wanted.add(OrgRole.ADMIN)
-            for code in wanted:
-                _, made = RoleAssignment.objects.get_or_create(
-                    membership=membership, role=_role(code), defaults={"source": Source.LEGACY_IMPORT}
-                )
-                report.roles_created += int(made)
+                report.roles_created += made
+                report.platform_roles_created += platform_made
+                report.roles_revoked += revoked
 
         for membership in Membership.objects.filter(organization=organization):
             report.by_status[membership.status] = report.by_status.get(membership.status, 0) + 1
@@ -129,7 +179,8 @@ def import_legacy() -> ImportReport:
             payload={
                 "memberships_created": report.memberships_created,
                 "roles_created": report.roles_created,
-                "platform_roles_created": report.platform_roles_created,
+                "roles_revoked": report.roles_revoked,
+                "roles_reconciled": before_switch,
             },
         )
     return report
@@ -172,69 +223,44 @@ def push_roles_to_legacy(membership: Membership) -> None:
                 user.groups.remove(group)
 
 
-# --- Двойная запись: старые поля → новая модель ------------------------------------------------------
+# --- Двойная запись: старые поля → новая модель (только до переключения источника) --------------------
+
+
+def _ensure_membership(user, organization) -> tuple[Membership, bool]:
+    return Membership.objects.get_or_create(
+        user=user, organization=organization, defaults={"status": _membership_status_for(user), "source": Source.SYNC}
+    )
 
 
 def pull_user_to_membership(user) -> None:
-    """user.is_approved изменили в старом коде/админке → статус членства."""
+    """Изменили is_approved / is_staff / is_superuser в старом коде или админке → членство и роли."""
     if not sync_enabled():
         return
     organization = default_organization()
     if organization is None:
         return
     with _sync_guard():
-        membership, created = Membership.objects.get_or_create(
-            user=user,
-            organization=organization,
-            defaults={"status": _membership_status_for(user), "source": Source.SYNC},
-        )
-        if created:
-            return
-        if membership.status in (Membership.Status.ACTIVE, Membership.Status.PENDING):
+        membership, created = _ensure_membership(user, organization)
+        if not created and membership.status in (Membership.Status.ACTIVE, Membership.Status.PENDING):
             wanted = _membership_status_for(user)
             if membership.status != wanted:
                 membership.status = wanted
                 membership.approved_at = timezone.now() if wanted == Membership.Status.ACTIVE else None
                 membership.save(update_fields=["status", "approved_at"])
+        if roles_source_is_legacy():
+            reconcile_user_roles(user, membership, source=Source.SYNC, include_env=True, revoke=True)
 
 
 def pull_groups_to_roles(user) -> None:
-    """Группы пользователя изменили в старом коде/админке → роли. Ручные назначения не удаляются."""
-    if not sync_enabled():
-        return
+    """Изменили группы пользователя в старом коде или админке → роли. Ручные назначения не удаляются."""
+    if not sync_enabled() or not roles_source_is_legacy():
+        return  # после переключения источник правды — членство; группы только отражают роли
     organization = default_organization()
     if organization is None:
         return
     with _sync_guard():
-        membership, _ = Membership.objects.get_or_create(
-            user=user,
-            organization=organization,
-            defaults={"status": _membership_status_for(user), "source": Source.SYNC},
-        )
-        group_roles = {
-            GROUP_TO_ROLE[name] for name in user.groups.values_list("name", flat=True) if name in GROUP_TO_ROLE
-        }
-        for code in group_roles:
-            RoleAssignment.objects.get_or_create(
-                membership=membership, role=_role(code), defaults={"source": Source.SYNC}
-            )
-        stale = RoleAssignment.objects.filter(
-            membership=membership, role__code__in=set(ROLE_TO_GROUP) - group_roles, source__in=AUTOMATIC_SOURCES
-        )
-        # роль, пришедшая из TELEGRAM_*_IDS или is_staff, удаляется только вместе с группой, если она из синхронизации
-        stale.filter(source=Source.SYNC).delete()
-        stale.filter(source=Source.LEGACY_IMPORT, role__code__in=_group_only_roles(user)).delete()
-
-
-def _group_only_roles(user) -> set[str]:
-    """Роли, которые у пользователя держались только на группе (не на is_staff/TELEGRAM_*_IDS)."""
-    kept = set()
-    if user.is_staff and not user.is_superuser:
-        kept.add(OrgRole.ADMIN)
-    for name, role in ENV_TO_ROLE.items():
-        if user.tg_id and user.tg_id in _env_tg_ids(name):
-            kept.add(role)
-    return set(ROLE_TO_GROUP) - kept
+        membership, _ = _ensure_membership(user, organization)
+        reconcile_user_roles(user, membership, source=Source.SYNC, include_env=True, revoke=True)
 
 
 # --- Сверка ------------------------------------------------------------------------------------------

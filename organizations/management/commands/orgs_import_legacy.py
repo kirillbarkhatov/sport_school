@@ -10,7 +10,8 @@ class Command(BaseCommand):
         report = import_legacy()
         self.stdout.write(
             f"Пользователей: {report.users}; создано членств: {report.memberships_created}, "
-            f"назначений ролей: {report.roles_created}, глобальных ролей: {report.platform_roles_created}"
+            f"назначений ролей: {report.roles_created}, отозвано: {report.roles_revoked}, "
+            f"глобальных ролей: {report.platform_roles_created}"
         )
         self.stdout.write(f"Членства по статусам: {report.by_status}")
         self.stdout.write(f"Роли: {report.by_role}")

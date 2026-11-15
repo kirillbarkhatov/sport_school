@@ -8,11 +8,12 @@ from django.views.generic import CreateView, DeleteView, DetailView, FormView, L
 from classes.forms import ClassNotificationForm
 from notifications.models import Notification
 from notifications.services import deliver_notification
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.forms import AthleteSelectionForm, ClassForm
 from school.models import Athlete, Class, ClassEnrollment, FamilyMember
 from school.training_rules import build_training_form_config
-from users.mixins import ApprovedUserRequiredMixin
+from users.mixins import ApprovedUserRequiredMixin, StaffAreaRequiredMixin
 from users.models import User
 from users.utils import (
     get_athlete_queryset_for_user,
@@ -121,7 +122,7 @@ class ClassDetailView(ApprovedUserRequiredMixin, DetailView):
         )
 
 
-class ClassCreateView(ClassFormContextMixin, ApprovedUserRequiredMixin, CreateView):
+class ClassCreateView(ClassFormContextMixin, StaffAreaRequiredMixin, CreateView):
     """Контроллер для работы с БД членов клуба - создание"""
 
     model = Class
@@ -131,7 +132,7 @@ class ClassCreateView(ClassFormContextMixin, ApprovedUserRequiredMixin, CreateVi
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        if not self.request.user.is_staff and not self.request.user.is_superuser:
+        if not is_privileged(self.request.user):
             form.fields["group"].queryset = get_group_queryset_for_user(self.request.user)
         return form
 
@@ -171,7 +172,7 @@ class ClassCreateView(ClassFormContextMixin, ApprovedUserRequiredMixin, CreateVi
         return self.form_invalid(form)
 
 
-class ClassUpdateView(ClassFormContextMixin, ApprovedUserRequiredMixin, UpdateView):
+class ClassUpdateView(ClassFormContextMixin, StaffAreaRequiredMixin, UpdateView):
     """Контроллер для работы с БД членов клуба - изменение"""
 
     model = Class
@@ -181,7 +182,7 @@ class ClassUpdateView(ClassFormContextMixin, ApprovedUserRequiredMixin, UpdateVi
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        if not self.request.user.is_staff and not self.request.user.is_superuser:
+        if not is_privileged(self.request.user):
             form.fields["group"].queryset = get_group_queryset_for_user(self.request.user)
         return form
 
@@ -234,7 +235,7 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
     form_class = ClassNotificationForm
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_staff and not request.user.is_superuser:
+        if not is_privileged(request.user):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
