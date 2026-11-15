@@ -98,7 +98,7 @@ def test_staff_without_global_role_gets_nothing_extra_in_memberships(population,
     assert not PlatformRole.objects.filter(user=staff).exists()
 
 
-def test_superuser_keeps_full_access_in_both_modes(population, settings):
+def test_superuser_with_owner_membership_keeps_full_access_in_both_modes(population, settings):
     su = population["superuser"]
     import_legacy()
     for source in ("legacy", "memberships"):
@@ -316,3 +316,118 @@ def test_apply_link_page_not_blocked_by_staff_checks(roles_mode):
     assert guest["Location"].startswith(reverse("users:login_page"))
     assert _client(roles_mode["parent"]).get(url).status_code == 200
     assert _client(roles_mode["coach"]).get(url).status_code == 200
+
+
+# --- D11: в memberships членство обязательно для всех, включая is_superuser --------------------------------
+
+
+def _org(slug):
+    return Organization.objects.create(slug=slug, name=f"Клуб {slug}")
+
+
+def _member(user, organization, *, status=Membership.Status.ACTIVE, roles=()):
+    m, _ = Membership.objects.update_or_create(user=user, organization=organization, defaults={"status": status})
+    for code in roles:
+        RoleAssignment.objects.get_or_create(membership=m, role=OrgRole.objects.get(code=code))
+    return m
+
+
+def test_d11_superuser_without_membership_has_no_crm_access(settings):
+    settings.ORGS_ROLES_SOURCE = "legacy"
+    su = make("lone-su@example.com", superuser=True)
+    Membership.objects.filter(user=su).delete()
+    assert authorize(su, "org.full")  # legacy: как раньше
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    assert not has_site_access(su)
+    assert not is_privileged(su)
+    assert not any(authorize(su, action) for action in ACTION_NAMES)
+    response = _client(su).get(reverse("members:members_list"))
+    assert response.status_code == 302 and reverse("users:awaiting_approval") in response["Location"]
+    assert _client(su).get(reverse("api:person-list")).status_code == 403
+
+
+def test_d11_global_admin_gets_nothing_in_other_organization(population, settings):
+    import_legacy()  # суперпользователь получил owner в ksclub и global_admin
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    su = population["superuser"]
+    assert PlatformRole.objects.filter(user=su, role=PlatformRole.Role.GLOBAL_ADMIN).exists()
+    other = _org("other-org")
+    assert authorize(su, "org.full")  # ksclub — по членству
+    assert not has_site_access(su, organization=other)
+    assert not any(authorize(su, action, organization=other) for action in ACTION_NAMES)
+    with context.organization_context(other):
+        assert not is_privileged(su)
+        assert su.get_accessible_family_ids() == []
+
+
+def test_d11_suspended_owner_split_by_organization(settings):
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    a, b = _org("org-a"), _org("org-b")
+    owner = make("owner-ab@example.com", superuser=True)
+    Membership.objects.filter(user=owner).delete()
+    _member(owner, a, status=Membership.Status.SUSPENDED, roles=[OrgRole.OWNER])
+    _member(owner, b, roles=[OrgRole.OWNER])
+    assert not any(authorize(owner, action, organization=a) for action in ACTION_NAMES)
+    assert all(authorize(owner, action, organization=b) for action in ACTION_NAMES)
+    with context.organization_context(a):
+        assert not has_site_access(owner)
+    with context.organization_context(b):
+        assert is_privileged(owner)
+
+
+# --- D12: Telegram-списки не дают веб-прав; бот сохраняет свою ветку --------------------------------------
+
+
+@pytest.mark.parametrize("env", ["TELEGRAM_ADMIN_IDS", "TELEGRAM_MANAGER_IDS", "TELEGRAM_COACH_IDS"])
+def test_d12_telegram_list_only_account_has_no_web_rights_in_legacy(settings, env):
+    from tg_bot.services.notifications import _user_has_role
+
+    settings.ORGS_ROLES_SOURCE = "legacy"
+    setattr(settings, env, ["8800"])
+    user = make(f"tg-only-{env.lower()}@example.com", tg_id=8800)
+    assert not user.groups.exists()
+    assert roles_for(user) == set()
+    assert not any(authorize(user, action) for action in ACTION_NAMES)
+    assert _client(user).get(reverse("school:competition_create")).status_code == 403
+    assert _client(user).get(reverse("members:telegram_interlocutors")).status_code == 403
+
+    group_name = {
+        "TELEGRAM_ADMIN_IDS": ADMIN_GROUP_NAME,
+        "TELEGRAM_MANAGER_IDS": MANAGER_GROUP_NAME,
+        "TELEGRAM_COACH_IDS": COACH_GROUP_NAME,
+    }[env]
+    assert async_to_sync(_user_has_role)(8800, group_name, ["8800"]) is True  # бот — как раньше
+
+
+def test_d12_policy_comparison_web_rights_ignore_telegram_lists(population, settings):
+    before = snapshot(population)
+    settings.TELEGRAM_ADMIN_IDS = settings.TELEGRAM_MANAGER_IDS = settings.TELEGRAM_COACH_IDS = ["1", "2", "3"]
+    for n, user in enumerate(population.values(), start=1):
+        User.objects.filter(pk=user.pk).update(tg_id=n)
+        user.refresh_from_db()
+    assert snapshot(population) == before
+
+
+def test_d12_env_groups_on_telegram_link_only_before_switch(settings):
+    from users.services.linking import assign_groups_from_env
+
+    settings.TELEGRAM_COACH_IDS = ["9100"]
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    user = make("link@example.com", tg_id=9100)
+    assign_groups_from_env(user)
+    assert not user.groups.exists()
+    settings.ORGS_ROLES_SOURCE = "legacy"
+    assign_groups_from_env(user)  # legacy-поведение привязки сохранено
+    assert set(user.groups.values_list("name", flat=True)) == {COACH_GROUP_NAME}
+
+
+def test_bot_manager_scope_is_in_memory_only(population, settings):
+    from organizations.permissions import BOT_MANAGER_SCOPE
+
+    import_legacy()
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    manager = population["manager"]
+    assert not is_privileged(manager)
+    setattr(manager, BOT_MANAGER_SCOPE, True)
+    assert is_privileged(manager)
+    assert not is_privileged(User.objects.get(pk=manager.pk))

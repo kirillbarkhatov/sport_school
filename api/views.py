@@ -23,7 +23,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -51,7 +51,7 @@ from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Competition, CompetitionDocument, Person
 from users.mixins import ApprovedUserRequiredMixin
 from users.models import User
-from users.permissions import IsApprovedUser
+from users.permissions import IsApprovedUser, IsPrivilegedUser
 
 from .serializers import (
     AssistantAthleteSerializer,
@@ -537,7 +537,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     model = Person
     serializer_class = PersonSerializer
     queryset = Person.objects.all()
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsPrivilegedUser]
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -546,7 +546,7 @@ class UserViewSet(viewsets.ModelViewSet):
     model = User
     serializer_class = UserSerializer
     queryset = User.objects.all()
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsPrivilegedUser]
 
 
 class WhatsAppChatSyncView(APIView):

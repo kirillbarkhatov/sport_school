@@ -1,12 +1,15 @@
 """Единый слой прав (этап 4, R2-1). Все проверки доступа проходят через authorize / visible_to / has_role.
 
 Источник ролей — флаг ORGS_ROLES_SOURCE:
-- legacy      — как до этапа 4: is_approved, is_staff/is_superuser, группы Django, TELEGRAM_*_IDS;
-- memberships — активное членство в текущей организации и роли из него. TELEGRAM_*_IDS не читаются,
-                is_staff сам по себе прав не даёт (это доступ к Django-админке).
+- legacy      — как до этапа 4: is_approved, is_staff/is_superuser, группы Django. TELEGRAM_*_IDS веб-прав
+                не дают (D12): их читает только бот, отдельной веткой в tg_bot/services/notifications.py;
+- memberships — только активное членство в текущей организации и роли из него (D11): ни is_superuser,
+                ни is_staff не обходят членство; глобальные роли — для консоли платформы, не для CRM.
+                TELEGRAM_*_IDS не читаются нигде.
 
 Переключение не расширяет доступ: действия, которые в legacy открыты только для is_staff/is_superuser
-(«privileged»), в режиме членства требуют роль owner. Решение дать их роли admin — отдельное, продуктовое.
+(«privileged»), в режиме членства требуют роль owner в текущей организации. Суперпользователь получает её
+при переносе (import_legacy) в ksclub; в другой организации без членства прав у него нет.
 """
 
 from __future__ import annotations
@@ -21,9 +24,12 @@ MEMBERSHIPS = "memberships"
 STAFF_ROLES = frozenset({OrgRole.OWNER, OrgRole.ADMIN, OrgRole.MANAGER, OrgRole.COACH, OrgRole.SECRETARY})
 MANAGEMENT_ROLES = frozenset({OrgRole.OWNER, OrgRole.ADMIN, OrgRole.MANAGER})
 PRIVILEGED = "privileged"
+# Временный признак объекта пользователя в боте: менеджер, уже прошедший проверку роли в боте, видит
+# все семьи и спортсменов (раньше бот ставил в памяти is_staff=True). В базу не сохраняется.
+BOT_MANAGER_SCOPE = "bot_manager_scope"
 
 # Действие → кому разрешено: множество ролей и/или PRIVILEGED (в legacy — is_staff/is_superuser,
-# в memberships — суперпользователь или owner). site.access обрабатывается отдельно.
+# в memberships — роль owner в текущей организации). site.access обрабатывается отдельно.
 ACTIONS: dict[str, frozenset[str]] = {
     "site.access": frozenset(),
     # Зона сотрудников: изменение соревнований, групп зачёта, занятий, групп, загрузка документов,
@@ -51,15 +57,6 @@ def _group_role_map() -> dict[str, str]:
     return GROUP_TO_ROLE
 
 
-def legacy_env_roles(tg_id) -> set[str]:
-    """Роли из TELEGRAM_*_IDS — только для режима legacy и для переноса до переключения."""
-    from .legacy import ENV_TO_ROLE, _env_tg_ids
-
-    if not tg_id:
-        return set()
-    return {role for name, role in ENV_TO_ROLE.items() if int(tg_id) in _env_tg_ids(name)}
-
-
 def _current_organization(organization=None):
     from .context import default_organization, get_current_organization
 
@@ -78,8 +75,8 @@ def roles_for(user, organization=None) -> set[str]:
         return set()
     if roles_source() == LEGACY:
         groups = _group_role_map()
-        roles = {groups[name] for name in user.groups.values_list("name", flat=True) if name in groups}
-        return roles | legacy_env_roles(user.tg_id)
+        # Только группы Django: TELEGRAM_*_IDS в веб-проверках не участвовали и не участвуют (D12).
+        return {groups[name] for name in user.groups.values_list("name", flat=True) if name in groups}
     membership = active_membership(user, organization)
     if membership is None:
         return set()
@@ -87,24 +84,23 @@ def roles_for(user, organization=None) -> set[str]:
 
 
 def is_privileged(user, organization=None) -> bool:
-    """Бывшая проверка `is_staff or is_superuser`."""
+    """Бывшая проверка `is_staff or is_superuser`. В memberships — роль owner в текущей организации (D11)."""
     if not getattr(user, "is_authenticated", False):
         return False
-    if user.is_superuser:
+    if getattr(user, BOT_MANAGER_SCOPE, False):
         return True
     if roles_source() == LEGACY:
-        return bool(user.is_staff)
+        return bool(user.is_staff or user.is_superuser)
     return OrgRole.OWNER in roles_for(user, organization)
 
 
 def has_site_access(user, organization=None) -> bool:
-    """Подтверждённый участник: legacy — is_approved или staff; memberships — активное членство."""
+    """Подтверждённый участник: legacy — is_approved, staff или superuser; memberships — только активное
+    членство в текущей организации, без обхода для is_superuser (D11)."""
     if not getattr(user, "is_authenticated", False):
         return False
-    if user.is_superuser:
-        return True
     if roles_source() == LEGACY:
-        return bool(user.is_approved or user.is_staff)
+        return bool(user.is_approved or user.is_staff or user.is_superuser)
     return active_membership(user, organization) is not None
 
 
