@@ -47,6 +47,7 @@ from api.telemetry import log_event
 from bot.models import TelegramChat, TelegramParticipant
 from classes.services import get_assistant_schedule_payload
 from organizations.permissions import authorize, is_privileged  # noqa: F401
+from organizations.scoping import users_in_organization
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Competition, CompetitionDocument, Person
 from users.mixins import ApprovedUserRequiredMixin
@@ -547,6 +548,10 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     queryset = User.objects.all()
     permission_classes = [IsPrivilegedUser]
+
+    def get_queryset(self):
+        # D13: при ORGS_ENFORCE_SCOPING — только учётные записи с членством в текущей организации
+        return users_in_organization(super().get_queryset())
 
 
 class WhatsAppChatSyncView(APIView):

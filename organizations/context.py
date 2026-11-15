@@ -3,6 +3,10 @@
 Хранится в contextvars, поэтому корректно изолирована между потоками и asyncio-задачами.
 Пока организация одна, неизвестный хост и задачи без явной организации получают
 ORGS_DEFAULT_ORGANIZATION_SLUG («ksclub»); на R4 запасной вариант отключается.
+
+Явно указанная, но неактивная или несуществующая организация (домен приостановленной организации,
+organization_id задачи) в «ksclub» НЕ переводится: контекст становится NO_ORGANIZATION, и при
+ORGS_ENFORCE_SCOPING данные организаций не видны вовсе (T05).
 """
 
 from __future__ import annotations
@@ -13,12 +17,32 @@ from contextvars import ContextVar
 from django.conf import settings
 from django.core.cache import cache
 
+
+class _NoOrganization:
+    """Контекст явно задан, но организации нет (неактивная, неизвестная). Не путать с «не задан»."""
+
+    def __bool__(self) -> bool:
+        return False
+
+    def __repr__(self) -> str:
+        return "NO_ORGANIZATION"
+
+
+NO_ORGANIZATION = _NoOrganization()
+
 _current: ContextVar[object | None] = ContextVar("current_organization", default=None)
+_explicit_task_org: ContextVar[bool] = ContextVar("explicit_task_organization", default=False)
 _DOMAIN_CACHE_SECONDS = 60
 
 
 def get_current_organization():
-    return _current.get()
+    value = _current.get()
+    return None if value is NO_ORGANIZATION else value
+
+
+def context_is_set() -> bool:
+    """Контекст задан (организацией или явным NO_ORGANIZATION)."""
+    return _current.get() is not None
 
 
 def set_current_organization(organization):
@@ -65,8 +89,8 @@ def organization_for_host(host: str):
         cache.set(cache_key, org_id, _DOMAIN_CACHE_SECONDS)
     if org_id:
         organization = Organization.objects.filter(pk=org_id, status=Organization.Status.ACTIVE).first()
-        if organization is not None:
-            return organization
+        # домен известной, но неактивной организации не переводит в организацию по умолчанию
+        return organization if organization is not None else NO_ORGANIZATION
     return default_organization()
 
 
@@ -75,7 +99,8 @@ def organization_by_id(organization_id):
 
     if not organization_id:
         return default_organization()
-    return Organization.objects.filter(pk=organization_id).first() or default_organization()
+    organization = Organization.objects.filter(pk=organization_id, status=Organization.Status.ACTIVE).first()
+    return organization if organization is not None else NO_ORGANIZATION
 
 
 class OrganizationMiddleware:
@@ -86,7 +111,7 @@ class OrganizationMiddleware:
 
     def __call__(self, request):
         organization = organization_for_host(request.get_host())
-        request.organization = organization
+        request.organization = organization or None
         token = set_current_organization(organization)
         try:
             return self.get_response(request)
@@ -96,24 +121,61 @@ class OrganizationMiddleware:
 
 # --- Celery: у каждой задачи есть контекст организации ---------------------------------------------
 
-_task_tokens: dict[str, object] = {}
+# Организация передаётся заголовком сообщения ORG_HEADER (ставится при публикации из текущего контекста).
+# Старые сообщения без заголовка (и без kwargs["organization_id"]) получают организацию по умолчанию —
+# при одном клубе поведение прежнее (D08).
+ORG_HEADER = "organization_id"
+_task_tokens: dict[str, tuple] = {}
+
+
+def _task_organization_id(task, kwargs):
+    request = getattr(task, "request", None)
+    value = getattr(request, ORG_HEADER, None) if request is not None else None
+    if value is None and request is not None:
+        value = (getattr(request, "headers", None) or {}).get(ORG_HEADER)
+    if value is None:
+        value = (kwargs or {}).get("organization_id")
+    return value
 
 
 def _task_prerun(task_id=None, task=None, args=None, kwargs=None, **_):
-    organization = organization_by_id((kwargs or {}).get("organization_id"))
-    _task_tokens[task_id] = set_current_organization(organization)
+    organization_id = _task_organization_id(task, kwargs)
+    if not organization_id and context_is_set():
+        # eager-задача (CELERY_TASK_ALWAYS_EAGER) в том же потоке: сохраняем контекст вызывающего кода
+        organization = _current.get()
+    else:
+        organization = organization_by_id(organization_id)
+    _task_tokens[task_id] = (
+        set_current_organization(organization),
+        _explicit_task_org.set(bool(organization_id)),
+    )
 
 
 def _task_postrun(task_id=None, **_):
-    token = _task_tokens.pop(task_id, None)
-    if token is not None:
-        reset_current_organization(token)
+    tokens = _task_tokens.pop(task_id, None)
+    if tokens is not None:
+        reset_current_organization(tokens[0])
+        _explicit_task_org.reset(tokens[1])
+
+
+def _before_task_publish(headers=None, **_):
+    """Задача, поставленная в контексте организации, выполнится в этой же организации."""
+    if headers is None or headers.get(ORG_HEADER):
+        return
+    organization = get_current_organization()
+    if organization is not None:
+        headers[ORG_HEADER] = organization.pk
+
+
+def task_has_explicit_organization() -> bool:
+    return _explicit_task_org.get()
 
 
 def connect_celery_signals() -> None:
-    from celery.signals import task_postrun, task_prerun
+    from celery.signals import before_task_publish, task_postrun, task_prerun
 
     task_prerun.connect(_task_prerun, dispatch_uid="organizations_task_prerun", weak=False)
+    before_task_publish.connect(_before_task_publish, dispatch_uid="organizations_task_publish", weak=False)
     task_postrun.connect(_task_postrun, dispatch_uid="organizations_task_postrun", weak=False)
 
 
@@ -135,3 +197,36 @@ def activate_default_organization():
     organization = default_organization()
     set_current_organization(organization)
     return organization
+
+
+# --- Периодические задачи: по одной копии на каждую активную организацию (D08) ----------------------
+
+
+def for_each_organization(func):
+    """Декоратор тела периодической задачи (под @shared_task).
+
+    - Сообщение с организацией (заголовок ORG_HEADER) или прямой вызов из кода — выполняется в текущем
+      контексте.
+    - Сообщение без организации (beat, задачи при старте, старые сообщения очереди) — задача ставится
+      заново по одной копии на каждую активную организацию с её заголовком; при одном клубе это одна
+      копия для ksclub, результат прежний.
+    """
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        from celery import current_task
+
+        from .models import Organization
+
+        task = current_task
+        if task is None or task.request.called_directly or task_has_explicit_organization():
+            return func(*args, **kwargs)
+        call_args = args[1:] if args and args[0] is task else args
+        slugs = []
+        for organization in Organization.objects.filter(status=Organization.Status.ACTIVE).order_by("pk"):
+            task.apply_async(args=call_args, kwargs=kwargs, headers={ORG_HEADER: organization.pk})
+            slugs.append(organization.slug)
+        return {"per_organization": slugs}
+
+    return wrapper

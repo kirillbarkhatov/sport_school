@@ -1,8 +1,10 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from organizations.scoping import OrgOwned
 
-class WhatsAppChat(models.Model):
+
+class WhatsAppChat(OrgOwned):
     name = models.CharField(
         max_length=255,
         unique=True,
@@ -25,7 +27,7 @@ class WhatsAppChat(models.Model):
         return self.name
 
 
-class WhatsAppChatMember(models.Model):
+class WhatsAppChatMember(OrgOwned):
     chat = models.ForeignKey(
         WhatsAppChat,
         on_delete=models.CASCADE,

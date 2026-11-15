@@ -18,6 +18,7 @@ from members.models import PersonDedupJob, PersonDuplicateCluster, PersonMergeRe
 from members.services import apply_cluster_merge, build_cluster_payload, build_job_payload
 from members.tasks import run_person_dedup_job_task
 from organizations.permissions import authorize, is_privileged  # noqa: F401
+from organizations.scoping import users_in_organization
 from school.forms import (
     AthleteContractForm,
     ExistingFamilyMemberFormSet,
@@ -163,7 +164,7 @@ def _group_users_by_person(person_ids):
         return {}
     from users.models import User
 
-    users = (
+    users = users_in_organization(
         User.objects.select_related("person")
         .filter(person_id__in=person_ids)
         .order_by("person__surname", "person__name", "pk")

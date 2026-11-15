@@ -58,9 +58,9 @@ def _group_role_map() -> dict[str, str]:
 
 
 def _current_organization(organization=None):
-    from .context import default_organization, get_current_organization
+    from .scoping import scope_organization
 
-    return organization or get_current_organization() or default_organization()
+    return organization or scope_organization()
 
 
 def active_membership(user, organization=None) -> Membership | None:

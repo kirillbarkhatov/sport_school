@@ -8,6 +8,7 @@ from telegram import Bot
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from organizations.scoping import users_in_organization
 from users.constants import (
     ADMIN_GROUP_NAME,
     COACH_GROUP_NAME,
@@ -54,7 +55,9 @@ def get_manager_env_chat_ids() -> Sequence[str]:
 
 async def _fetch_group_chat_ids(group_name: str) -> list[int]:
     queryset = (
-        User.objects.filter(groups__name=group_name, tg_id__isnull=False).values_list("tg_id", flat=True).distinct()
+        users_in_organization(User.objects.filter(groups__name=group_name, tg_id__isnull=False))
+        .values_list("tg_id", flat=True)
+        .distinct()
     )
     return await sync_to_async(list, thread_sensitive=True)(queryset)
 

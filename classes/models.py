@@ -6,6 +6,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
+from organizations.scoping import OrgOwned
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Class, Group
 from school.training_rules import apply_training_rules
@@ -21,7 +22,7 @@ class Weekday(models.IntegerChoices):
     SUNDAY = 6, "Воскресенье"
 
 
-class TrainingTemplate(models.Model):
+class TrainingTemplate(OrgOwned):
     """Шаблон регулярного занятия."""
 
     name = models.CharField(max_length=200, verbose_name="Название шаблона")

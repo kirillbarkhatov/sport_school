@@ -8,6 +8,7 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
+from organizations.scoping import users_in_organization
 from school.models import Person
 from tg_bot.handlers.auth import build_authenticated_keyboard
 from tg_bot.services.notifications import (
@@ -68,7 +69,7 @@ async def _notify_user_approved(bot, user: User) -> None:
 
 
 async def _fetch_pending_users(limit: int = ADMIN_PAGE_SIZE) -> list[User]:
-    queryset = (
+    queryset = users_in_organization(
         User.objects.select_related("link", "link__suggested_person")
         .filter(link__status=UserPersonLinkStatus.PENDING)
         .order_by("date_joined")
@@ -132,7 +133,7 @@ def _confirm_suggested_link_sync(user_id: int, admin_user_id: int | None) -> tup
     admin_user = None
     if admin_user_id:
         admin_user = User.objects.filter(pk=admin_user_id).first()
-    user = User.objects.select_related("link", "link__suggested_person").get(pk=user_id)
+    user = users_in_organization(User.objects.select_related("link", "link__suggested_person")).get(pk=user_id)
     link = user.link
     if not link or not link.suggested_person_id:
         raise ValueError("Для этого пользователя нет предложенной персоны")
@@ -150,7 +151,7 @@ def _set_person_link_sync(user_id: int, person_id: int, admin_user_id: int | Non
     admin_user = None
     if admin_user_id:
         admin_user = User.objects.filter(pk=admin_user_id).first()
-    user = User.objects.select_related("link").get(pk=user_id)
+    user = users_in_organization(User.objects.select_related("link")).get(pk=user_id)
     person = Person.objects.get(pk=person_id)
     link, _ = UserPersonLink.objects.get_or_create(user=user)
     link.suggested_person = person
@@ -170,7 +171,7 @@ def _reject_link_sync(user_id: int, admin_user_id: int | None) -> tuple[User, Us
     admin_user = None
     if admin_user_id:
         admin_user = User.objects.filter(pk=admin_user_id).first()
-    user = User.objects.select_related("link").get(pk=user_id)
+    user = users_in_organization(User.objects.select_related("link")).get(pk=user_id)
     link, _ = UserPersonLink.objects.get_or_create(user=user)
     link.apply_decision(UserPersonLinkStatus.REJECTED, decided_by=admin_user)
     link.save(update_fields=LINK_DECISION_FIELDS)

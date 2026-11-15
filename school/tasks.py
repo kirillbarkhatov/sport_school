@@ -20,6 +20,8 @@ from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
 
+from organizations.context import for_each_organization
+
 from .document_ai import (
     AnalyzerContractError,
     build_analyzer_payload,
@@ -52,6 +54,7 @@ def _monitor_cache_key(athlete_document_id: int) -> str:
 
 
 @shared_task
+@for_each_organization
 def ensure_monthly_contract_services():
     today = timezone.now().date()
     contracts = AthleteContract.objects.select_related("profile__family", "profile__athlete__person")
@@ -60,6 +63,7 @@ def ensure_monthly_contract_services():
 
 
 @shared_task
+@for_each_organization
 def reconcile_athlete_certificate_validity() -> dict[str, int]:
     today = timezone.localdate()
     updated = 0
@@ -652,6 +656,7 @@ def create_documents_ai_job(
 
 
 @shared_task
+@for_each_organization
 def enqueue_documents_for_ai_analysis(
     document_ids: list[int] | None = None,
     *,

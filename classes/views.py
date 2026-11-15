@@ -9,6 +9,7 @@ from classes.forms import ClassNotificationForm
 from notifications.models import Notification
 from notifications.services import deliver_notification
 from organizations.permissions import authorize, is_privileged  # noqa: F401
+from organizations.scoping import users_in_organization
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.forms import AthleteSelectionForm, ClassForm
 from school.models import Athlete, Class, ClassEnrollment, FamilyMember
@@ -251,7 +252,7 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
         # Пользователь связан с семьёй через свою Person (поле User.family удалено в users.0005)
         family_person_ids = FamilyMember.objects.filter(family_id__in=family_ids).values_list("person_id", flat=True)
 
-        return (
+        return users_in_organization(
             User.objects.filter(models.Q(person_id__in=family_person_ids) | models.Q(person_id__in=person_ids))
             .filter(is_approved=True)
             .distinct()

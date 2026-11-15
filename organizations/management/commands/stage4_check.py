@@ -13,7 +13,7 @@ class Command(BaseCommand):
     help = "Проверка готовности релиза этапа 4 (docs/stage4-releases.md). Ненулевой код выхода при ошибках."
 
     def add_arguments(self, parser):
-        parser.add_argument("--release", required=True, choices=["r1"])
+        parser.add_argument("--release", required=True, choices=["r1", "r2"])
 
     def handle(self, *args, release, **options):
         errors, notes = [], []
@@ -47,6 +47,13 @@ class Command(BaseCommand):
         flags = (settings.ORGS_DEFAULT_ORGANIZATION_SLUG, settings.ORGS_LEGACY_SYNC, settings.ORGS_ROLES_SOURCE)
         if flags != ("ksclub", True, "legacy"):
             errors.append(f"флаги R1 не совпадают с планом: {flags}")
+        if release == "r2":
+            from organizations.backfill import missing_organization
+
+            missing = missing_organization()
+            notes.append(f"строк без организации: {sum(missing.values())}")
+            if missing:
+                errors.append(f"есть данные без организации: {sorted(missing)}")
         for note in notes:
             self.stdout.write(f"· {note}")
         if errors:
