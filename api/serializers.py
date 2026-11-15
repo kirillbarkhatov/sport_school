@@ -14,18 +14,54 @@ class PersonSerializer(serializers.ModelSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """Сериализатор для пользователей"""
+    """Пользователи (только для персонала). Пароль только на запись; роли и флаги доступа — только чтение:
+    выдавать права через API нельзя, только в админке."""
+
+    password = serializers.CharField(write_only=True, required=False, min_length=8)
 
     def create(self, validated_data):
-        print(validated_data)
-        raw_password = validated_data.pop("password")
-        user = User.objects.create(**validated_data)
-        user.set_password(raw_password)
+        raw_password = validated_data.pop("password", None)
+        user = User(**validated_data)
+        if raw_password:
+            user.set_password(raw_password)
+        else:
+            user.set_unusable_password()
+        user.save()
         return user
+
+    def update(self, instance, validated_data):
+        raw_password = validated_data.pop("password", None)
+        instance = super().update(instance, validated_data)
+        if raw_password:
+            instance.set_password(raw_password)
+            instance.save(update_fields=["password"])
+        return instance
 
     class Meta:
         model = User
-        fields = "__all__"
+        fields = (
+            "id",
+            "email",
+            "password",
+            "first_name",
+            "last_name",
+            "phone",
+            "city",
+            "tg_id",
+            "tg_username",
+            "tg_first_name",
+            "tg_last_name",
+            "person",
+            "is_approved",
+            "bot_access",
+            "is_active",
+            "is_staff",
+            "is_superuser",
+            "groups",
+            "date_joined",
+            "last_login",
+        )
+        read_only_fields = ("is_staff", "is_superuser", "groups", "date_joined", "last_login")
 
 
 class WhatsAppChatMemberPayloadSerializer(serializers.Serializer):

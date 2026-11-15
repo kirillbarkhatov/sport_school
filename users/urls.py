@@ -1,5 +1,4 @@
 from django.urls import path
-from rest_framework.routers import SimpleRouter
 
 from .apps import UsersConfig
 from .views import (
@@ -8,18 +7,13 @@ from .views import (
     LoginPageView,
     LogoutView,
     TelegramCallbackView,
-    UserViewSet,
     XferLoginView,
 )
 
 app_name = UsersConfig.name
 
-router_user = SimpleRouter()
-router_user.register(r"user", UserViewSet)
-
 urlpatterns = (
-    router_user.urls
-    + [
+    [
         path("login_page/", LoginPageView.as_view(), name="login_page"),
         path("awaiting-approval/", AwaitingApprovalView.as_view(), name="awaiting_approval"),
         path("logout/", LogoutView.as_view(), name="logout"),
