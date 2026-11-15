@@ -73,6 +73,9 @@ class PersonDedupJob(models.Model):
         self.error_message = error_message
         self.finished_at = timezone.now()
 
+    def __str__(self) -> str:
+        return f"PersonDedupJob #{self.pk}"
+
 
 class PersonDuplicateCluster(models.Model):
     STATUS_OPEN = "open"
@@ -111,6 +114,9 @@ class PersonDuplicateCluster(models.Model):
         verbose_name = "Кластер дублей персон"
         verbose_name_plural = "Кластеры дублей персон"
 
+    def __str__(self) -> str:
+        return f"PersonDuplicateCluster #{self.pk}"
+
 
 class PersonDuplicateItem(models.Model):
     cluster = models.ForeignKey(
@@ -139,6 +145,9 @@ class PersonDuplicateItem(models.Model):
             )
         ]
         ordering = ["-aggregate_score", "person__surname", "person__name"]
+
+    def __str__(self) -> str:
+        return f"PersonDuplicateItem #{self.pk}"
 
 
 class PersonMergeRedirect(models.Model):
@@ -174,6 +183,9 @@ class PersonMergeRedirect(models.Model):
                 name="members_merge_redirect_source_ne_target",
             )
         ]
+
+    def __str__(self) -> str:
+        return f"PersonMergeRedirect #{self.pk}"
 
 
 class PersonMergeLog(models.Model):
@@ -217,3 +229,6 @@ class PersonMergeLog(models.Model):
         ordering = ["-created_at"]
         verbose_name = "Журнал объединения персон"
         verbose_name_plural = "Журнал объединений персон"
+
+    def __str__(self) -> str:
+        return f"PersonMergeLog #{self.pk}"

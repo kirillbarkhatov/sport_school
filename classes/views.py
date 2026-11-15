@@ -294,7 +294,7 @@ class ClassNotificationView(ApprovedUserRequiredMixin, FormView):
         return context
 
     def form_valid(self, form):
-        class_instance = self.get_class_instance()
+        self.get_class_instance()
         recipients = form.cleaned_data["recipients"]
 
         notification = Notification.objects.create(

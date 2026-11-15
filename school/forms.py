@@ -46,7 +46,7 @@ from .training_rules import (
 class StyleFormMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field_name, field in self.fields.items():
+        for field in self.fields.values():
             if isinstance(field, BooleanField):
                 field.widget.attrs["class"] = "form-check-input"
             else:
@@ -114,7 +114,7 @@ class AthleteCompactForm(StyleFormMixin, forms.ModelForm):
 class PersonForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Person
-        fields = "__all__"
+        fields = "__all__"  # noqa: DJ007
         widgets = {
             "date_of_birth": forms.DateInput(
                 format="%Y-%m-%d",
@@ -382,7 +382,7 @@ class ClassForm(StyleFormMixin, forms.ModelForm):
 class GroupForm(StyleFormMixin, forms.ModelForm):
     class Meta:
         model = Group
-        fields = "__all__"
+        fields = "__all__"  # noqa: DJ007
 
 
 class AthleteSelectionForm(forms.Form):

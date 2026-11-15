@@ -1065,7 +1065,6 @@ async def handle_main_menu_text(update: Update, context: ContextTypes.DEFAULT_TY
         await message.reply_text("Доступ к функциям бота пока ограничен. Администратор откроет его после одобрения.")
         return True
 
-    link = user.person_link
     is_confirmed = bool(user.is_approved and user.person_id)
     is_privileged = (
         await user_is_admin(update.effective_user.id)

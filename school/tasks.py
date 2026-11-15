@@ -107,7 +107,7 @@ def reconcile_athlete_certificate_validity() -> dict[str, int]:
             link.save(update_fields=list(set(changed_fields)))
         by_athlete[link.athlete_id].append(link)
 
-    for athlete_id, docs in by_athlete.items():
+    for docs in by_athlete.values():
         valid_docs = [doc for doc in docs if doc.valid_until and doc.valid_until >= today]
         if valid_docs:
             active_id = valid_docs[0].id
@@ -332,7 +332,6 @@ def _refresh_job_status(job_id: str | UUID | None) -> None:
     total = int(job.total_documents)
     pending = items_qs.filter(status=DocumentAIJobItem.Status.PENDING).count()
     in_progress = items_qs.filter(status=DocumentAIJobItem.Status.IN_PROGRESS).count()
-    completed = items_qs.filter(status=DocumentAIJobItem.Status.COMPLETED).count()
     failed = items_qs.filter(status=DocumentAIJobItem.Status.FAILED).count()
 
     now = timezone.now()

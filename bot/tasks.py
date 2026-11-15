@@ -74,7 +74,7 @@ def process_telegram_document_task(
             telegram_file_id,
             exc,
         )
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc) from exc
 
     resolved_name = (filename or "").strip() or PurePosixPath(file_path).name or f"tg-{telegram_file_unique_id}"
     resolved_size = int(file_size or 0) or len(content)

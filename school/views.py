@@ -1041,7 +1041,6 @@ class CompetitionCreateUpdateView(ApprovedUserRequiredMixin, View):
     def post(self, request, pk=None):
         competition = self.get_object(pk)
         form = CompetitionForm(request.POST, instance=competition)
-        save_competition = "save_competition" in request.POST
         save_athletes = "athletes_submit" in request.POST
         selected_ids = set(request.POST.getlist("athletes"))
 
@@ -1990,7 +1989,6 @@ def competition_export(request, pk):
     for idx, entry in enumerate(entries, start=1):
         person = entry.athlete.person
         dob = person.date_of_birth.strftime("%d.%m.%Y") if person.date_of_birth else ""
-        year = person.date_of_birth.year if person.date_of_birth else ""
         rows.append(
             [
                 str(idx),
@@ -2441,7 +2439,7 @@ def competition_export_word_type2(request, pk):
         from docx import Document
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml.ns import qn
-        from docx.shared import Cm, Pt, RGBColor
+        from docx.shared import Cm, RGBColor
     except ImportError:
         return HttpResponse("python-docx не установлен", status=500)
 
@@ -2546,7 +2544,7 @@ def competition_export_word_type3(request, pk):
         from docx import Document
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml.ns import qn
-        from docx.shared import Cm, Pt, RGBColor
+        from docx.shared import Cm
     except ImportError:
         return HttpResponse("python-docx не установлен", status=500)
 
@@ -2636,7 +2634,7 @@ def competition_export_word_type4(request, pk):
         from docx import Document
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.oxml.ns import qn
-        from docx.shared import Cm, Pt
+        from docx.shared import Cm
     except ImportError:
         return HttpResponse("python-docx не установлен", status=500)
 

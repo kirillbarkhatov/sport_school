@@ -47,7 +47,7 @@ def send_members_snapshot_task(self) -> dict[str, Any] | str:
         client.send_members_snapshot(payload)
     except AssistantIntegrationError as exc:
         logger.warning("Failed to send members snapshot: %s", exc)
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc) from exc
     logger.info("Sent %d members to AI assistant.", len(payload.get("members", [])))
     return {"members": len(payload.get("members", []))}
 
@@ -63,7 +63,7 @@ def send_taxonomy_snapshot_task(self) -> dict[str, Any] | str:
         client.send_taxonomy_snapshot(payload)
     except AssistantIntegrationError as exc:
         logger.warning("Failed to send taxonomy snapshot: %s", exc)
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc) from exc
     logger.info("Sent taxonomy snapshot to AI assistant.")
     return {"counts": {k: len(v) for k, v in payload.items()}}
 
@@ -79,7 +79,7 @@ def send_upcoming_trainings_snapshot_task(self) -> dict[str, Any] | str:
         client.send_trainings_snapshot(payload)
     except AssistantIntegrationError as exc:
         logger.warning("Failed to send trainings snapshot: %s", exc)
-        raise self.retry(exc=exc)
+        raise self.retry(exc=exc) from exc
     logger.info(
         "Sent %d trainings to AI assistant.",
         len(payload.get("trainings", [])),
