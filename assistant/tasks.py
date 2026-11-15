@@ -5,6 +5,8 @@ from typing import Any
 from celery import shared_task
 from celery.utils.log import get_task_logger
 
+from organizations.context import for_each_organization
+
 from .client import (
     AssistantClient,
     AssistantIntegrationDisabled,
@@ -37,6 +39,7 @@ def _prepare_client() -> AssistantClient | None:
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=120)
+@for_each_organization
 def send_members_snapshot_task(self) -> dict[str, Any] | str:
     client = _prepare_client()
     if not client:
@@ -53,6 +56,7 @@ def send_members_snapshot_task(self) -> dict[str, Any] | str:
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=120)
+@for_each_organization
 def send_taxonomy_snapshot_task(self) -> dict[str, Any] | str:
     client = _prepare_client()
     if not client:
@@ -69,6 +73,7 @@ def send_taxonomy_snapshot_task(self) -> dict[str, Any] | str:
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=120)
+@for_each_organization
 def send_upcoming_trainings_snapshot_task(self) -> dict[str, Any] | str:
     client = _prepare_client()
     if not client:

@@ -1,8 +1,10 @@
 from django.conf import settings
 from django.db import models
 
+from organizations.scoping import OrgOwned
 
-class Notification(models.Model):
+
+class Notification(OrgOwned):
     title = models.CharField(max_length=200, verbose_name="Заголовок")
     message = models.TextField(verbose_name="Сообщение")
     users = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, verbose_name="Получатели")

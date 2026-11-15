@@ -3,6 +3,8 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
 
+from organizations.scoping import OrgOwned
+
 
 class UserPersonLinkStatus(models.TextChoices):
     PENDING = "pending", "Ожидает подтверждения"
@@ -107,7 +109,7 @@ class User(AbstractUser):
         return self.bot_access == self.BOT_ACCESS_FULL
 
 
-class UserAthleteLink(models.Model):
+class UserAthleteLink(OrgOwned):
     """Связь пользователя со спортсменом для заявок."""
 
     SOURCE_CHOICES = [
@@ -151,7 +153,7 @@ class UserAthleteLink(models.Model):
         return f"{self.user.display_name()} → {self.athlete}"
 
 
-class TrainingReminderLog(models.Model):
+class TrainingReminderLog(OrgOwned):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -190,7 +192,7 @@ class TrainingReminderLog(models.Model):
         return f"Напоминание {self.user_id} → {self.class_instance_id} ({self.sent_at:%Y-%m-%d %H:%M})"
 
 
-class UserPersonLink(models.Model):
+class UserPersonLink(OrgOwned):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

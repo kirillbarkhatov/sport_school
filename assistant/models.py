@@ -8,6 +8,8 @@ import jwt
 from django.db import models
 from django.utils import timezone as dj_timezone
 
+from organizations.scoping import OrgOwned
+
 
 class ServiceAccount(models.Model):
     """Сервисные аккаунты для интеграций через JWT."""
@@ -151,7 +153,7 @@ class AssistantSyncLog(models.Model):
         return f"{self.get_direction_display()} · {self.event_type} ({self.created_at:%Y-%m-%d %H:%M})"
 
 
-class AssistantUnmatchedParticipant(models.Model):
+class AssistantUnmatchedParticipant(OrgOwned):
     """Участники, которых не удалось сопоставить с локальными данными."""
 
     service_account = models.ForeignKey(

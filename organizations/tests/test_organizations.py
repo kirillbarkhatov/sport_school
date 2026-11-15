@@ -63,7 +63,9 @@ def test_unknown_host_falls_back_to_default_and_can_be_disabled(settings):
 def test_suspended_organization_is_not_resolved():
     other = Organization.objects.create(slug="off", name="Off", status=Organization.Status.SUSPENDED)
     OrgDomain.objects.create(organization=other, host="off.ksclub.ru")
-    assert context.organization_for_host("off.ksclub.ru") == ksclub()
+    # T05: домен приостановленной организации не переводится в ksclub (раньше был переход)
+    assert context.organization_for_host("off.ksclub.ru") is context.NO_ORGANIZATION
+    assert not context.organization_for_host("off.ksclub.ru")
 
 
 @override_settings(ALLOWED_HOSTS=["*"])
@@ -126,7 +128,8 @@ def test_bot_and_results_worker_activate_default_organization():
     thread.join()
     assert result["org"] == ksclub()
     assert context.get_current_organization() is None  # контекст потока не протекает
-    assert "activate_default_organization" in EventRunner.run.__code__.co_names
+    # T05: поток трансляции работает в организации своей трансляции (test_scoping.py), не в организации по умолчанию
+    assert "set_current_organization" in EventRunner.run.__code__.co_names
 
 
 def test_new_club_cards_are_not_linked_automatically():
