@@ -1,39 +1,39 @@
+# Все Python-сервисы собираются из одного образа (Dockerfile, цель runtime).
+# Пути к бинарникам указаны абсолютно (/opt/venv/bin/...), чтобы не зависеть от PATH в override-файлах.
+
+x-app: &app
+  build: .
+  image: sport_school:latest
+  env_file:
+    - ./.env
+  restart: always
+  volumes:
+    - ./logs:/app/logs
+
+x-app-depends: &app-depends
+  migrate:
+    condition: service_completed_successfully
+  redis:
+    condition: service_healthy
+
 services:
-  web:
-    build: .
-    command: sh -c "python manage.py migrate &&
-      python manage.py collectstatic --noinput &&
-      gunicorn config.wsgi:application --bind 0.0.0.0:8000"
-    volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
+  postgres:
+    image: postgres:18
     env_file:
-      - ./.env
+      - ./.env.postgres
+    volumes:
+      # Postgres 18+ хранит данные в /var/lib/postgresql/<версия>/docker
+      - postgres18_data:/var/lib/postgresql
     restart: always
     healthcheck:
-      test: [ "CMD-SHELL", "python manage.py check --fail-level WARNING" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  bot:
-    build: .
-    command: poetry run python tg_bot/bot.py
-    volumes:
-      - .:/app
-    env_file:
-      - ./.env
-    depends_on:
-      web:
-        condition: service_healthy
-    restart: always
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # Порт наружу не публикуется: сервисам хватает внутренней сети compose
     volumes:
       - redis_data:/data
     restart: always
@@ -43,47 +43,58 @@ services:
       timeout: 3s
       retries: 5
 
+  # Одноразовый шаг перед стартом приложения: проверка БД, миграции, статика
+  migrate:
+    <<: *app
+    restart: "no"
+    command: >
+      sh -c "/opt/venv/bin/python manage.py check_db_initialized &&
+             /opt/venv/bin/python manage.py migrate --noinput &&
+             /opt/venv/bin/python manage.py collectstatic --noinput"
+    volumes:
+      - ./logs:/app/logs
+      - ./staticfiles:/app/staticfiles
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    command: >
+      /opt/venv/bin/gunicorn config.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers ${GUNICORN_WORKERS:-2}
+      --timeout ${GUNICORN_TIMEOUT:-120}
+      --access-logfile -
+    ports:
+      - "${WEB_BIND:-127.0.0.1:8010}:8000"
+    depends_on: *app-depends
+    healthcheck:
+      test: ["CMD", "/opt/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  bot:
+    <<: *app
+    command: /opt/venv/bin/python tg_bot/bot.py
+    depends_on: *app-depends
+
   celery_worker_docs:
-    build: .
-    command: poetry run celery -A config worker --loglevel=info -Q docs_analysis -c 1
-    volumes:
-      - .:/app
-    env_file:
-      - ./.env
-    depends_on:
-      redis:
-        condition: service_healthy
-      web:
-        condition: service_healthy
-    restart: always
+    <<: *app
+    command: /opt/venv/bin/celery -A config worker --loglevel=info -Q docs_analysis -c 1
+    depends_on: *app-depends
 
+  # Общий воркер + встроенный beat (-B). Экземпляр должен быть один, иначе задачи beat задвоятся.
   celery_worker_default:
-    build: .
-    command: poetry run celery -A config worker --loglevel=info -Q celery -c 4
-    volumes:
-      - .:/app
-    env_file:
-      - ./.env
-    depends_on:
-      redis:
-        condition: service_healthy
-      web:
-        condition: service_healthy
-    restart: always
-
-  celery_beat:
-    build: .
-    command: poetry run celery -A config beat --loglevel=info
-    volumes:
-      - .:/app
-    env_file:
-      - ./.env
-    depends_on:
-      redis:
-        condition: service_healthy
-      web:
-        condition: service_healthy
-    restart: always
+    <<: *app
+    command: >
+      /opt/venv/bin/celery -A config worker -B
+      --loglevel=info -Q celery -c 4
+      --schedule /tmp/celerybeat-schedule
+    depends_on: *app-depends
 
 volumes:
+  postgres18_data:
   redis_data:

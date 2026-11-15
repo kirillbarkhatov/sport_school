@@ -1,7 +1,6 @@
 import hashlib
 import json
 import logging
-import sys
 import uuid
 import zlib
 from contextlib import contextmanager
@@ -1645,7 +1644,7 @@ def _publish_webhook_event_to_telegram(run: StreamRun, event: WebhookEvent) -> N
 
 
 def _enqueue_telegram_publication(event_id: int) -> None:
-    if "test" in sys.argv:
+    if getattr(settings, "ONLINE_RESULTS_TELEGRAM_PUBLISH_SYNC", False):
         publish_online_results_event_to_telegram(event_id=event_id)
         return
     event = WebhookEvent.objects.filter(id=event_id).only("id", "stream_id", "event_type").first()

@@ -18,9 +18,21 @@ from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# ENV_FILE="" отключает чтение .env (используется в тестах)
+ENV_FILE = os.getenv("ENV_FILE", str(BASE_DIR / ".env"))
+if ENV_FILE:
+    load_dotenv(ENV_FILE, override=True)
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name: str) -> list[str]:
+    return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
 
 
 # Quick-start development settings - unsuitable for production
@@ -30,9 +42,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True if os.getenv("DEBUG") == "True" else False
+DEBUG = os.getenv("DEBUG") == "True"
 
-ALLOWED_HOSTS = ["*"]
+# ALLOWED_HOSTS задаётся ниже, после SITE_BASE_URL
 
 
 # Application definition
@@ -103,16 +115,23 @@ REST_FRAMEWORK = {
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+# Новые имена POSTGRES_*; старые NAME/USER/PASSWORD/HOST/PORT поддерживаются для совместимости.
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
-        "NAME": os.getenv("NAME"),
-        "USER": os.getenv("USER"),
-        "PASSWORD": os.getenv("PASSWORD"),
-        "HOST": os.getenv("HOST"),
-        "PORT": os.getenv("PORT"),
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("POSTGRES_DB") or os.getenv("NAME"),
+        "USER": os.getenv("POSTGRES_USER") or os.getenv("USER"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD") or os.getenv("PASSWORD"),
+        "HOST": os.getenv("POSTGRES_HOST") or os.getenv("HOST"),
+        "PORT": os.getenv("POSTGRES_PORT") or os.getenv("PORT") or "5432",
+        "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
+        "CONN_HEALTH_CHECKS": True,
     }
 }
+if env_bool("DB_POOL"):
+    # Встроенный пул psycopg 3. С пулом CONN_MAX_AGE должен быть 0.
+    DATABASES["default"]["CONN_MAX_AGE"] = 0
+    DATABASES["default"]["OPTIONS"] = {"pool": True}
 
 
 # Password validation
@@ -145,16 +164,23 @@ USE_I18N = True
 
 USE_TZ = True
 
-# Настройки отправки почты для mail.ru
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.mail.ru"
-EMAIL_PORT = 465
-EMAIL_USE_SSL = True
-EMAIL_USE_TLS = False
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
-SERVER_EMAIL = EMAIL_HOST_USER
+# Отправка почты через mail.ru (формат MAILERS из Django 6.1; EMAIL_* устарели)
+_email_user = os.getenv("EMAIL_HOST_USER", "")
+MAILERS = {
+    "default": {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "OPTIONS": {
+            "host": "smtp.mail.ru",
+            "port": 465,
+            "use_ssl": True,
+            "username": _email_user,
+            "password": os.getenv("EMAIL_HOST_PASSWORD", ""),
+            "timeout": 30,
+        },
+    }
+}
+DEFAULT_FROM_EMAIL = _email_user
+SERVER_EMAIL = _email_user
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
@@ -225,6 +251,23 @@ else:
 BOT_NAME = os.getenv("BOT_NAME")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SITE_BASE_URL = require_setting("SITE_BASE_URL").rstrip("/")
+
+
+def _default_allowed_hosts() -> list[str]:
+    hosts = {"localhost", "127.0.0.1"}
+    for url in (SITE_BASE_URL, os.getenv("ONLINE_RESULTS_WEBHOOK_PUBLIC_BASE_URL", "")):
+        host = urlparse(url).hostname
+        if host:
+            hosts.add(host)
+            if not host.startswith("www.") and host.count(".") == 1:
+                hosts.add(f"www.{host}")
+    return sorted(hosts)
+
+
+# Явный список через ALLOWED_HOSTS=host1,host2; иначе — хост SITE_BASE_URL (+www), вебхука и localhost.
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS") or _default_allowed_hosts()
+# localhost нужен healthcheck контейнера
+ALLOWED_HOSTS += [host for host in ("localhost", "127.0.0.1") if host not in ALLOWED_HOSTS]
 TELEGRAM_LOG_CHAT_ID = os.getenv("TELEGRAM_LOG_CHAT_ID")
 TELEGRAM_ADMIN_IDS = [
     admin_id.strip()
@@ -278,6 +321,8 @@ ONLINE_RESULTS_STREAM_WORKER_PRINT = os.getenv("ONLINE_RESULTS_STREAM_WORKER_PRI
 ONLINE_RESULTS_STREAM_RESUME_STALE_SEC = int(os.getenv("ONLINE_RESULTS_STREAM_RESUME_STALE_SEC", "180"))
 ONLINE_RESULTS_STREAM_PENDING_TIMEOUT_SEC = int(os.getenv("ONLINE_RESULTS_STREAM_PENDING_TIMEOUT_SEC", "45"))
 ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC = int(os.getenv("ONLINE_RESULTS_STREAM_RECOVERY_COOLDOWN_SEC", "30"))
+# Публиковать в Telegram синхронно, без Celery (для тестов)
+ONLINE_RESULTS_TELEGRAM_PUBLISH_SYNC = env_bool("ONLINE_RESULTS_TELEGRAM_PUBLISH_SYNC")
 ONLINE_RESULTS_TELEGRAM_PUBLISH_MIN_INTERVAL_SEC = float(
     os.getenv("ONLINE_RESULTS_TELEGRAM_PUBLISH_MIN_INTERVAL_SEC", "2.0")
 )
@@ -383,7 +428,9 @@ if BOT_TOKEN and TELEGRAM_LOG_CHAT_ID:
 
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+# Результаты задач нигде не читаются — backend не нужен.
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_BEAT_SCHEDULE_FILENAME = os.getenv("CELERY_BEAT_SCHEDULE_FILENAME", "/tmp/celerybeat-schedule")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_BEAT_SCHEDULE = {
@@ -480,6 +527,17 @@ AI_ASSISTANT_BASE_URL = os.getenv("AI_ASSISTANT_BASE_URL", "http://109.207.171.2
 
 # Redis для сервисных токенов (автологин между браузерами)
 REDIS_XFER_URL = os.getenv("REDIS_XFER_URL", os.getenv("REDIS_URL", "redis://localhost:6379/1"))
+
+# Общий кэш для всех процессов (web, celery, bot): блокировки, cooldown, статусы задач.
+# Без него Django использует LocMemCache — у каждого процесса свой кэш.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        # По умолчанию — тот же Redis, что и брокер Celery, база 2
+        "LOCATION": os.getenv("REDIS_CACHE_URL") or urlparse(CELERY_BROKER_URL)._replace(path="/2").geturl(),
+        "KEY_PREFIX": "sport_school",
+    }
+}
 XFER_TOKEN_TTL_SECONDS = int(os.getenv("XFER_TOKEN_TTL_SECONDS", "600"))
 XFER_TOKEN_POST_USE_TTL_SECONDS = int(os.getenv("XFER_TOKEN_POST_USE_TTL_SECONDS", "60"))
 AI_ASSISTANT_TIMEOUT = float(os.getenv("AI_ASSISTANT_TIMEOUT", "10"))

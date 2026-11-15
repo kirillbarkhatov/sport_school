@@ -30,8 +30,10 @@ from api.views import (
     OnlineResultsWebhookEventsView,
     OnlineResultsWebhookView,
 )
+from config.health import healthz
 
 urlpatterns = [
+    path("healthz/", healthz, name="healthz"),
     path("admin/", admin.site.urls),
     path("", include("school.urls", namespace="school")),
     path("", include("users.urls", namespace="users")),
