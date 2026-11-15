@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     "whatsapp",
     "assistant",
     "results",
+    "organizations",
 ]
 
 MIDDLEWARE = [
@@ -87,6 +88,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "organizations.context.OrganizationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -553,6 +555,13 @@ WHATSAPP_SYNC_TOKEN = os.getenv("WHATSAPP_SYNC_TOKEN", "")
 # Старая интеграция online_results_script выводится из эксплуатации: запуск новых потоков закрыт,
 # история и действующие публичные ссылки остаются доступны на чтение.
 LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED = env_bool("LEGACY_ONLINE_RESULTS_LAUNCH_ENABLED") and not STAGING_MODE
+
+# Введение организаций (этап 4, docs/stage4-releases.md)
+ORGS_DEFAULT_ORGANIZATION_SLUG = os.getenv(
+    "ORGS_DEFAULT_ORGANIZATION_SLUG", "ksclub"
+)  # хост без домена → эта организация
+ORGS_LEGACY_SYNC = env_bool("ORGS_LEGACY_SYNC", True)  # двойная запись членство/роли ↔ is_approved/группы
+ORGS_ROLES_SOURCE = os.getenv("ORGS_ROLES_SOURCE", "legacy")  # откуда читать роли: legacy | memberships (R2)
 
 # Онлайн-результаты (приложение results)
 RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(

@@ -446,6 +446,14 @@ class CompetitionVenue(models.Model):
     """Модель «Локация соревнований» (поддерживает подлокации)."""
 
     short_name = models.CharField(max_length=100, verbose_name="Короткое название")
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="venue_cards",
+        verbose_name="Организация на платформе",
+    )
     full_address = models.TextField(blank=True, verbose_name="Точный адрес")
     comment = models.TextField(blank=True, verbose_name="Комментарий")
     parent = models.ForeignKey(
@@ -1063,6 +1071,14 @@ class Club(models.Model):
     """Модель «Клуб»"""
 
     name = models.CharField(max_length=150, unique=True, verbose_name="Название клуба")
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="club_cards",
+        verbose_name="Организация на платформе",
+    )
 
     def __str__(self):
         return self.name
