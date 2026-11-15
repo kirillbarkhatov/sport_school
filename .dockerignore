@@ -19,3 +19,4 @@ staticfiles/
 celerybeat-schedule*
 dump.rdb
 gunicorn.ctl
+backups/

@@ -174,3 +174,4 @@ staticfiles/
 !.env.postgres.example
 .ruff_cache/
 !.env.sample
+backups/

@@ -1,78 +1,177 @@
 # Sport School
 
-## AI-анализ документов (Celery)
+CRM спортшколы: спортсмены, семьи и договоры, расписание и посещаемость, соревнования и заявки, документы
+с AI-анализом, Telegram-бот, онлайн-трансляция результатов.
 
-### Что добавлено
-- Модель `DocumentAIAnalysis` (one-to-one к `school.Document`) для хранения результата AI-анализа.
-- Поле `Document.updated_at` для отслеживания изменения документа.
-- Массовая загрузка документов: `/documents/bulk-upload/` (только загрузка файлов, без привязки и метаданных).
-- Табличный просмотр анализа с фильтрами: `/documents/analysis/`.
-- Подписанный временный доступ к документу для AI: `/documents/signed/<document_id>/?token=...`.
-- Celery pipeline:
-  - `school.tasks.enqueue_documents_for_ai_analysis` (оркестратор),
-  - `school.tasks.analyze_documents_batch_task` (батч-запрос к AI),
-  - `school.tasks.sync_documents_from_storage_task` (синхронизация документов из storage/bucket).
+**Стек:** Python 3.15 · Django 6.1 · PostgreSQL 18 · Celery 5.7 + Redis 7 · python-telegram-bot 22 ·
+Bootstrap 5.3 · Poetry · Docker Compose.
 
-### Новые env/settings
-- `DOCS_ANALYZER_URL` (default: `http://192.168.0.4:8001`)
-- `DOCS_ANALYZER_TIMEOUT_SEC` (default: `30`)
-- `DOCS_ANALYZER_BATCH_SIZE` (default: `3`)
-- `DOCS_ANALYZER_CONCURRENCY` (default: `2`)
-- `DOCS_ANALYZER_MAX_URLS` (default: `3`)
-- `DOCS_ANALYZER_SIGNED_URL_TTL_SEC` (default: `300`)
-- `DOCS_ANALYZER_RETRY_MAX` (default: `1`)
-- `DOCS_ANALYZER_RETRY_BACKOFF_SEC` (default: `15`)
-- `DOCS_ANALYZER_RETRY_JITTER_SEC` (default: `5`)
-- `DOCS_ANALYZER_TASK_RATE_LIMIT` (default: `10/m`)
-- `DOCS_ANALYZER_DOCS_PER_MIN_LIMIT` (default: `120`)
-- `DOCS_ANALYZER_TOKENS_PER_MIN_LIMIT` (default: `0`, выключен)
-- `DOCS_ANALYZER_TOKENS_PER_DOC_ESTIMATE` (default: `3000`)
-- `DOCS_ANALYZER_BUDGET_BACKOFF_SEC` (default: `20`)
-- `DOCS_ANALYZER_BUDGET_BACKOFF_JITTER_SEC` (default: `5`)
-- `CELERY_TASK_ACKS_LATE` (default: `True`)
-- `CELERY_WORKER_PREFETCH_MULTIPLIER` (default: `1`)
-- `CELERY_QUEUE_DOCS_ANALYSIS` (default: `docs_analysis`)
-- `DOCS_STORAGE_SYNC_PREFIX` (default: `documents`)
-- `DOCS_SYNC_ON_STARTUP` (default: `True`)
+Документация по отдельным подсистемам: [AI-анализ документов](docs/documents-ai.md).
 
-### Принципы работы URL
-- В БД сохраняется постоянный URL (`source_persistent_url`), вычисляемый из `MEDIA_URL + file.name`.
-- Перед вызовом AI генерируется свежий signed URL с коротким TTL.
-- AI получает только signed URL.
-- Сопоставление ответа AI выполняется по карте `signed_url -> document_id` внутри конкретного батча.
+---
 
-### Автосинхронизация из bucket
-- При старте проекта (`runserver/gunicorn`) приложение ставит в очередь задачу `sync_documents_from_storage_task`.
-- Задача рекурсивно читает `DOCS_STORAGE_SYNC_PREFIX` в storage и синхронизирует объекты в `school.Document` по ключу файла.
-- Новые/обновлённые документы автоматически ставятся в AI-анализ.
+## Разработка
 
-### Команды запуска
-1. Worker для AI-документов (строго последовательно):
 ```bash
-poetry run celery -A config worker --loglevel=info -Q docs_analysis -c 1
+poetry install                     # зависимости, включая dev (pytest, ruff, pre-commit)
+poetry run pre-commit install      # ruff check + ruff format на каждый коммит
 ```
 
-2. Общий worker для остальных задач:
+Линтер и форматтер — **ruff** (конфиг в `pyproject.toml`):
+
 ```bash
-poetry run celery -A config worker --loglevel=info -Q celery -c 4
+poetry run ruff check .            # линтер
+poetry run ruff format .           # форматирование
+poetry run pre-commit run --all-files
 ```
 
-3. Beat:
+### Тесты
+
+pytest + pytest-django, настройки `config/settings_test.py` (не читают `.env`, не ходят в сеть).
+Нужен Postgres. Проще всего гонять в Docker:
+
 ```bash
-poetry run celery -A config beat --loglevel=info
+docker network create ss_test
+docker run -d --name ss_test_pg --network ss_test \
+  -e POSTGRES_DB=sport_school -e POSTGRES_USER=sport_school -e POSTGRES_PASSWORD=sport_school postgres:18
+docker build --target test -t sport_school:test .
+docker run --rm --network ss_test -e POSTGRES_HOST=ss_test_pg sport_school:test pytest
 ```
 
-4. Ручной запуск оркестратора анализа:
+Локально без Docker-образа: поднять Postgres на `localhost:5432` (те же логин/пароль) и `poetry run pytest`.
+
+- `tests/test_smoke.py` — каждая страница под каждой ролью (гость, неподтверждённый, пользователь, тренер,
+  менеджер, админ, суперпользователь) открывается без 500.
+- `api/tests.py` — онлайн-результаты (вебхук, трансляции, публикация в Telegram).
+
+### Docker Compose
+
+Сервисы: `postgres` (18), `redis` (7), `migrate` (одноразовый: проверка БД → миграции → collectstatic),
+`web` (gunicorn), `bot`, `celery_worker_docs`, `celery_worker_default` (со встроенным beat).
+
+Нужны `.env` (см. `.env.sample`) и `.env.postgres` (см. `.env.postgres.example`).
+
 ```bash
-poetry run python manage.py enqueue_docs_analysis
+docker compose up -d --build
 ```
 
-5. Ручной запуск синка bucket -> Document:
+На новой пустой БД `migrate` остановится с ошибкой — это защита от старта прода на пустой базе.
+Для первичной инициализации: `ALLOW_EMPTY_DB=True docker compose run --rm migrate`.
+
+---
+
+## План работ
+
+Отмечаем по мере выполнения. Решения: CI не усложняем; Poetry остаётся; Postgres — сервисом в compose;
+Redis остаётся на 7; Tailwind пробуем на отдельной странице.
+
+### Этап 0. Фундамент
+
+- [x] pytest-django, factory_boy, `config/settings_test.py`; в тестах запрещён выход в сеть
+- [x] Smoke-тесты: все страницы × 7 ролей (452 теста). Нашли и исправили 500 на `classes/<pk>/notify/`
+- [ ] Тесты ключевых сервисов: договоры и финансы, расписание, дедупликация людей, привязка документов
+- [x] ruff вместо flake8 + black + isort, код отформатирован
+- [x] pre-commit (ruff, проверки yaml/toml, merge-конфликты, крупные файлы, приватные ключи)
+- [x] Redis без публикации порта наружу
+- [x] Общий кэш Django на Redis (раньше LocMemCache: блокировки и cooldown не работали между процессами)
+- [x] `ALLOWED_HOSTS` из env (по умолчанию — хост `SITE_BASE_URL` + www, хост вебхука, localhost)
+- [x] `.gitignore` / `.dockerignore`: дампы, логи, статика, celerybeat, локальные env
+- [x] Проверка `"test" in sys.argv` в коде публикации заменена на настройку `ONLINE_RESULTS_TELEGRAM_PUBLISH_SYNC`
+
+### Этап 1. Обновления
+
+- [x] Все пакеты до последних версий (Django 6.1.3, Celery 5.7, DRF 3.18, PTB 22.8, Pillow 13, gunicorn 27, redis-py 8 …)
+- [x] Django 6.1: устранены deprecation-предупреждения (почта переведена на `MAILERS`)
+- [x] psycopg2 → psycopg 3; `CONN_MAX_AGE` + health checks; встроенный пул — флагом `DB_POOL=True`
+- [x] Python 3.14 → 3.15 (колёса всех зависимостей есть для amd64 и arm64)
+- [x] Dockerfile: multi-stage, без root (uid 1000), poetry только на этапе сборки
+- [x] Compose: HTTP healthcheck `/healthz/`, без монтирования `.:/app`, миграции и collectstatic отдельным шагом
+- [x] Celery: убран неиспользуемый result backend, beat встроен в default-воркер
+- [x] Миграции на чистой БД проходят целиком, `makemigrations --check` чистый
+- [x] Postgres 18 сервисом в compose + скрипт переезда `scripts/pg_upgrade_to_18.sh` (проверен локально)
+- [ ] **Переезд на сервере 17 → 18** — см. «Деплой этой ветки» ниже
+- [ ] Staging: второй compose-проект на сервере с копией базы
+
+### Этап 2. `results` — новый сервис онлайн-результатов (вместо online_results_script)
+
+- [ ] Фикстуры реальных протоколов + эталонные результаты (golden-тесты)
+- [ ] Модели: `ResultsEvent`, `Source`, `Group`, `Entry` (FK → `school.Athlete`), `RunResult` (мс + статус), `EventLog`, `RawSnapshot`
+- [ ] `parsing/`: адаптеры источников (Google Sheets, XLSX, загрузка файла, ручной ввод), разметка колонок в БД, dry-run
+- [ ] `engine/`: чистые функции `state + now → места, фаза, фокус, прогноз` — единственное место логики заездов
+- [ ] Воркер (management command + сервис в compose): подхват активных трансляций после рестарта, адаптивный интервал опроса
+- [ ] Запись `RawSnapshot` и команда `results_replay` для офлайн-воспроизведения трансляции
+- [ ] Веб: live-страница и админка трансляции (старт/стоп, предпросмотр, ручные правки)
+- [ ] Telegram: закреплённое live-сообщение, итоги групп, сводка; очередь с лимитами
+- [ ] Связка участников протокола со спортсменами школы
+- [ ] 1–2 соревнования параллельно со старым сервисом, сравнение
+- [ ] Удаление онлайн-результатов из `api/`, архив online_results_script
+
+### Этап 3. Дизайн
+
+- [ ] Пробная страница на Tailwind (CSS-сборка без Node — standalone CLI или аналог)
+- [ ] Решение: Tailwind или Bootstrap с собственной темой
+- [ ] Дизайн-система: токены, компоненты шаблонов (django-cotton / django-components), тёмная тема, mobile-first
+- [ ] HTMX + Alpine.js вместо инлайн-скриптов (23 шаблона)
+- [ ] Live-страница результатов — изолированный «остров» (Preact/Svelte + Vite)
+- [ ] Telegram Mini App для родителей и тренеров (расписание, посещаемость, договоры, результаты)
+- [ ] Редизайн остальных разделов по одному
+
+### Этап 4. Развитие
+
+- [ ] Профиль спортсмена: история стартов, места, график прогресса
+- [ ] Автоматическая проверка разрядных нормативов по результатам
+- [ ] Заявки на соревнования в форматах федерации (docx/xlsx)
+- [ ] Онлайн-оплата по договорам (ЮKassa / СБП), напоминания о долгах
+- [ ] Напоминания об истечении медсправок и страховок
+- [ ] Аналитика посещаемости, сигнал «пропал на 3 недели»
+- [ ] ICS-подписка на расписание
+- [ ] Дашборд руководителя: посещаемость, выручка, отток, загрузка групп
+- [ ] Единый центр уведомлений (бот / почта / WhatsApp) с настройками каналов
+- [ ] Аудит-лог изменений по договорам и финансам
+
+### Бэклог
+
+- [ ] Renovate или Dependabot
+- [ ] CI: lint + тесты на PR, деплой только после зелёных тестов
+- [ ] Деплой: SSH-ключ вместо `sshpass`, без `docker compose down` (меньше простоя)
+- [ ] Sentry / GlitchTip для ошибок (облачный Sentry может быть недоступен из РФ)
+- [ ] Бэкапы Postgres по расписанию (например, `pg_dump` в Object Storage)
+- [ ] Squash старых миграций `school` (сейчас проходят, но их 50)
+- [ ] ruff: включить `DJ001` (null у строковых полей) и `DJ012` (порядок в моделях) — требуют миграций/перестановок
+- [ ] Разрезать толстые модули: `school/views.py`, `members/views.py`, `tg_bot/handlers/manager.py`, `tg_bot/handlers/user.py`
+
+---
+
+## Деплой этой ветки (переезд на Postgres 18)
+
+Мерж в `dev` автоматически деплоится на сервер (`.github/workflows/ci.yml`). Новый compose использует **новый
+том** `postgres18_data`, поэтому после деплоя `migrate` остановится на пустой базе (защита), и сайт будет
+недоступен, пока не восстановлен дамп. С базой ~25 МБ это пара минут.
+
+**До мержа**, на сервере в `/srv/projects/sport_school`:
+
 ```bash
-poetry run python manage.py sync_bucket_documents
+cp docker-compose.yml ~/sport_school-compose-pg17.yml   # копия для отката
+git checkout -- docker-compose.yml                       # локальные правки теперь в репозитории
+mv .dockerignore ~/sport_school-dockerignore.bak         # файл теперь в репозитории, иначе git pull упадёт
 ```
 
-6. Ручной async-запуск синка bucket -> Document:
+Проверить `.env`:
+- старые `NAME/USER/PASSWORD/HOST/PORT` продолжают работать; можно перейти на `POSTGRES_*`;
+- `CELERY_RESULT_BACKEND` больше не используется;
+- при необходимости задать `ALLOWED_HOSTS` явно (по умолчанию: `ksclub.ru`, `www.ksclub.ru`, хост вебхука, localhost).
+
+**После мержа** (когда CI отработал):
+
 ```bash
-poetry run python manage.py sync_bucket_documents --async
+cd /srv/projects/sport_school
+./scripts/pg_upgrade_to_18.sh
+curl -s http://127.0.0.1:8010/healthz/    # {"status": "ok"}
 ```
+
+Скрипт останавливает приложение, снимает дамп со старого тома (`backups/`), восстанавливает его в Postgres 18,
+сверяет число строк, выставляет права на `logs/` и `staticfiles/` (uid 1000) и поднимает стек.
+Старый том `sport_school_postgres_data` не удаляется.
+
+**Откат:** вернуть старый compose (`cp ~/sport_school-compose-pg17.yml docker-compose.yml`), откатить код на
+предыдущий коммит `dev` и `docker compose up -d --build --remove-orphans` — старый том с Postgres 17 нетронут.
