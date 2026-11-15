@@ -9,6 +9,7 @@ x-app: &app
   restart: always
   volumes:
     - ./logs:/app/logs
+    - ./media:/app/media  # при STORAGE_BACKEND=filesystem; nginx отдаёт /media/ из этой папки
 
 x-app-depends: &app-depends
   migrate:
@@ -53,6 +54,7 @@ services:
              /opt/venv/bin/python manage.py collectstatic --noinput"
     volumes:
       - ./logs:/app/logs
+      - ./media:/app/media
       - ./staticfiles:/app/staticfiles
     depends_on:
       postgres:
@@ -94,6 +96,17 @@ services:
       --loglevel=info -Q celery -c 4
       --schedule /tmp/celerybeat-schedule
     depends_on: *app-depends
+
+  # Онлайн-результаты: опрос источников активных трансляций. Ключ Google — ./secrets/google-service-account.json
+  results_worker:
+    <<: *app
+    command: /opt/venv/bin/python manage.py results_worker
+    volumes:
+      - ./logs:/app/logs
+      - ./media:/app/media
+      - ./secrets:/app/secrets:ro
+    depends_on: *app-depends
+    stop_grace_period: 20s
 
 volumes:
   postgres18_data:

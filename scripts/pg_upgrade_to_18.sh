@@ -9,7 +9,7 @@
 #   2. Поднимает временный Postgres 17 на старом томе и снимает дамп (backups/pg17_<дата>.dump).
 #   3. Поднимает новый Postgres 18 (пустой том postgres18_data) и восстанавливает дамп.
 #   4. Сверяет число строк в ключевых таблицах.
-#   5. Выставляет права на logs/ и staticfiles/ для пользователя контейнера (uid 1000).
+#   5. Выставляет права на logs/, staticfiles/ и media/ для пользователя контейнера (uid 1000).
 #   6. Поднимает весь стек.
 # Старый том не удаляется: откат — вернуть старый docker-compose.yml (git checkout) и docker compose up -d.
 set -euo pipefail
@@ -82,9 +82,9 @@ if [ "$OLD_COUNTS" != "$NEW_COUNTS" ]; then
   echo "Число строк не совпадает — стек НЕ поднимаю. Разберитесь вручную." >&2; exit 1
 fi
 
-echo "==> 5. Права на logs/ и staticfiles/ (uid $APP_UID)"
-mkdir -p logs staticfiles
-docker run --rm -v "$PWD":/w alpine chown -R "$APP_UID:$APP_UID" /w/logs /w/staticfiles
+echo "==> 5. Права на logs/, staticfiles/, media/ (uid $APP_UID)"
+mkdir -p logs staticfiles media secrets
+docker run --rm -v "$PWD":/w alpine chown -R "$APP_UID:$APP_UID" /w/logs /w/staticfiles /w/media
 
 echo "==> 6. Поднимаю стек"
 compose up -d --build --remove-orphans
