@@ -15,8 +15,6 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import RedirectView, TemplateView
-from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
 
 from config.settings import (
     BOT_NAME,
@@ -81,14 +79,6 @@ def _format_user_login_message(user: User, request) -> str:
     if ip_address:
         lines.append(f"IP: {ip_address}")
     return "\n".join(lines)
-
-
-class UserViewSet(viewsets.ModelViewSet):
-    """Вьюсет для Пользователя"""
-
-    model = User
-    queryset = User.objects.all()
-    permission_classes = [IsAuthenticated]
 
 
 class LoginPageView(TemplateView):

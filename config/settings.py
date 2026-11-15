@@ -107,8 +107,13 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 
 REST_FRAMEWORK = {
+    # Только сессии: вход по логину/паролю в каждом запросе (Basic) открывает перебор паролей.
+    # Сервисные интеграции задают свои authentication_classes (см. assistant).
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
+        "users.permissions.IsApprovedUser",
     ],
     "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
 }
@@ -530,6 +535,10 @@ if not DOCS_AI_ORCHESTRATOR_ENABLED:
 
 AI_ASSISTANT_ENABLED = os.getenv("AI_ASSISTANT_ENABLED", "False") == "True"
 AI_ASSISTANT_BASE_URL = os.getenv("AI_ASSISTANT_BASE_URL", "http://109.207.171.231")
+
+# Токен для приёма состава чатов WhatsApp (заголовок X-Sync-Token). Пока не задан — запросы принимаются
+# с предупреждением в логе; задайте его здесь и в сервисе, который отправляет данные.
+WHATSAPP_SYNC_TOKEN = os.getenv("WHATSAPP_SYNC_TOKEN", "")
 
 # Онлайн-результаты (приложение results)
 RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(

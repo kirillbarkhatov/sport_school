@@ -23,7 +23,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status, viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -49,6 +49,7 @@ from school.models import Competition, CompetitionDocument, Person
 from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.models import User
+from users.permissions import IsApprovedUser
 
 from .serializers import (
     AssistantAthleteSerializer,
@@ -538,7 +539,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     model = Person
     serializer_class = PersonSerializer
     queryset = Person.objects.all()
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -547,15 +548,23 @@ class UserViewSet(viewsets.ModelViewSet):
     model = User
     serializer_class = UserSerializer
     queryset = User.objects.all()
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
 
 
 class WhatsAppChatSyncView(APIView):
-    """Приём данных о составе чатов WhatsApp"""
+    """Приём данных о составе чатов WhatsApp. Защищён токеном WHATSAPP_SYNC_TOKEN (заголовок X-Sync-Token)."""
 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
+        expected = settings.WHATSAPP_SYNC_TOKEN
+        if expected:
+            provided = request.headers.get("X-Sync-Token", "")
+            if not hmac.compare_digest(provided, expected):
+                return Response({"detail": "Неверный токен синхронизации."}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            logger.warning("WHATSAPP_SYNC_TOKEN не задан: синхронизация чатов WhatsApp принимается без проверки")
         serializer = WhatsAppChatSyncSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         chat = serializer.save()
@@ -576,7 +585,7 @@ class WhatsAppChatSyncView(APIView):
 class AssistantUpcomingTrainingsView(APIView):
     """Возвращает ближайшие тренировки и список спортсменов для AI-ассистента."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsApprovedUser]
 
     def get(self, request, *args, **kwargs):
         limit_param = request.query_params.get("limit")
