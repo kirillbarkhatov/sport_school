@@ -94,6 +94,10 @@ class Command(BaseCommand):
             errors.append(f"есть данные без организации: {sorted(missing)}")
 
         models = org_owned_models()
+        required = _required_organization_columns(models)
+        notes.append(f"R2-6: обязательная организация (NOT NULL) у {required} из {len(models)} моделей")
+        if 0 < required < len(models):
+            errors.append(f"R2-6 применён частично: NOT NULL у {required} из {len(models)}")
         unscoped = [m._meta.label for m in models if not isinstance(m._default_manager, OrgScopedManager)]
         notes.append(f"моделей организации: {len(models)}, без фильтра по умолчанию: {len(unscoped)}")
         if unscoped:
@@ -123,3 +127,17 @@ class Command(BaseCommand):
         notes.append(f"выпускников («ушёл»): {left.count()}")
         if left_with_basis or left_staff:
             errors.append(f"«ушёл» у пользователей с ролями ({left_with_basis}) или staff ({left_staff})")
+
+
+def _required_organization_columns(models) -> int:
+    """Сколько таблиц OrgOwned имеют organization_id NOT NULL в базе (интроспекция, без блокировок)."""
+    from django.db import connection
+
+    tables = [m._meta.db_table for m in models]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() "
+            "AND column_name = 'organization_id' AND is_nullable = 'NO' AND table_name = ANY(%s)",
+            [tables],
+        )
+        return cursor.fetchone()[0]

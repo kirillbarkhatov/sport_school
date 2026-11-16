@@ -65,7 +65,8 @@ class OrgScope(Expression):
 
 def _org_owned_fks(obj):
     for field in obj._meta.concrete_fields:
-        if field.is_relation and field.many_to_one and issubclass(field.related_model, OrgOwned):
+        # FK и OneToOne (Athlete.person, Coach.person …) к записи организации — владелец (R2-6)
+        if field.is_relation and (field.many_to_one or field.one_to_one) and issubclass(field.related_model, OrgOwned):
             yield field
 
 
@@ -134,7 +135,8 @@ class OrgOwned(models.Model):
     organization = models.ForeignKey(
         "organizations.Organization",
         on_delete=models.PROTECT,
-        null=True,
+        # R2-6: обязательное поле (NOT NULL). blank=True — значение ставит save() из владельца или контекста,
+        # а не форма; editable=False — в формах поля нет.
         blank=True,
         editable=False,
         related_name="+",
@@ -150,6 +152,19 @@ class OrgOwned(models.Model):
     @classmethod
     def for_org(cls, organization=None):
         return cls.all_objects.for_org(organization)
+
+    def _exclude_without_organization(self, exclude):
+        """Уникальности внутри организации (R2-6) включают поле organization, которого нет в формах.
+        Django пропускает проверку ограничения, если поле исключено, — тогда дубликат дошёл бы до базы
+        (IntegrityError, 500). Заполняем организацию заранее и проверяем ограничения с ней."""
+        fill_organization(self)
+        return None if exclude is None else set(exclude) - {"organization"}
+
+    def validate_unique(self, exclude=None):
+        super().validate_unique(exclude=self._exclude_without_organization(exclude))
+
+    def validate_constraints(self, exclude=None):
+        super().validate_constraints(exclude=self._exclude_without_organization(exclude))
 
     def save(self, *args, **kwargs):
         fill_organization(self)

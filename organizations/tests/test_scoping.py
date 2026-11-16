@@ -13,6 +13,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import transaction
+from django.db.models import Count
 from django.test import Client
 from django.urls import reverse
 
@@ -24,7 +25,7 @@ from organizations.migration_utils import backfill_organization
 from organizations.models import Membership, Organization, OrgDomain, OrgRole, RoleAssignment
 from organizations.permissions import authorize
 from results.models import ResultsEvent
-from school.models import Athlete, CompetitionApplicationLink, Family, FamilyService, Group, Person
+from school.models import Athlete, CompetitionApplicationLink, FamilyService, Group, Person
 from tests.factories import (
     AthleteFactory,
     ClassFactory,
@@ -95,39 +96,34 @@ def test_every_org_owned_model_has_organization_field():
 
 
 def test_historical_rows_backfilled_idempotently(two_orgs):
-    ks_people = Person.all_objects.filter(organization=two_orgs.orgs["KS"])
-    n_people = ks_people.count()
-    ks_people.update(organization=None)
-    Family.all_objects.filter(organization=two_orgs.orgs["KS"]).update(organization=None)
-    assert set(missing_organization()) == {"school.Person", "school.Family"}
+    # R2-6: строк без организации быть не может — база отвергает NULL; заполнение остаётся идемпотентным no-op.
+    # Заполнение реальных NULL проверено до R2-6 (T05: staging и прод, 2209 строк → ksclub).
+    from django.db import IntegrityError
 
-    updated = backfill_missing()
-    assert updated["school.Person"] == n_people
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Person.all_objects.filter(organization=two_orgs.orgs["KS"]).update(organization=None)
     assert missing_organization() == {}
-    assert backfill_missing() == {}  # повтор ничего не меняет
+    assert backfill_missing() == {}
+    assert backfill_missing() == {}
     assert Person.all_objects.filter(organization=two_orgs.orgs["OT"]).count() == 2  # чужие строки не тронуты
 
 
 def test_migration_backfill_function_is_idempotent(two_orgs):
     from django.apps import apps
 
-    total = Athlete.all_objects.count()
-    Athlete.all_objects.update(organization=None)
+    by_org = dict(Athlete.all_objects.values_list("organization__slug").annotate(n=Count("pk")).order_by())
     operation = backfill_organization("school", ["athlete"])
     operation.code(apps, None)
     operation.code(apps, None)
-    assert Athlete.all_objects.filter(organization__slug="ksclub").count() == total  # все строки → ksclub
+    assert dict(Athlete.all_objects.values_list("organization__slug").annotate(n=Count("pk")).order_by()) == by_org
 
 
 def test_orgs_backfill_command_and_stage4_check_r2(two_orgs, capsys):
     import_legacy()
-    Person.all_objects.update(organization=None)
-    expected = sum(missing_organization().values())
-    assert expected >= 4
     call_command("orgs_backfill")
-    assert f"Без организации: {expected}" in capsys.readouterr().out
-    call_command("orgs_backfill", "--apply")
     assert "Без организации: 0" in capsys.readouterr().out
+    call_command("orgs_backfill", "--apply")
+    assert "Заполнено строк: 0" in capsys.readouterr().out
     call_command("stage4_check", "--release", "r2")
     assert "строк без организации: 0" in capsys.readouterr().out
 
