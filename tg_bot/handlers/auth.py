@@ -131,11 +131,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if await select_organization(update, context, slug):
             return
 
-    logger.info(
-        "Получена команда /start от tg_id=%s (token=%s)",
-        tg_user.id,
-        token[-6:] if token else "нет",
-    )
+    logger.info("Получена команда /start от tg_id=%s (токен %s)", tg_user.id, "есть" if token else "нет")
     try:
         user, created, link = await ensure_user_for_start_async(tg_user, token)
     except Exception as exc:  # noqa: BLE001

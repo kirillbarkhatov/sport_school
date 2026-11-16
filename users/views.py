@@ -216,11 +216,10 @@ class TelegramCallbackView(View):
         # R3-1: одноразовый вход через organizations.auth (тикет, окно xfer для второго браузера, срок жизни)
         user = consume_login_token(token)
         if user is None:
-            logger.warning(
-                "Попытка входа с неверным, истёкшим или повторным токеном (окончание %s)",
-                token[-6:] if token else "unknown",
-            )
-            return HttpResponse("Неверный токен или пользователь не найден", status=404)
+            logger.warning("Попытка входа с неверным, истёкшим или повторным токеном")  # части токена не пишем
+            response = HttpResponse("Неверный токен или пользователь не найден", status=404)
+            response._has_been_logged = True  # django.request иначе запишет путь с токеном («Not Found: …»)
+            return response
 
         login(request, user)
 
@@ -235,7 +234,16 @@ class TelegramCallbackView(View):
         )
         send_admin_message(_format_user_login_message(user, request))
 
-        next_url = request.session.pop("next_url", None) or request.GET.get("next")
+        raw_next = request.session.pop("next_url", None) or request.GET.get("next")
+        # next проверяется на разрешённый хост ДО всех веток редиректа, в том числе для неподтверждённых
+        next_url = (
+            raw_next
+            if raw_next
+            and url_has_allowed_host_and_scheme(
+                url=raw_next, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+            )
+            else None
+        )
 
         def _is_competition_apply(url: str | None) -> bool:
             if not url:
@@ -253,11 +261,7 @@ class TelegramCallbackView(View):
             )
             return redirect("users:awaiting_approval")
 
-        if next_url and url_has_allowed_host_and_scheme(
-            url=next_url,
-            allowed_hosts={request.get_host()},
-            require_https=request.is_secure(),
-        ):
+        if next_url:
             return redirect(next_url)
 
         # Перенаправляем на главную страницу или другую нужную страницу

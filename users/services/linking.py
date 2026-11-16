@@ -319,7 +319,8 @@ def ensure_user_for_start(profile: UserTelegramProfile, token: str | None) -> tu
     user = update_user_from_telegram(user, profile)
 
     updated = False
-    if token:
+    # D20: User.token (совместимость) — только если тикет этого токена принадлежит этому пользователю
+    if token and bind_login_token(user, token):
         if user.token != token:
             user.token = token
             updated = True
@@ -328,7 +329,6 @@ def ensure_user_for_start(profile: UserTelegramProfile, token: str | None) -> tu
         updated = True
     if updated:
         user.save(update_fields=["token", "email"] if token else ["email"])
-    bind_login_token(user, token)  # тикет с ограниченным сроком (User.token — для совместимости)
 
     assign_groups_from_env(user)
     link, _ = refresh_user_person_link(user)

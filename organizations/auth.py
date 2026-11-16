@@ -85,14 +85,18 @@ def _xfer_window() -> timedelta:
     return timedelta(seconds=int(getattr(settings, "XFER_TOKEN_POST_USE_TTL_SECONDS", 60)))
 
 
-def bind_login_token(user, token: str) -> None:
-    """Бот получил /start auth_<token>: токен закрепляется за пользователем на ORGS_LOGIN_TOKEN_TTL_SECONDS."""
+def bind_login_token(user, token: str) -> bool:
+    """Бот получил /start auth_<token>: токен закрепляется за пользователем на ORGS_LOGIN_TOKEN_TTL_SECONDS (D20).
+
+    Привязка одноразовая: если тикет уже есть, повторное событие (повтор /start, гонка двух аккаунтов) ничего не
+    меняет — ни владельца, ни срок, ни отметку использования. True — тикет принадлежит этому пользователю."""
     if not token:
-        return
-    LoginTicket.objects.update_or_create(
+        return False
+    ticket, _ = LoginTicket.objects.get_or_create(
         token_hash=_hash(token),
-        defaults={"user": user, "expires_at": timezone.now() + _ttl(), "used_at": None},
+        defaults={"user": user, "expires_at": timezone.now() + _ttl()},
     )
+    return ticket.user_id == user.pk
 
 
 def consume_login_token(token: str):

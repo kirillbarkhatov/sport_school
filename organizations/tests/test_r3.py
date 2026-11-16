@@ -450,3 +450,180 @@ def test_stage4_check_r3(two_orgs, capsys):
     call_command("stage4_check", "--release", "r3")
     out = capsys.readouterr().out
     assert "без способа входа: 0" in out and "✓ stage4_check r3" in out
+
+
+# --- D20: привязка тикета одноразовая -----------------------------------------------------------------------
+
+
+def test_d20_rebind_does_not_change_owner_expiry_or_used_state():
+    first = User.objects.create(email="d20-a@example.com", tg_id=710001, is_approved=True)
+    second = User.objects.create(email="d20-b@example.com", tg_id=710002, is_approved=True)
+    assert bind_login_token(first, "shared-token") is True
+    ticket = LoginTicket.objects.get()
+    expires = ticket.expires_at
+    assert bind_login_token(second, "shared-token") is False  # чужой аккаунт не перехватывает
+    assert bind_login_token(first, "shared-token") is True  # повтор события не продлевает
+    ticket.refresh_from_db()
+    assert ticket.user == first and ticket.expires_at == expires
+    url = reverse("users:telegram_callback", kwargs={"token": "shared-token"})
+    assert Client().get(url).status_code == 302
+    LoginTicket.objects.update(used_at=timezone.now() - timedelta(seconds=120))
+    bind_login_token(first, "shared-token")  # повторный /start после использования
+    ticket.refresh_from_db()
+    assert ticket.used_at is not None  # не вернулся в исходное состояние
+    assert Client().get(url).status_code == 404
+
+
+def test_d20_bot_start_for_second_account_does_not_take_token(client):
+    token = _login_page_token(client)
+    owner = _bot_start(710003, token)
+    other = _bot_start(710004, token)  # тот же токен из другого аккаунта Telegram
+    assert User.objects.get(pk=other.pk).token is None
+    response = client.get(reverse("users:telegram_callback", kwargs={"token": token}))
+    assert response.status_code == 302 and int(client.session["_auth_user_id"]) == owner.pk
+
+
+def test_d20_concurrent_binds_and_consumes():
+    import threading
+
+    from django.db import connection
+
+    def in_thread(fn):
+        box = {}
+
+        def run():
+            try:
+                box["v"] = fn()
+            finally:
+                connection.close()
+
+        t = threading.Thread(target=run)
+        t.start()
+        t.join()
+        return box.get("v")
+
+    def setup():
+        a = User.objects.create(email="race-a@example.com", tg_id=720001)
+        b = User.objects.create(email="race-b@example.com", tg_id=720002)
+        return a, b
+
+    def cleanup():
+        LoginTicket.objects.filter(user__email__startswith="race-").delete()
+        AuthIdentity.objects.filter(user__email__startswith="race-").delete()
+        Membership.objects.filter(user__email__startswith="race-").delete()
+        User.objects.filter(email__startswith="race-").delete()
+
+    a, b = in_thread(setup)
+    try:
+        barrier, results = threading.Barrier(2), []
+
+        def bind(user):
+            try:
+                barrier.wait()
+                results.append((user.pk, bind_login_token(user, "race-token")))
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=bind, args=(u,)) for u in (a, b)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        assert sorted(ok for _, ok in results) == [False, True]  # ровно один владелец
+        owner = in_thread(
+            lambda: (
+                LoginTicket.objects.get(
+                    token_hash=__import__("organizations.auth", fromlist=["_hash"])._hash("race-token")
+                ).user_id
+            )
+        )
+        assert owner == next(pk for pk, ok in results if ok)
+
+        from organizations.auth import consume_login_token
+
+        barrier2, consumed = threading.Barrier(3), []
+
+        def consume():
+            try:
+                barrier2.wait()
+                consumed.append(getattr(consume_login_token("race-token"), "pk", None))
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=consume) for _ in range(3)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        assert consumed == [owner] * 3  # первый гасит, остальные — окно xfer, тот же владелец
+    finally:
+        in_thread(cleanup)
+
+
+# --- Callback: next проверяется до всех редиректов ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_callback_rejects_foreign_next_in_every_branch(approved):
+    user = User.objects.create(email=f"next-{approved}@example.com", tg_id=730001 + approved, is_approved=approved)
+    bind_login_token(user, f"next-token-{approved}")
+    for evil in ("https://evil.example/competitions/1/apply/x/", "//evil.example/competitions/1/apply/x/"):
+        LoginTicket.objects.filter(user=user).update(used_at=None)
+        response = Client().get(
+            reverse("users:telegram_callback", kwargs={"token": f"next-token-{approved}"}), {"next": evil}
+        )
+        assert response.status_code == 302 and "evil.example" not in response["Location"]
+    LoginTicket.objects.filter(user=user).update(used_at=None)
+    own = "/competitions/1/apply/abc/"
+    response = Client().get(
+        reverse("users:telegram_callback", kwargs={"token": f"next-token-{approved}"}), {"next": own}
+    )
+    assert response["Location"] == own  # свой адрес — как раньше (и у неподтверждённых — заявка)
+
+
+def test_callback_does_not_log_token(caplog):
+    with caplog.at_level("WARNING"):
+        Client().get(reverse("users:telegram_callback", kwargs={"token": "secret-token-abcdef"}))
+    assert "abcdef" not in caplog.text and "secret-token" not in caplog.text
+
+
+# --- R3-4: публичная страница заявки -------------------------------------------------------------------------
+
+
+@pytest.fixture
+def apply_world(two_orgs, settings):
+    settings.ORGS_ENFORCE_SCOPING = True
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    from school.models import FamilyMember
+    from tests.factories import AthleteFactory, FamilyFactory, PersonFactory
+
+    ks = two_orgs.orgs["KS"]
+    data = two_orgs.data["KS"]
+    with context.organization_context(ks):
+        parent_person = PersonFactory(surname="Родительзаявки")
+        family = FamilyFactory()
+        FamilyMember.objects.create(family=family, person=parent_person, relation="parent")
+        own_child = AthleteFactory(person=PersonFactory(surname="Свойребёнок"))
+        FamilyMember.objects.create(family=family, person=own_child.person, relation="child")
+        AthleteFactory(person=PersonFactory(surname="Чужойребёнок"))
+    parent = member("apply-parent@example.com", ks, person=parent_person)
+    visitor = member("apply-visitor@example.com", two_orgs.orgs["OT"])
+    url = reverse("school:competition_apply", kwargs={"pk": data.competition.pk, "token": data.link.token})
+    return SimpleNamespace(url=url, parent=parent, visitor=visitor, competition=data.competition)
+
+
+def test_apply_page_guest_sees_only_general_info(apply_world):
+    page = client_for(None, "KS").get(apply_world.url)
+    body = page.content.decode()
+    assert page.status_code == 200 and apply_world.competition.name in body
+    assert reverse("users:login_page") in body and "next=" in body
+    assert "Свойребёнок" not in body and "Чужойребёнок" not in body and "<form" not in body
+    assert client_for(None, "KS").post(apply_world.url, {}).status_code == 302
+
+
+def test_apply_page_member_keeps_own_athletes_only(apply_world):
+    body = client_for(apply_world.parent, "KS").get(apply_world.url).content.decode()
+    assert "Свойребёнок" in body and "Чужойребёнок" not in body
+
+
+def test_apply_page_visitor_without_membership_and_foreign_host(apply_world):
+    body = client_for(apply_world.visitor, "KS").get(apply_world.url).content.decode()
+    assert "Свойребёнок" not in body and "Чужойребёнок" not in body
+    for user in (None, apply_world.parent):
+        assert client_for(user, "OT").get(apply_world.url).status_code == 404  # ссылка на чужом хосте

@@ -312,8 +312,9 @@ def test_apply_link_page_not_blocked_by_staff_checks(roles_mode):
     link = CompetitionApplicationLink.objects.create(competition=competition, token="synthetic-token")
     url = reverse("school:competition_apply", kwargs={"pk": competition.pk, "token": link.token})
     guest = _client().get(url)
-    assert guest.status_code == 302
-    assert guest["Location"].startswith(reverse("users:login_page"))
+    # R3-4: гостю — общая информация о соревновании и вход (до R3 был редирект на вход)
+    assert guest.status_code == 200 and reverse("users:login_page") in guest.content.decode()
+    assert _client().post(url, {}).status_code == 302
     assert _client(roles_mode["parent"]).get(url).status_code == 200
     assert _client(roles_mode["coach"]).get(url).status_code == 200
 
