@@ -89,6 +89,11 @@ def test_demo_excluded_from_periodic_and_external_tasks(demo):
             result = task.apply().get()
         sent = [call.kwargs["headers"][context.ORG_HEADER] for call in apply_async.call_args_list]
         assert demo["demo"].pk not in sent and demo["ks"].pk in sent, task.name
+        # D21: объект задачи (bind=True) не попадает в аргументы сообщения — они сериализуются в JSON
+        import json
+
+        for call in apply_async.call_args_list:
+            json.dumps({"args": list(call.kwargs["args"]), "kwargs": call.kwargs["kwargs"]})
         assert "demo" not in result["per_organization"]
     # явный заголовок демо (поставлено вручную) — задача пропускается, наружу ничего не уходит
     with patch("assistant.tasks._prepare_client") as external:

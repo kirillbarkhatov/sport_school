@@ -228,7 +228,11 @@ def for_each_organization(func):
                 # R4: синтетическая демо-организация не участвует в периодических и внешних задачах
                 return {"skipped": "synthetic", "organization": current.slug}
             return func(*args, **kwargs)
-        call_args = args[1:] if args and args[0] is task else args
+        from celery import Task
+
+        # bind=True: первый аргумент — сам объект задачи (current_task — прокси, поэтому не `is`); в сообщение
+        # его передавать нельзя (D21: EncodeError «Object of type … is not JSON serializable»)
+        call_args = args[1:] if args and isinstance(args[0], Task) else args
         slugs = []
         for organization in Organization.objects.filter(status=Organization.Status.ACTIVE).order_by("pk"):
             if is_synthetic(organization):
