@@ -7,7 +7,6 @@ from organizations.scoping import OrgOwned
 class WhatsAppChat(OrgOwned):
     name = models.CharField(
         max_length=255,
-        unique=True,
         verbose_name=_("Название группы"),
     )
     last_synced_at = models.DateTimeField(
@@ -22,6 +21,10 @@ class WhatsAppChat(OrgOwned):
         verbose_name = _("Группа WhatsApp")
         verbose_name_plural = _("Группы WhatsApp")
         ordering = ("-last_synced_at", "-updated_at")
+        constraints = [
+            # R2-6: имя группы уникально внутри организации (было глобально уникальным)
+            models.UniqueConstraint(fields=["organization", "name"], name="whatsapp_chat_name_per_org"),
+        ]
 
     def __str__(self) -> str:
         return self.name
