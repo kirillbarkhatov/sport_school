@@ -309,10 +309,12 @@ def ensure_user_for_start(profile: UserTelegramProfile, token: str | None) -> tu
         "first_name": profile.first_name,
         "last_name": profile.last_name,
     }
-    user, created = User.objects.get_or_create(
-        tg_id=profile.tg_id,
-        defaults=defaults,
-    )
+    from organizations.auth import bind_login_token, user_by_telegram
+
+    user = user_by_telegram(profile.tg_id)  # R3-1: учётная запись платформы по способу входа Telegram
+    created = user is None
+    if created:
+        user = User.objects.create(tg_id=profile.tg_id, **defaults)
 
     user = update_user_from_telegram(user, profile)
 
@@ -326,6 +328,7 @@ def ensure_user_for_start(profile: UserTelegramProfile, token: str | None) -> tu
         updated = True
     if updated:
         user.save(update_fields=["token", "email"] if token else ["email"])
+    bind_login_token(user, token)  # тикет с ограниченным сроком (User.token — для совместимости)
 
     assign_groups_from_env(user)
     link, _ = refresh_user_person_link(user)
@@ -334,8 +337,9 @@ def ensure_user_for_start(profile: UserTelegramProfile, token: str | None) -> tu
     if link.suggested_person_id and "telegram_id_exact" in matched_reasons:
         user_updates: list[str] = []
         if user.person_id != link.suggested_person_id:
-            user.person = link.suggested_person
-            user_updates.append("person")
+            from organizations.auth import link_user_person
+
+            user_updates.extend(link_user_person(user, link.suggested_person))
         if not user.is_approved:
             user.is_approved = True
             user_updates.append("is_approved")

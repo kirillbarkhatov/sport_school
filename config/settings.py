@@ -564,6 +564,9 @@ ORGS_DEFAULT_ORGANIZATION_SLUG = os.getenv(
 ORGS_LEGACY_SYNC = env_bool("ORGS_LEGACY_SYNC", True)  # двойная запись членство/роли ↔ is_approved/группы
 ORGS_ROLES_SOURCE = os.getenv("ORGS_ROLES_SOURCE", "legacy")  # откуда читать роли: legacy | memberships (R2)
 ORGS_ENFORCE_SCOPING = env_bool("ORGS_ENFORCE_SCOPING", False)  # фильтрация данных по организации (R2-4)
+ORGS_LEGACY_APPROVAL_PAGE = env_bool("ORGS_LEGACY_APPROVAL_PAGE", True)  # R3-3: прежний текст «ожидает одобрения»
+ORGS_CENTRAL_LOGIN_HOST = os.getenv("ORGS_CENTRAL_LOGIN_HOST", "")  # R3-1: пусто — вход на адресе организации
+ORGS_LOGIN_TOKEN_TTL_SECONDS = int(os.getenv("ORGS_LOGIN_TOKEN_TTL_SECONDS", "1800"))  # срок неиспользованного токена
 
 # Онлайн-результаты (приложение results)
 RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(

@@ -3,7 +3,6 @@ import re
 import secrets
 
 import httpx
-import redis
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout
@@ -22,6 +21,7 @@ from config.settings import (
     TELEGRAM_ADMIN_IDS,
     TELEGRAM_LOG_CHAT_ID,
 )
+from organizations.auth import consume_login_token
 from organizations.permissions import has_site_access
 
 from .models import User
@@ -177,6 +177,27 @@ class LoginPageView(TemplateView):
 class AwaitingApprovalView(LoginRequiredMixin, TemplateView):
     template_name = "users/awaiting_approval.html"
 
+    def get_context_data(self, **kwargs):
+        """R3-4: организация по адресу, статус членства, «Вступить» для посетителя без членства.
+        ORGS_LEGACY_APPROVAL_PAGE (до проверки очереди на проде) сохраняет прежний текст страницы."""
+        from organizations.models import Membership
+        from organizations.scoping import scope_organization
+
+        context = super().get_context_data(**kwargs)
+        organization = scope_organization()
+        membership = (
+            Membership.objects.filter(user=self.request.user, organization=organization).first()
+            if organization
+            else None
+        )
+        context.update(
+            organization=organization,
+            membership_status=membership.status if membership else "",
+            membership_status_display=membership.get_status_display() if membership else "",
+            legacy_approval_page=getattr(settings, "ORGS_LEGACY_APPROVAL_PAGE", True),
+        )
+        return context
+
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return redirect("users:login_page")
@@ -192,39 +213,16 @@ class TelegramCallbackView(View):
         if not token:
             return HttpResponseBadRequest("Отсутствует токен авторизации")
 
-        # Проверяем кэш одноразовых токенов, если он ещё живёт после первого использования
-        user = None
-        redis_client = redis.Redis.from_url(
-            getattr(settings, "REDIS_XFER_URL", "redis://localhost:6379/1"), decode_responses=True
-        )
-        cached_user_id = redis_client.get(f"xfer_token:{token}")
-        if cached_user_id:
-            try:
-                user = User.objects.get(pk=int(cached_user_id))
-            except User.DoesNotExist:
-                user = None
-        if not user:
-            try:
-                # Проверяем, существует ли пользователь с указанным токеном
-                user = User.objects.get(token=token)
-            except User.DoesNotExist:
-                logger.warning(
-                    "Попытка входа с неверным токеном (окончание %s)",
-                    token[-6:] if token else "unknown",
-                )
-                return HttpResponse("Неверный токен или пользователь не найден", status=404)
+        # R3-1: одноразовый вход через organizations.auth (тикет, окно xfer для второго браузера, срок жизни)
+        user = consume_login_token(token)
+        if user is None:
+            logger.warning(
+                "Попытка входа с неверным, истёкшим или повторным токеном (окончание %s)",
+                token[-6:] if token else "unknown",
+            )
+            return HttpResponse("Неверный токен или пользователь не найден", status=404)
 
-        # Авторизуем пользователя
         login(request, user)
-
-        # Очищаем токен после успешной авторизации, но оставляем 60 сек. для второго браузера
-        user.token = None
-        user.save(update_fields=["token"])
-        redis_client.setex(
-            f"xfer_token:{token}",
-            int(getattr(settings, "XFER_TOKEN_POST_USE_TTL_SECONDS", 60)),
-            user.id,
-        )
 
         request.session.pop("telegram_token", None)
 

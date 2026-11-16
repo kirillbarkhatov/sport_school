@@ -48,6 +48,12 @@ from tg_bot.handlers.general import (  # noqa: E402
 )
 from tg_bot.handlers.manager import handle_manager_callback, manager_panel  # noqa: E402
 from tg_bot.handlers.onboarding import handle_onboarding_callback  # noqa: E402
+from tg_bot.handlers.organization import (  # noqa: E402
+    ORGANIZATION_GROUP,
+    org_callback,
+    org_command,
+    set_update_organization,
+)
 from tg_bot.handlers.user import cancel_current_action, handle_user_callback  # noqa: E402
 from tg_bot.services.audience import chat_member_entry, track_audience_entry  # noqa: E402
 
@@ -93,8 +99,10 @@ async def log_unmatched_callback(update: Update, context):
 def build_application():
     from organizations.context import activate_default_organization
 
-    activate_default_organization()  # пока бот один на «ksclub»; выбор организации — R3-1
+    activate_default_organization()  # запасной контекст процесса; на каждое обновление — организация пользователя
     application = ApplicationBuilder().token(BOT_TOKEN).build()
+    # R3-1: организация пользователя — до всех обработчиков, на каждое обновление заново
+    application.add_handler(TypeHandler(Update, set_update_organization), group=ORGANIZATION_GROUP)
     application.add_handler(
         TypeHandler(Update, track_audience_entry, block=False),
         group=AUDIENCE_TRACKING_GROUP,
@@ -110,6 +118,8 @@ def build_application():
     )
 
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("org", org_command))
+    application.add_handler(CallbackQueryHandler(org_callback, pattern=r"^org:"))
     application.add_handler(CommandHandler("person", person))
     application.add_handler(CommandHandler("caps", caps))
     application.add_handler(CommandHandler("classes", classes))

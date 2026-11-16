@@ -9,6 +9,7 @@ from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from organizations.accounts import set_user_approval
+from organizations.auth import link_user_person, unlink_user_person
 from organizations.scoping import users_in_organization
 from school.models import Person
 from tg_bot.handlers.auth import build_authenticated_keyboard
@@ -142,8 +143,8 @@ def _confirm_suggested_link_sync(user_id: int, admin_user_id: int | None) -> tup
     link.apply_decision(UserPersonLinkStatus.APPROVED, decided_by=admin_user)
     link.save(update_fields=LINK_DECISION_FIELDS)
 
-    user.person_id = link.suggested_person_id
-    user.save(update_fields=["person", *set_user_approval(user, True)])
+    fields = link_user_person(user, link.suggested_person)  # R3: во второй организации — Membership.person
+    user.save(update_fields=[*fields, *set_user_approval(user, True)])
     return user, link
 
 
@@ -161,8 +162,8 @@ def _set_person_link_sync(user_id: int, person_id: int, admin_user_id: int | Non
     link.apply_decision(UserPersonLinkStatus.APPROVED, decided_by=admin_user)
     link.save(update_fields=["suggested_person", "matched_reasons", *LINK_DECISION_FIELDS])
 
-    user.person = person
-    user.save(update_fields=["person", *set_user_approval(user, True)])
+    fields = link_user_person(user, person)
+    user.save(update_fields=[*fields, *set_user_approval(user, True)])
     return user, link
 
 
@@ -175,8 +176,8 @@ def _reject_link_sync(user_id: int, admin_user_id: int | None) -> tuple[User, Us
     link.apply_decision(UserPersonLinkStatus.REJECTED, decided_by=admin_user)
     link.save(update_fields=LINK_DECISION_FIELDS)
 
-    user.person = None
-    user.save(update_fields=["person", *set_user_approval(user, False)])
+    fields = unlink_user_person(user)  # R3: человек другой организации не снимается
+    user.save(update_fields=[*fields, *set_user_approval(user, False)])
     return user, link
 
 
