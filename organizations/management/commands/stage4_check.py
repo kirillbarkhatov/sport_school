@@ -38,11 +38,18 @@ class Command(BaseCommand):
             if users != memberships:
                 errors.append(f"членств ({memberships}) не равно числу пользователей ({users})")
             diff = find_discrepancies()
-            if diff.total:
-                errors.append(
-                    f"расхождения со старыми полями: без членства {diff.users_without_membership}, "
-                    f"подтверждение {diff.approval_mismatch}, группа без роли {diff.group_role_mismatch}"
-                )
+            text = (
+                f"расхождения со старыми полями: без членства {diff.users_without_membership}, "
+                f"подтверждение {diff.approval_mismatch}, группа без роли {diff.group_role_mismatch}"
+            )
+            if settings.ORGS_ROLES_SOURCE == "memberships" and not (
+                diff.users_without_membership or diff.approval_mismatch
+            ):
+                # после переключения источник ролей — членство; группы Django роли не дают (R2), это сведения
+                if diff.group_role_mismatch:
+                    notes.append(text + " — группы после переключения не источник ролей")
+            elif diff.total:
+                errors.append(text)
         missing_roles = SYSTEM_ROLES - set(
             OrgRole.objects.filter(organization__isnull=True).values_list("code", flat=True)
         )

@@ -627,3 +627,20 @@ def test_apply_page_visitor_without_membership_and_foreign_host(apply_world):
     assert "Свойребёнок" not in body and "Чужойребёнок" not in body
     for user in (None, apply_world.parent):
         assert client_for(user, "OT").get(apply_world.url).status_code == 404  # ссылка на чужом хосте
+
+
+def test_stage4_check_group_without_role_after_switch_is_note(two_orgs, settings, capsys):
+    from django.contrib.auth.models import Group as AuthGroup
+
+    from organizations.legacy import import_legacy
+    from users.constants import COACH_GROUP_NAME
+
+    import_legacy()
+    settings.ORGS_ROLES_SOURCE = "memberships"
+    user = User.objects.create(email="group-after-switch@example.com", is_approved=True)
+    user.groups.add(AuthGroup.objects.get_or_create(name=COACH_GROUP_NAME)[0])  # после переключения роль не даёт
+    call_command("stage4_check", "--release", "r2")
+    assert "группы после переключения не источник ролей" in capsys.readouterr().out
+    settings.ORGS_ROLES_SOURCE = "legacy"
+    with pytest.raises(CommandError):
+        call_command("stage4_check", "--release", "r2")  # в legacy это по-прежнему ошибка (до сверки)
