@@ -100,7 +100,14 @@ def has_site_access(user, organization=None) -> bool:
     if not getattr(user, "is_authenticated", False):
         return False
     if roles_source() == LEGACY:
-        return bool(user.is_approved or user.is_staff or user.is_superuser)
+        if user.is_staff or user.is_superuser:
+            return True
+        if not user.is_approved:
+            return False
+        # выпускник («ушёл» в организации): is_approved сохранён, но доступ — только history.read (D17)
+        from .alumni import is_history_only
+
+        return not is_history_only(user, _current_organization(organization))
     return active_membership(user, organization) is not None
 
 

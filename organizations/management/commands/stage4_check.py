@@ -26,9 +26,15 @@ class Command(BaseCommand):
                     errors.append(f"домен {host} не привязан к ksclub")
                 if organization_for_host(host) != organization:
                     errors.append(f"{host} не разрешается в ksclub")
-            users = get_user_model().objects.count()
+            all_users = get_user_model().objects.all()
+            # участники только других организаций в ksclub не входят (T06)
+            other_only = all_users.exclude(memberships__organization=organization).filter(memberships__isnull=False)
+            users = all_users.count() - other_only.distinct().count()
             memberships = Membership.objects.filter(organization=organization).count()
-            notes.append(f"пользователей {users}, членств {memberships}")
+            notes.append(
+                f"пользователей {users}, членств {memberships}"
+                + (f", только в других организациях {other_only.distinct().count()}" if other_only.exists() else "")
+            )
             if users != memberships:
                 errors.append(f"членств ({memberships}) не равно числу пользователей ({users})")
             diff = find_discrepancies()
@@ -45,15 +51,10 @@ class Command(BaseCommand):
         if not celery_signals_connected():
             errors.append("контекст организации не подключён к задачам Celery")
         flags = (settings.ORGS_DEFAULT_ORGANIZATION_SLUG, settings.ORGS_LEGACY_SYNC, settings.ORGS_ROLES_SOURCE)
-        if flags != ("ksclub", True, "legacy"):
+        if release == "r1" and flags != ("ksclub", True, "legacy"):
             errors.append(f"флаги R1 не совпадают с планом: {flags}")
         if release == "r2":
-            from organizations.backfill import missing_organization
-
-            missing = missing_organization()
-            notes.append(f"строк без организации: {sum(missing.values())}")
-            if missing:
-                errors.append(f"есть данные без организации: {sorted(missing)}")
+            self._check_r2(errors, notes)
         for note in notes:
             self.stdout.write(f"· {note}")
         if errors:
@@ -61,3 +62,64 @@ class Command(BaseCommand):
                 self.stderr.write(f"✗ {error}")
             raise CommandError(f"stage4_check {release}: ошибок {len(errors)}")
         self.stdout.write(f"✓ stage4_check {release}: всё в порядке")
+
+    def _check_r2(self, errors, notes):
+        """R2-7: флаги, заполнение, внешние, выпускники, реестр фильтров. Права и изоляция по сценариям —
+        тестами (tests/test_access_matrix.py, organizations/tests/test_scoping.py, test_externals_alumni.py)."""
+        from django.contrib.auth import get_user_model
+
+        from api import views as api_views
+        from organizations.backfill import missing_organization, org_owned_models
+        from organizations.externals import report as externals_report
+        from organizations.models import Membership, RoleAssignment
+        from organizations.scoping import LegacyResultsOrganizationMixin, OrgScopedManager
+
+        roles, scoping = settings.ORGS_ROLES_SOURCE, settings.ORGS_ENFORCE_SCOPING
+        notes.append(
+            f"режимы: ORGS_ROLES_SOURCE={roles}, ORGS_ENFORCE_SCOPING={scoping}, "
+            f"ORGS_LEGACY_SYNC={settings.ORGS_LEGACY_SYNC}"
+        )
+        if settings.ORGS_DEFAULT_ORGANIZATION_SLUG != "ksclub" or not settings.ORGS_LEGACY_SYNC:
+            errors.append("R2 требует ORGS_DEFAULT_ORGANIZATION_SLUG=ksclub и ORGS_LEGACY_SYNC=True")
+        if roles not in ("legacy", "memberships"):
+            errors.append(f"неизвестный ORGS_ROLES_SOURCE={roles}")
+        if scoping and roles != "memberships":
+            errors.append(
+                "ORGS_ENFORCE_SCOPING=True включается после ORGS_ROLES_SOURCE=memberships (шаги выкатки 2→3)"
+            )
+
+        missing = missing_organization()
+        notes.append(f"строк без организации: {sum(missing.values())}")
+        if missing:
+            errors.append(f"есть данные без организации: {sorted(missing)}")
+
+        models = org_owned_models()
+        unscoped = [m._meta.label for m in models if not isinstance(m._default_manager, OrgScopedManager)]
+        notes.append(f"моделей организации: {len(models)}, без фильтра по умолчанию: {len(unscoped)}")
+        if unscoped:
+            errors.append(f"менеджер по умолчанию без фильтра организации: {unscoped}")
+        legacy_views = [v for n, v in vars(api_views).items() if n.startswith("OnlineResults") and isinstance(v, type)]
+        unguarded = [v.__name__ for v in legacy_views if not issubclass(v, LegacyResultsOrganizationMixin)]
+        if unguarded:
+            errors.append(f"наследие трансляций без ограничения ksclub: {unguarded}")
+        if "check_permissions" not in vars(api_views.UserViewSet):
+            errors.append("API учётных записей без ограничения записи (D16)")
+
+        ext = externals_report()
+        notes.append(
+            f"внешние: {ext['external']} (спортсменов {ext['external_athletes']}), без клуба {ext['without_club']}, "
+            f"с контактами {ext['external_with_contacts']}, с документами {ext['external_with_documents']}"
+        )
+        if ext["unmarked_candidates"] or ext["marked_with_basis"]:
+            errors.append(
+                f"пометка «внешний» расходится с правилом: не помечены {ext['unmarked_candidates']}, "
+                f"помечены со связью {ext['marked_with_basis']}"
+            )
+
+        left = Membership.objects.filter(status=Membership.Status.LEFT)
+        # роль в ТОМ ЖЕ членстве — расхождение; активная роль в другом клубе совместима с «ушёл» здесь (D18)
+        left_with_basis = left.filter(pk__in=RoleAssignment.objects.values("membership_id")).count()
+        left_staff = get_user_model().objects.filter(pk__in=left.values("user_id")).filter(is_staff=True).count()
+        notes.append(f"выпускников («ушёл»): {left.count()}")
+        if left_with_basis or left_staff:
+            errors.append(f"«ушёл» у пользователей с ролями ({left_with_basis}) или staff ({left_staff})")

@@ -90,6 +90,12 @@ class Person(OrgOwned):
     )
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
     gender = models.CharField(max_length=6, choices=GENDER_CHOICES, verbose_name="Пол")
+    is_external = models.BooleanField(
+        "Внешний",
+        default=False,
+        db_index=True,
+        help_text="Спортсмен другого клуба без связей с организацией (из протоколов). Скрыт из рабочих списков.",
+    )
 
     def __str__(self):
         parts = [self.surname, self.name]

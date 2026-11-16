@@ -89,6 +89,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "organizations.context.OrganizationMiddleware",
+    "organizations.alumni.HistoryReadOnlyMiddleware",  # выпускники: только просмотр истории (R2-5)
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
