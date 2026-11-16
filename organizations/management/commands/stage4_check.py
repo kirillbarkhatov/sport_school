@@ -13,7 +13,7 @@ class Command(BaseCommand):
     help = "Проверка готовности релиза этапа 4 (docs/stage4-releases.md). Ненулевой код выхода при ошибках."
 
     def add_arguments(self, parser):
-        parser.add_argument("--release", required=True, choices=["r1", "r2", "r3"])
+        parser.add_argument("--release", required=True, choices=["r1", "r2", "r3", "r4"])
 
     def handle(self, *args, release, **options):
         errors, notes = [], []
@@ -60,10 +60,12 @@ class Command(BaseCommand):
         flags = (settings.ORGS_DEFAULT_ORGANIZATION_SLUG, settings.ORGS_LEGACY_SYNC, settings.ORGS_ROLES_SOURCE)
         if release == "r1" and flags != ("ksclub", True, "legacy"):
             errors.append(f"флаги R1 не совпадают с планом: {flags}")
-        if release in ("r2", "r3"):
+        if release in ("r2", "r3", "r4"):
             self._check_r2(errors, notes)
-        if release == "r3":
+        if release in ("r3", "r4"):
             self._check_r3(errors, notes)
+        if release == "r4":
+            _check_r4_impl(errors, notes)
         for note in notes:
             self.stdout.write(f"· {note}")
         if errors:
@@ -187,3 +189,72 @@ def _check_r3_impl(errors, notes):
         f"ORGS_LEGACY_APPROVAL_PAGE={settings.ORGS_LEGACY_APPROVAL_PAGE}, "
         f"ORGS_CENTRAL_LOGIN_HOST={settings.ORGS_CENTRAL_LOGIN_HOST or '(пусто: вход на адресе организации)'}"
     )
+
+
+def cross_organization_links() -> dict[str, int]:
+    """Связи FK/OneToOne между записями разных организаций по всем OrgOwned-моделям (должно быть 0)."""
+    from django.db.models import F
+
+    from organizations.backfill import org_owned_models
+    from organizations.scoping import OrgOwned
+
+    found = {}
+    for model in org_owned_models():
+        for field in model._meta.concrete_fields:
+            if (
+                field.is_relation
+                and (field.many_to_one or field.one_to_one)
+                and issubclass(field.related_model, OrgOwned)
+            ):
+                n = (
+                    model.all_objects.filter(**{f"{field.name}__isnull": False})
+                    .exclude(organization=F(f"{field.name}__organization"))
+                    .count()
+                )
+                if n:
+                    found[f"{model._meta.label}.{field.name}"] = n
+        for field in model._meta.local_many_to_many:
+            if issubclass(field.related_model, OrgOwned):
+                n = (
+                    model.all_objects.filter(**{f"{field.name}__isnull": False})
+                    .exclude(organization=F(f"{field.name}__organization"))
+                    .count()
+                )
+                if n:
+                    found[f"{model._meta.label}.{field.name}"] = n
+    return found
+
+
+def _check_r4_impl(errors, notes):
+    """Минимальный R4 (R4-1): изоляция данных всех организаций и демо-организация."""
+    from organizations.models import Organization, OrgDomain
+
+    cross = cross_organization_links()
+    notes.append(f"связей между организациями (FK/OneToOne/M2M): {sum(cross.values())}")
+    if cross:
+        errors.append(f"записи ссылаются на другую организацию: {cross}")
+    demo = Organization.objects.filter(slug="demo").first()
+    if demo is None:
+        notes.append("демо-организации нет (manage.py orgs_create_demo)")
+        return
+    from results.models import ResultsEvent
+
+    domains = sorted(OrgDomain.objects.filter(organization=demo).values_list("host", flat=True))
+    notes.append(f"демо: статус {demo.status}, домены {domains}, метаданные {sorted((demo.settings or {}).keys())}")
+    if not (demo.settings or {}).get("synthetic"):
+        errors.append("демо-организация без пометки synthetic")
+    if ResultsEvent.all_objects.filter(organization=demo, telegram_enabled=True).exists():
+        errors.append("в демо включена публикация трансляции в Telegram")
+    if not domains:
+        errors.append("у демо-организации нет домена")
+    legacy_flags = [
+        name
+        for name in (
+            "ORGS_LEGACY_SYNC",
+            "ORGS_ROLES_SOURCE",
+            "ORGS_LEGACY_APPROVAL_PAGE",
+            "ORGS_DEFAULT_ORGANIZATION_SLUG",
+        )
+        if hasattr(settings, name)
+    ]
+    notes.append(f"R4-2 (уборка) не выполнен: старые флаги ещё есть {legacy_flags}; RLS (R4-3) — бэклог")
