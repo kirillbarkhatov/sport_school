@@ -220,13 +220,26 @@ def for_each_organization(func):
         from .models import Organization
 
         task = current_task
-        if task is None or task.request.called_directly or task_has_explicit_organization():
+        if task is None or task.request.called_directly:
+            return func(*args, **kwargs)
+        if task_has_explicit_organization():
+            current = get_current_organization()
+            if current is not None and is_synthetic(current):
+                # R4: синтетическая демо-организация не участвует в периодических и внешних задачах
+                return {"skipped": "synthetic", "organization": current.slug}
             return func(*args, **kwargs)
         call_args = args[1:] if args and args[0] is task else args
         slugs = []
         for organization in Organization.objects.filter(status=Organization.Status.ACTIVE).order_by("pk"):
+            if is_synthetic(organization):
+                continue  # демо без расписания: ни снимков ассистента, ни рассылок
             task.apply_async(args=call_args, kwargs=kwargs, headers={ORG_HEADER: organization.pk})
             slugs.append(organization.slug)
         return {"per_organization": slugs}
 
     return wrapper
+
+
+def is_synthetic(organization) -> bool:
+    """Синтетическая (демо) организация: settings.synthetic. Не участвует в расписании и внешних задачах."""
+    return bool((getattr(organization, "settings", None) or {}).get("synthetic"))
