@@ -18,6 +18,7 @@ from members.models import PersonDedupJob, PersonDuplicateCluster, PersonMergeRe
 from members.services import apply_cluster_merge, build_cluster_payload, build_job_payload
 from members.tasks import run_person_dedup_job_task
 from organizations.accounts import set_user_approval
+from organizations.auth import link_user_person
 from organizations.externals import EXTERNAL_FILTER_PARAM, apply_external_filter
 from organizations.permissions import authorize, is_privileged  # noqa: F401
 from organizations.scoping import scoping_enabled, users_in_organization
@@ -586,8 +587,7 @@ class TelegramInterlocutorListView(ApprovedUserRequiredMixin, TemplateView):
 
         user_updates: list[str] = []
         if user.person_id != person.id:
-            user.person = person
-            user_updates.append("person")
+            user_updates.extend(link_user_person(user, person))  # R3: во второй организации — Membership.person
         if scoping_enabled() or not user.is_approved:  # R1: только если не подтверждён; иначе — членство
             user_updates.extend(set_user_approval(user, True))
         if user_updates:

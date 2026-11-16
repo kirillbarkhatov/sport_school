@@ -17,12 +17,23 @@
                     <h1 class="h4 mb-0">Доступ ожидает подтверждения</h1>
                 </div>
                 <div class="card-body">
-                    <p class="mb-3">
+                    {% if legacy_approval_page %}<p class="mb-3">
                         Спасибо! Мы получили ваш запрос. После проверки данных и подтверждения доступа вы получите уведомление в Telegram.
-                    </p>
+                    </p>{% endif %}
                     <p class="text-muted small mb-4">
                         Если есть срочные вопросы, напишите администратору или ответьте в чате бота.
                     </p>
+                    {% if organization %}
+                    <p class="mb-3" data-testid="org-status">Организация: <strong>{{ organization.name }}</strong>.
+                        {% if membership_status == "pending" %}Ваша заявка в очереди организации.
+                        {% elif membership_status %}Статус членства: {{ membership_status_display }}.{% endif %}</p>
+                    {% if not membership_status %}
+                    <form method="post" action="{% url 'organizations:join_request' %}" class="mb-3">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-primary w-100">Вступить / я родитель</button>
+                    </form>
+                    {% endif %}
+                    {% endif %}
                     <form method="post" action="{% url 'users:logout' %}">
                         {% csrf_token %}
                         <button type="submit" class="btn btn-outline-secondary w-100">Выйти</button>

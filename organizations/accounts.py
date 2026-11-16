@@ -7,6 +7,7 @@ User — платформенная учётная запись, общая дл
 
 from __future__ import annotations
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 
 
@@ -50,5 +51,5 @@ def set_user_approval(user, approved: bool, organization=None) -> list[str]:
     if membership.status != wanted:
         membership.status = wanted
         membership.save(update_fields=["status"])
-    user.is_approved = type(user).objects.filter(pk=user.pk).values_list("is_approved", flat=True).first()
+    user.is_approved = get_user_model().objects.filter(pk=user.pk).values_list("is_approved", flat=True).first()
     return []

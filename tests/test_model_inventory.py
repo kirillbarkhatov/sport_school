@@ -71,6 +71,9 @@ PLATFORM = {
     "organizations.RoleAssignment",
     "organizations.PlatformRole",
     "organizations.AuditLog",
+    "organizations.AuthIdentity",  # R3-1: способы входа учётной записи платформы
+    "organizations.LoginTicket",  # R3-1: одноразовый вход через бота
+    "organizations.Invitation",  # R3-3: приглашение в организацию (связь с организацией — FK)
     "bot.TelegramChat",
     "bot.TelegramParticipant",
     "assistant.ServiceAccount",

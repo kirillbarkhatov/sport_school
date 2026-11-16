@@ -102,6 +102,11 @@ class Membership(models.Model):
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+    # R3: человек этой организации, с которым связан пользователь. Глобальный User.person остаётся за прежней
+    # организацией; во второй организации связь хранится здесь (organizations.auth.link_user_person).
+    person = models.ForeignKey(
+        "school.Person", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", verbose_name="Человек"
+    )
 
     class Meta:
         verbose_name = "Членство"
@@ -162,3 +167,68 @@ class AuditLog(models.Model):
 
     def __str__(self) -> str:
         return f"{self.created_at:%Y-%m-%d %H:%M} {self.action}"
+
+
+class AuthIdentity(models.Model):
+    """Способ входа учётной записи платформы (R3-1): Telegram ID, email. Одна учётная запись — несколько способов."""
+
+    class Kind(models.TextChoices):
+        TELEGRAM = "telegram", "Telegram"
+        EMAIL = "email", "Email"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="auth_identities")
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    value = models.CharField(max_length=255)
+    source = models.CharField(max_length=16, choices=Source.choices, default=Source.SYNC)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Способ входа"
+        verbose_name_plural = "Способы входа"
+        constraints = [models.UniqueConstraint(fields=("kind", "value"), name="auth_identity_unique_kind_value")]
+
+    def __str__(self) -> str:
+        return f"{self.kind}:{self.user_id}"
+
+
+class LoginTicket(models.Model):
+    """Одноразовый вход через бота (R3-1). Хранится хэш токена. После первого входа действует окно xfer
+    (второй браузер, XFER_TOKEN_POST_USE_TTL_SECONDS), затем повтор не даёт сессии; неиспользованный — до expires_at."""
+
+    token_hash = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_tickets")
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Тикет входа"
+        verbose_name_plural = "Тикеты входа"
+
+    def __str__(self) -> str:
+        return f"ticket:{self.user_id}"
+
+
+class Invitation(models.Model):
+    """Приглашение в организацию по ссылке (R3-3). Принятие создаёт/активирует членство с ролью."""
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="invitations")
+    role = models.ForeignKey(OrgRole, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    revoked = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "Приглашение"
+        verbose_name_plural = "Приглашения"
+
+    def __str__(self) -> str:
+        return f"invitation:{self.organization_id}"

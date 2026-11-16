@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 
 from bot.models import TelegramParticipant
 from members.models import PersonMergeRedirect
+from organizations.auth import link_user_person
 from school.models import Athlete, Club, Family, FamilyMember, Person
 from users.models import User, UserPersonLink, UserPersonLinkStatus
 from users.telegram_identity import parse_telegram_reference, telegram_url_from_username
@@ -133,8 +134,7 @@ def _drop_state(context: ContextTypes.DEFAULT_TYPE) -> None:
 def _approve_user_with_person(user: User, person: Person, *, reason: str) -> None:
     updates: list[str] = []
     if user.person_id != person.id:
-        user.person = person
-        updates.append("person")
+        updates.extend(link_user_person(user, person))  # R3: во второй организации — Membership.person
     if not user.is_approved:
         user.is_approved = True
         updates.append("is_approved")

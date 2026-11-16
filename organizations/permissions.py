@@ -42,6 +42,8 @@ ACTIONS: dict[str, frozenset[str]] = {
     "athletes.extended_filters": STAFF_ROLES | {PRIVILEGED},
     # То, что раньше было только у is_staff/is_superuser.
     "org.full": frozenset({PRIVILEGED}),
+    # R3-3: консоль организации — сотрудники, роли, очередь заявок, приглашения, журнал.
+    "org.manage": frozenset({OrgRole.OWNER, OrgRole.ADMIN, PRIVILEGED}),
 }
 
 _LEGACY_GROUP_ROLE = None

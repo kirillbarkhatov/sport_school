@@ -44,9 +44,9 @@ class FakeRedis:
 
 @pytest.fixture
 def fake_redis():
-    redis = FakeRedis()
-    with patch("users.views.redis.Redis.from_url", return_value=redis), patch("users.views.send_admin_message"):
-        yield redis
+    """Без внешних эффектов входа. С R3-1 окно xfer хранится в LoginTicket (база), Redis для входа не нужен."""
+    with patch("users.views.send_admin_message"):
+        yield FakeRedis()
 
 
 # 1. Вход через Telegram-бота (одноразовый токен) и повторно по тому же токену во втором браузере; выход
