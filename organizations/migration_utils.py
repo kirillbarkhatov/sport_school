@@ -16,8 +16,13 @@ def backfill_organization(app_label: str, model_names: list[str]) -> migrations.
         organization = Organization.objects.filter(slug=default_slug()).first()
         if organization is None:
             return
+        updated = 0
         for name in model_names:
             model = apps.get_model(app_label, name)
-            model._base_manager.filter(organization__isnull=True).update(organization=organization)
+            updated += model._base_manager.filter(organization__isnull=True).update(organization=organization)
+        if updated and schema_editor is not None and schema_editor.connection.vendor == "postgresql":
+            # FK на организацию отложенный: без этого следующий ALTER TABLE (SET NOT NULL, R2-6) в той же
+            # транзакции упадёт с «pending trigger events»
+            schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     return migrations.RunPython(forward, migrations.RunPython.noop, elidable=False)
