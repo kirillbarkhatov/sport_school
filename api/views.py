@@ -22,8 +22,8 @@ from django.utils.dateparse import parse_datetime
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import status, viewsets
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework import permissions, status, viewsets
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -46,12 +46,14 @@ from api.telegram_streaming import disable_stream_telegram_publication, enable_s
 from api.telemetry import log_event
 from bot.models import TelegramChat, TelegramParticipant
 from classes.services import get_assistant_schedule_payload
+from organizations.accounts import can_write_global_account
+from organizations.permissions import authorize, is_privileged  # noqa: F401
+from organizations.scoping import LegacyResultsOrganizationMixin, users_in_organization
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Competition, CompetitionDocument, Person
-from users.constants import ADMIN_GROUP_NAME, MANAGER_GROUP_NAME
 from users.mixins import ApprovedUserRequiredMixin
 from users.models import User
-from users.permissions import IsApprovedUser
+from users.permissions import IsApprovedUser, IsPrivilegedUser
 
 from .serializers import (
     AssistantAthleteSerializer,
@@ -82,11 +84,7 @@ def _telegram_channels_queryset():
 
 
 def _can_manage_online_results(user: User) -> bool:
-    if not user.is_authenticated:
-        return False
-    if user.is_staff or user.is_superuser:
-        return True
-    return user.groups.filter(name__in={ADMIN_GROUP_NAME, MANAGER_GROUP_NAME}).exists()
+    return authorize(user, "results.manage")
 
 
 def _build_online_results_callback_url(request) -> str:
@@ -541,7 +539,7 @@ class PersonViewSet(viewsets.ModelViewSet):
     model = Person
     serializer_class = PersonSerializer
     queryset = Person.objects.all()
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsPrivilegedUser]
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -550,7 +548,18 @@ class UserViewSet(viewsets.ModelViewSet):
     model = User
     serializer_class = UserSerializer
     queryset = User.objects.all()
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsPrivilegedUser]
+
+    def get_queryset(self):
+        # D13: при ORGS_ENFORCE_SCOPING — только учётные записи с членством в текущей организации
+        return users_in_organization(super().get_queryset())
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        # D16: учётная запись общая для организаций — создание, изменение (пароль, статус, флаги) и удаление
+        # при включённой изоляции только у платформенного администратора; чтение — по членству (D13)
+        if request.method not in permissions.SAFE_METHODS and not can_write_global_account(request.user):
+            self.permission_denied(request, message="Изменение учётной записи — только для администратора платформы.")
 
 
 class WhatsAppChatSyncView(APIView):
@@ -631,7 +640,7 @@ class AssistantUpcomingTrainingsView(APIView):
 
 
 @method_decorator(csrf_exempt, name="dispatch")
-class OnlineResultsWebhookView(APIView):
+class OnlineResultsWebhookView(LegacyResultsOrganizationMixin, APIView):
     permission_classes = [AllowAny]
     http_method_names = ["post"]
 
@@ -762,7 +771,7 @@ class OnlineResultsWebhookView(APIView):
             log_event("webhook_processing_enqueue_failed", event_id=event_id)
 
 
-class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
+class OnlineResultsStreamRunsView(LegacyResultsOrganizationMixin, ApprovedUserRequiredMixin, View):
     template_name = "api/online_results_stream_runs.html"
 
     def dispatch(self, request, *args, **kwargs):
@@ -1001,7 +1010,7 @@ class OnlineResultsStreamRunsView(ApprovedUserRequiredMixin, View):
         return redirect("online-results-stream-runs")
 
 
-class OnlineResultsWebhookEventsView(ApprovedUserRequiredMixin, View):
+class OnlineResultsWebhookEventsView(LegacyResultsOrganizationMixin, ApprovedUserRequiredMixin, View):
     template_name = "api/online_results_webhook_events.html"
 
     def dispatch(self, request, *args, **kwargs):
@@ -1055,7 +1064,7 @@ class OnlineResultsWebhookEventsView(ApprovedUserRequiredMixin, View):
         )
 
 
-class OnlineResultsCompetitionLiveView(ApprovedUserRequiredMixin, View):
+class OnlineResultsCompetitionLiveView(LegacyResultsOrganizationMixin, ApprovedUserRequiredMixin, View):
     template_name = "api/online_results_live.html"
 
     def dispatch(self, request, *args, **kwargs):
@@ -1089,7 +1098,7 @@ class OnlineResultsCompetitionLiveView(ApprovedUserRequiredMixin, View):
         )
 
 
-class OnlineResultsCompetitionLiveStateView(ApprovedUserRequiredMixin, View):
+class OnlineResultsCompetitionLiveStateView(LegacyResultsOrganizationMixin, ApprovedUserRequiredMixin, View):
     def dispatch(self, request, *args, **kwargs):
         if not _can_manage_online_results(request.user):
             return HttpResponseForbidden("Недостаточно прав.")
@@ -1114,7 +1123,7 @@ class OnlineResultsCompetitionLiveStateView(ApprovedUserRequiredMixin, View):
         return JsonResponse(payload)
 
 
-class OnlineResultsCompetitionSoftRefreshView(ApprovedUserRequiredMixin, View):
+class OnlineResultsCompetitionSoftRefreshView(LegacyResultsOrganizationMixin, ApprovedUserRequiredMixin, View):
     http_method_names = ["post"]
 
     def dispatch(self, request, *args, **kwargs):
@@ -1142,7 +1151,7 @@ class OnlineResultsCompetitionSoftRefreshView(ApprovedUserRequiredMixin, View):
         return JsonResponse(payload)
 
 
-class OnlineResultsCompetitionHardRefreshView(ApprovedUserRequiredMixin, View):
+class OnlineResultsCompetitionHardRefreshView(LegacyResultsOrganizationMixin, ApprovedUserRequiredMixin, View):
     http_method_names = ["post"]
 
     def dispatch(self, request, *args, **kwargs):
@@ -1180,7 +1189,7 @@ class OnlineResultsCompetitionHardRefreshView(ApprovedUserRequiredMixin, View):
         return JsonResponse(payload)
 
 
-class OnlineResultsCompetitionLivePublicView(View):
+class OnlineResultsCompetitionLivePublicView(LegacyResultsOrganizationMixin, View):
     template_name = "api/online_results_live.html"
 
     def get(self, request, token: str, *args, **kwargs):
@@ -1227,7 +1236,7 @@ class OnlineResultsCompetitionLivePublicView(View):
         )
 
 
-class OnlineResultsCompetitionLivePublicStateView(View):
+class OnlineResultsCompetitionLivePublicStateView(LegacyResultsOrganizationMixin, View):
     def get(self, request, token: str, *args, **kwargs):
         access = (
             PublicStreamAccess.objects.select_related("stream_run")
@@ -1262,7 +1271,7 @@ class OnlineResultsCompetitionLivePublicStateView(View):
         return JsonResponse(payload)
 
 
-class OnlineResultsPublicDocumentView(View):
+class OnlineResultsPublicDocumentView(LegacyResultsOrganizationMixin, View):
     def get(self, request, token: str, document_id: int, *args, **kwargs):
         access = (
             PublicStreamAccess.objects.select_related("stream_run")

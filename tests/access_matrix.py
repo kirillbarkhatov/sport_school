@@ -1,4 +1,4 @@
-"""Матрица доступа: роль × страница/действие → код ответа. Фиксирует ТЕКУЩЕЕ поведение (R1, этап 4).
+"""Матрица доступа: роль × страница/действие → код ответа. Фиксирует текущее поведение (R2, этап 4).
 
 Любое изменение доступа должно сопровождаться правкой этой таблицы в том же PR — так изменения прав
 становятся осознанными. KNOWN_HOLES — известные дыры: текущее поведение записано в EXPECTED (тест проходит),
@@ -7,22 +7,22 @@
 
 ROLES = ("anonymous", "pending", "approved", "coach", "manager", "admin", "superuser")
 
-# "<МЕТОД> <имя URL>": коды для ролей в порядке ROLES. Снято на фикстурах tests/factories.py.
+# "<МЕТОД> <имя URL>": коды для ролей в порядке ROLES. Снято на фикстурах tests/factories.py; одинаково для ORGS_ROLES_SOURCE=legacy и memberships.
 EXPECTED = {
     "GET api:assistant-upcoming-trainings": (403, 403, 200, 200, 200, 200, 200),
     "GET api:person-list": (403, 403, 403, 403, 403, 403, 200),
     "GET api:user-list": (403, 403, 403, 403, 403, 403, 200),
-    "GET classes:class_create": (302, 302, 200, 200, 200, 200, 200),
+    "GET classes:class_create": (302, 302, 403, 200, 200, 200, 200),
     "GET classes:class_delete": (302, 302, 404, 404, 404, 404, 200),
     "GET classes:class_detail": (302, 302, 404, 404, 404, 404, 200),
     "GET classes:class_list": (302, 302, 200, 200, 200, 200, 200),
     "GET classes:class_notify": (302, 403, 403, 403, 403, 403, 200),
-    "GET classes:class_update": (302, 302, 200, 200, 200, 200, 200),
-    "GET groups:group_create": (302, 302, 200, 200, 200, 200, 200),
+    "GET classes:class_update": (302, 302, 403, 200, 200, 200, 200),
+    "GET groups:group_create": (302, 302, 403, 200, 200, 200, 200),
     "GET groups:group_delete": (302, 302, 404, 404, 404, 404, 200),
     "GET groups:group_detail": (302, 302, 404, 404, 404, 404, 200),
     "GET groups:group_list": (302, 302, 200, 200, 200, 200, 200),
-    "GET groups:group_update": (302, 302, 200, 200, 200, 200, 200),
+    "GET groups:group_update": (302, 302, 403, 200, 200, 200, 200),
     "GET healthz": (200, 200, 200, 200, 200, 200, 200),
     "GET members:family_detail": (302, 302, 404, 404, 404, 404, 200),
     "GET members:family_finance": (302, 302, 404, 404, 404, 404, 200),
@@ -47,56 +47,37 @@ EXPECTED = {
     "GET school:athlete_edit_compact": (302, 302, 302, 302, 302, 302, 200),
     "GET school:athlete_list": (302, 302, 200, 200, 200, 200, 200),
     "GET school:athlete_simple_list": (302, 302, 200, 200, 200, 200, 200),
-    "GET school:competition_create": (302, 302, 200, 200, 200, 200, 200),
-    "GET school:competition_edit": (302, 302, 200, 200, 200, 200, 200),
-    "GET school:competition_export": (200, 200, 200, 200, 200, 200, 200),
-    "GET school:competition_export_type2": (200, 200, 200, 200, 200, 200, 200),
-    "GET school:competition_export_word_type1": (200, 200, 200, 200, 200, 200, 200),
-    "GET school:competition_export_word_type2": (200, 200, 200, 200, 200, 200, 200),
-    "GET school:competition_export_word_type3": (200, 200, 200, 200, 200, 200, 200),
-    "GET school:competition_export_word_type4": (200, 200, 200, 200, 200, 200, 200),
-    "GET school:competition_groups": (302, 302, 200, 200, 200, 200, 200),
+    "GET school:competition_create": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:competition_edit": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:competition_export": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:competition_export_type2": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:competition_export_word_type1": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:competition_export_word_type2": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:competition_export_word_type3": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:competition_export_word_type4": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:competition_groups": (302, 302, 403, 200, 200, 200, 200),
     "GET school:competition_list": (302, 302, 200, 200, 200, 200, 200),
     "GET school:competition_venue_list": (302, 302, 200, 200, 200, 200, 200),
-    "GET school:documents_analysis_list": (302, 302, 200, 200, 200, 200, 200),
-    "GET school:documents_bulk_upload": (302, 302, 200, 200, 200, 200, 200),
+    "GET school:documents_analysis_list": (302, 302, 403, 200, 200, 200, 200),
+    "GET school:documents_bulk_upload": (302, 302, 403, 200, 200, 200, 200),
     "GET school:edit_athlete": (302, 302, 302, 302, 302, 302, 200),
     "GET school:index": (302, 302, 200, 200, 200, 200, 200),
     "GET school:user_main_info": (302, 302, 302, 302, 302, 302, 302),
     "GET users:awaiting_approval": (302, 200, 302, 302, 302, 302, 302),
     "GET users:login_page": (200, 200, 200, 200, 200, 200, 200),
-    "POST classes:class_create": (302, 302, 200, 200, 200, 200, 200),
-    "POST groups:group_create": (302, 302, 200, 200, 200, 200, 200),
+    "POST classes:class_create": (302, 302, 403, 200, 200, 200, 200),
+    "POST groups:group_create": (302, 302, 403, 200, 200, 200, 200),
     "POST members:members_create": (302, 403, 403, 403, 403, 403, 200),
     "POST notifications:notification_create": (302, 403, 403, 403, 403, 403, 200),
-    "POST school:competition_create": (302, 302, 200, 200, 200, 200, 200),
-    "POST school:documents_bulk_upload": (302, 302, 200, 200, 200, 200, 200),
+    "POST school:competition_create": (302, 302, 403, 200, 200, 200, 200),
+    "POST school:documents_bulk_upload": (302, 302, 403, 200, 200, 200, 200),
 }
 
-_STAFF_ONLY = {"anonymous": 302, "pending": 302, "approved": 403}
-_NOT_PUBLIC = {"anonymous": 302, "pending": 302, "approved": 403}
-
-# Желаемое поведение там, где текущее слишком открыто. Исправляется в R2-2 (docs/stage4-releases.md).
-KNOWN_HOLES = {
-    # Родитель (подтверждённый пользователь без роли) открывает и отправляет формы сотрудников
-    "GET school:competition_create": _STAFF_ONLY,
-    "POST school:competition_create": _STAFF_ONLY,
-    "GET school:competition_edit": _STAFF_ONLY,
-    "GET school:competition_groups": _STAFF_ONLY,
-    "GET classes:class_create": _STAFF_ONLY,
-    "POST classes:class_create": _STAFF_ONLY,
-    "GET classes:class_update": _STAFF_ONLY,
-    "GET groups:group_create": _STAFF_ONLY,
-    "POST groups:group_create": _STAFF_ONLY,
-    "GET groups:group_update": _STAFF_ONLY,
-    "GET school:documents_bulk_upload": _STAFF_ONLY,
-    "POST school:documents_bulk_upload": _STAFF_ONLY,
-    "GET school:documents_analysis_list": _STAFF_ONLY,
-    # Выгрузки заявок на соревнования доступны без входа
-    "GET school:competition_export": _NOT_PUBLIC,
-    "GET school:competition_export_type2": _NOT_PUBLIC,
-    "GET school:competition_export_word_type1": _NOT_PUBLIC,
-    "GET school:competition_export_word_type2": _NOT_PUBLIC,
-    "GET school:competition_export_word_type3": _NOT_PUBLIC,
-    "GET school:competition_export_word_type4": _NOT_PUBLIC,
-}
+# Известные дыры: желаемое поведение там, где текущее слишком открыто.
+# T04 (R2-2) закрыл все 19 строк базовой матрицы T01:
+# - D05: формы соревнований, групп зачёта, занятий, групп, загрузка документов и AI-анализ —
+#   подтверждённый родитель теперь получает 403 (StaffAreaRequiredMixin, действие staff.area);
+# - D04: внутренние выгрузки заявок — гость и неподтверждённый перенаправляются (302),
+#   подтверждённый родитель получает 403 (staff_area_required).
+# Сотрудники (тренер, менеджер, администратор) и суперпользователь сохранили доступ.
+KNOWN_HOLES: dict[str, dict[str, int]] = {}

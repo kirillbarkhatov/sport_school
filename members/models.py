@@ -2,8 +2,10 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from organizations.scoping import OrgOwned
 
-class PersonDedupJob(models.Model):
+
+class PersonDedupJob(OrgOwned):
     STATUS_QUEUED = "queued"
     STATUS_RUNNING = "running"
     STATUS_COMPLETED = "completed"
@@ -77,7 +79,7 @@ class PersonDedupJob(models.Model):
         return f"PersonDedupJob #{self.pk}"
 
 
-class PersonDuplicateCluster(models.Model):
+class PersonDuplicateCluster(OrgOwned):
     STATUS_OPEN = "open"
     STATUS_SKIPPED = "skipped"
     STATUS_MERGED = "merged"
@@ -118,7 +120,7 @@ class PersonDuplicateCluster(models.Model):
         return f"PersonDuplicateCluster #{self.pk}"
 
 
-class PersonDuplicateItem(models.Model):
+class PersonDuplicateItem(OrgOwned):
     cluster = models.ForeignKey(
         PersonDuplicateCluster,
         on_delete=models.CASCADE,
@@ -150,7 +152,7 @@ class PersonDuplicateItem(models.Model):
         return f"PersonDuplicateItem #{self.pk}"
 
 
-class PersonMergeRedirect(models.Model):
+class PersonMergeRedirect(OrgOwned):
     source_person = models.OneToOneField(
         "school.Person",
         on_delete=models.CASCADE,
@@ -188,7 +190,7 @@ class PersonMergeRedirect(models.Model):
         return f"PersonMergeRedirect #{self.pk}"
 
 
-class PersonMergeLog(models.Model):
+class PersonMergeLog(OrgOwned):
     cluster = models.ForeignKey(
         PersonDuplicateCluster,
         on_delete=models.SET_NULL,

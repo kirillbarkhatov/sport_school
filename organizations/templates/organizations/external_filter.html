@@ -1,0 +1,9 @@
+{# Переключатель внешних спортсменов (R2-5): по умолчанию скрыты из рабочих списков. #}
+<div class="small mt-1" data-external-filter="{{ external_filter|default:'' }}">
+  {% if external_filter == "only" %}
+    <span class="badge text-bg-secondary">Внешние спортсмены (из протоколов)</span>
+    <a href="?" class="ms-2">← рабочий список</a>
+  {% else %}
+    <a href="?external=only">Внешние спортсмены (из протоколов)</a>
+  {% endif %}
+</div>

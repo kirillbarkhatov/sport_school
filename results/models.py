@@ -7,12 +7,14 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from organizations.scoping import OrgOwned
+
 
 def _public_token() -> str:
     return secrets.token_urlsafe(24)
 
 
-class ResultsEvent(models.Model):
+class ResultsEvent(OrgOwned):
     """Трансляция результатов одного соревнования."""
 
     class Status(models.TextChoices):
@@ -113,7 +115,7 @@ class ResultsEvent(models.Model):
         return self.seq
 
 
-class ResultGroup(models.Model):
+class ResultGroup(OrgOwned):
     event = models.ForeignKey(ResultsEvent, on_delete=models.CASCADE, related_name="groups")
     key = models.CharField(max_length=512)
     sheet_name = models.CharField("Лист", max_length=255)
@@ -132,7 +134,7 @@ class ResultGroup(models.Model):
         return f"{self.sheet_name} / {self.name}"
 
 
-class ResultEntry(models.Model):
+class ResultEntry(OrgOwned):
     """Участник протокола. Значения хранятся «как в источнике»; ручные правки — в *_manual и имеют приоритет."""
 
     class LinkMethod(models.TextChoices):
@@ -194,7 +196,7 @@ class ResultEntry(models.Model):
         return self.run1_raw if run_number == 1 else self.run2_raw
 
 
-class EventLog(models.Model):
+class EventLog(OrgOwned):
     """Журнал трансляции: изменения результатов, фокус, финализация, ручные правки, жизненный цикл."""
 
     class Kind(models.TextChoices):
@@ -222,7 +224,7 @@ class EventLog(models.Model):
         return f"#{self.seq} {self.kind}: {self.message}"
 
 
-class RawSnapshot(models.Model):
+class RawSnapshot(OrgOwned):
     """Сжатый сырой снимок листов источника — только при изменении. Нужен для replay и разбора ошибок."""
 
     event = models.ForeignKey(ResultsEvent, on_delete=models.CASCADE, related_name="snapshots")
@@ -251,7 +253,7 @@ class RawSnapshot(models.Model):
         return json.loads(zlib.decompress(bytes(self.data)).decode())
 
 
-class TelegramPublication(models.Model):
+class TelegramPublication(OrgOwned):
     """Состояние постов трансляции в канале: таблица текущей группы, последний финиш, ссылка."""
 
     event = models.OneToOneField(ResultsEvent, on_delete=models.CASCADE, related_name="telegram")

@@ -8,6 +8,7 @@ from telegram import Bot
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from organizations.scoping import users_in_organization
 from users.constants import (
     ADMIN_GROUP_NAME,
     COACH_GROUP_NAME,
@@ -54,7 +55,9 @@ def get_manager_env_chat_ids() -> Sequence[str]:
 
 async def _fetch_group_chat_ids(group_name: str) -> list[int]:
     queryset = (
-        User.objects.filter(groups__name=group_name, tg_id__isnull=False).values_list("tg_id", flat=True).distinct()
+        users_in_organization(User.objects.filter(groups__name=group_name, tg_id__isnull=False))
+        .values_list("tg_id", flat=True)
+        .distinct()
     )
     return await sync_to_async(list, thread_sensitive=True)(queryset)
 
@@ -82,14 +85,20 @@ async def _resolve_recipient_ids(
 
 
 async def _user_has_role(tg_id: int | None, group_name: str, env_ids: Sequence[str]) -> bool:
+    """Роль пользователя бота через единый слой прав. TELEGRAM_*_IDS учитываются только в режиме legacy."""
+    from organizations.legacy import GROUP_TO_ROLE
+    from organizations.permissions import LEGACY, has_role, roles_source
+
     if not tg_id:
         return False
-    if str(tg_id) in env_ids:
+    if roles_source() == LEGACY and str(tg_id) in env_ids:
         return True
-    return await sync_to_async(
-        User.objects.filter(tg_id=tg_id, groups__name=group_name).exists,
-        thread_sensitive=True,
-    )()
+
+    def check() -> bool:
+        user = User.objects.filter(tg_id=tg_id).first()
+        return bool(user) and has_role(user, GROUP_TO_ROLE[group_name])
+
+    return await sync_to_async(check, thread_sensitive=True)()
 
 
 async def user_is_admin(tg_id: int | None) -> bool:

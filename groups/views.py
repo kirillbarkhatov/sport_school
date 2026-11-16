@@ -11,9 +11,10 @@ from django.views.generic import (
     UpdateView,
 )
 
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from school.forms import GroupForm
 from school.models import Group
-from users.mixins import ApprovedUserRequiredMixin
+from users.mixins import ApprovedUserRequiredMixin, StaffAreaRequiredMixin
 from users.utils import get_athlete_queryset_for_user, get_group_queryset_for_user
 
 
@@ -45,7 +46,7 @@ class GroupDetailView(ApprovedUserRequiredMixin, DetailView):
         return get_group_queryset_for_user(self.request.user)
 
 
-class GroupCreateView(ApprovedUserRequiredMixin, CreateView):
+class GroupCreateView(StaffAreaRequiredMixin, CreateView):
     model = Group
     form_class = GroupForm
     template_name = "groups/group_form.html"
@@ -53,12 +54,12 @@ class GroupCreateView(ApprovedUserRequiredMixin, CreateView):
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        if not self.request.user.is_staff and not self.request.user.is_superuser:
+        if not is_privileged(self.request.user):
             form.fields["athletes"].queryset = get_athlete_queryset_for_user(self.request.user)
         return form
 
 
-class GroupUpdateView(ApprovedUserRequiredMixin, UpdateView):
+class GroupUpdateView(StaffAreaRequiredMixin, UpdateView):
     model = Group
     form_class = GroupForm
     template_name = "groups/group_form.html"
@@ -66,7 +67,7 @@ class GroupUpdateView(ApprovedUserRequiredMixin, UpdateView):
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        if not self.request.user.is_staff and not self.request.user.is_superuser:
+        if not is_privileged(self.request.user):
             form.fields["athletes"].queryset = get_athlete_queryset_for_user(self.request.user)
         return form
 
@@ -80,7 +81,7 @@ class GroupDeleteView(ApprovedUserRequiredMixin, DeleteView):
         return get_group_queryset_for_user(self.request.user)
 
 
-class GroupMembershipUpdateView(ApprovedUserRequiredMixin, View):
+class GroupMembershipUpdateView(StaffAreaRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, pk):

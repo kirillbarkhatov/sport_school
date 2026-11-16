@@ -12,6 +12,8 @@ from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from organizations.permissions import BOT_MANAGER_SCOPE
+from organizations.scoping import users_in_organization
 from school.choices import TrainingEquipment, TrainingKind, TrainingLocation
 from school.models import Athlete, Class, ClassEnrollment, Family, FamilyMember, Group
 from school.training_rules import (
@@ -301,7 +303,9 @@ async def _search_users(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[Use
     normalized = (query or "").strip()
 
     def fetch():
-        users = User.objects.select_related("person", "link", "person__athlete").order_by("last_name", "first_name")
+        users = users_in_organization(User.objects.select_related("person", "link", "person__athlete")).order_by(
+            "last_name", "first_name"
+        )
         if not normalized:
             return list(users[:limit])
 
@@ -459,7 +463,9 @@ async def _send_user_search_results(update: Update, context: ContextTypes.DEFAUL
 
 async def _load_user_by_id(user_id: int) -> User | None:
     return await sync_to_async(
-        User.objects.select_related("person", "link", "person__athlete").filter(id=user_id).first,
+        users_in_organization(User.objects.select_related("person", "link", "person__athlete"))
+        .filter(id=user_id)
+        .first,
         thread_sensitive=True,
     )()
 
@@ -799,7 +805,8 @@ async def _load_manager_user(tg_id: int) -> User | None:
         thread_sensitive=True,
     )()
     if user:
-        user.is_staff = True
+        # менеджер бота видит все семьи; признак живёт только в памяти (раньше — is_staff=True в памяти)
+        setattr(user, BOT_MANAGER_SCOPE, True)
     return user
 
 

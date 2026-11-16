@@ -14,7 +14,7 @@ from datetime import timedelta
 from django.db import close_old_connections
 from django.utils import timezone
 
-from organizations.context import activate_default_organization
+from organizations.context import activate_default_organization, organization_by_id, set_current_organization
 
 from .models import ResultsEvent
 from .services import TickResult, clear_error, ingest_snapshot, recompute, record_error, set_status
@@ -108,7 +108,11 @@ class EventRunner(threading.Thread):
                     return
 
     def run(self) -> None:
-        activate_default_organization()  # у каждого потока свой контекст организации
+        # у каждого потока свой контекст — организация трансляции (неактивная/неизвестная → без данных)
+        organization_id = (
+            ResultsEvent.all_objects.filter(pk=self.event_id).values_list("organization_id", flat=True).first()
+        )
+        set_current_organization(organization_by_id(organization_id))
         logger.info("results: трансляция %s запущена", self.event_id)
         while not self.stop_event.is_set():
             close_old_connections()
@@ -136,7 +140,8 @@ class Supervisor:
 
     def scan(self) -> None:
         close_old_connections()
-        active = set(ResultsEvent.objects.filter(status=ResultsEvent.Status.RUNNING).values_list("pk", flat=True))
+        # супервизор платформенный: видит трансляции всех организаций
+        active = set(ResultsEvent.all_objects.filter(status=ResultsEvent.Status.RUNNING).values_list("pk", flat=True))
         for event_id in active:
             runner = self.runners.get(event_id)
             if runner is None or not runner.is_alive():

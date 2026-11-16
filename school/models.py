@@ -7,6 +7,7 @@ from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
 
+from organizations.scoping import OrgOwned
 from users.telegram_identity import parse_telegram_reference, telegram_url_from_username
 
 from .choices import (
@@ -53,7 +54,7 @@ def default_birth_year_from():
 
 
 # всё из чат-гпт, проверить
-class Person(models.Model):
+class Person(OrgOwned):
     """Модель «Человек»"""
 
     GENDER_CHOICES = [
@@ -89,6 +90,12 @@ class Person(models.Model):
     )
     comment = models.TextField(blank=True, null=True, verbose_name="Комментарий")
     gender = models.CharField(max_length=6, choices=GENDER_CHOICES, verbose_name="Пол")
+    is_external = models.BooleanField(
+        "Внешний",
+        default=False,
+        db_index=True,
+        help_text="Спортсмен другого клуба без связей с организацией (из протоколов). Скрыт из рабочих списков.",
+    )
 
     def __str__(self):
         parts = [self.surname, self.name]
@@ -131,7 +138,7 @@ class Person(models.Model):
         ]
 
 
-class Athlete(models.Model):
+class Athlete(OrgOwned):
     """Модель «Спортсмен»"""
 
     LEVEL_CHOICES = [
@@ -189,7 +196,7 @@ class Athlete(models.Model):
         ]
 
 
-class Coach(models.Model):
+class Coach(OrgOwned):
     """Модель «Тренер»"""
 
     person = models.OneToOneField(Person, on_delete=models.CASCADE, verbose_name="Человек")
@@ -203,7 +210,7 @@ class Coach(models.Model):
         verbose_name_plural = "Тренеры"
 
 
-class PotentialClient(models.Model):
+class PotentialClient(OrgOwned):
     """Модель «Потенциальный клиент»"""
 
     person = models.OneToOneField(Person, on_delete=models.CASCADE, verbose_name="Человек")
@@ -221,7 +228,7 @@ class PotentialClient(models.Model):
         verbose_name_plural = "Потенциальные клиенты"
 
 
-class Group(models.Model):
+class Group(OrgOwned):
     """Модель «Группа»"""
 
     name = models.CharField(max_length=100, verbose_name="Название группы")
@@ -237,7 +244,7 @@ class Group(models.Model):
         verbose_name_plural = "Группы"
 
 
-class Class(models.Model):
+class Class(OrgOwned):
     """Модель «Занятие»"""
 
     TYPE_CHOICES = [
@@ -351,7 +358,7 @@ class Class(models.Model):
         return self.coach_status != ClassCoachStatus.PENDING
 
 
-class ClassEnrollment(models.Model):
+class ClassEnrollment(OrgOwned):
     """Модель «Запись на занятие»"""
 
     ASSISTANT_STATUS_UNKNOWN = "unknown"
@@ -399,7 +406,7 @@ class ClassEnrollment(models.Model):
         verbose_name_plural = "Записи на занятия"
 
 
-class TrainingCamp(models.Model):
+class TrainingCamp(OrgOwned):
     """Модель «Спортивный сбор»"""
 
     start_date = models.DateField(verbose_name="Дата начала сбора")
@@ -416,7 +423,7 @@ class TrainingCamp(models.Model):
         verbose_name_plural = "Спортивные сборы"
 
 
-class CampEnrollment(models.Model):
+class CampEnrollment(OrgOwned):
     """Модель «Участие в сборах»"""
 
     athlete = models.ForeignKey(
@@ -489,7 +496,7 @@ class CompetitionVenue(models.Model):
         ]
 
 
-class Competition(models.Model):
+class Competition(OrgOwned):
     """Модель «Соревнование»"""
 
     TYPE_CHOICES = [
@@ -540,7 +547,7 @@ class Competition(models.Model):
         verbose_name_plural = "Соревнования"
 
 
-class CompetitionScoringGroup(models.Model):
+class CompetitionScoringGroup(OrgOwned):
     class GenderScope(models.TextChoices):
         MALE = "male", "Мужчины"
         FEMALE = "female", "Женщины"
@@ -629,7 +636,7 @@ class CompetitionScoringGroup(models.Model):
         ]
 
 
-class CompetitionApplicationLink(models.Model):
+class CompetitionApplicationLink(OrgOwned):
     """Публичная ссылка для подачи заявок на соревнование."""
 
     competition = models.OneToOneField(
@@ -656,7 +663,7 @@ class CompetitionApplicationLink(models.Model):
         return f"{self.competition.name} ({self.token[:6]})"
 
 
-class CompetitionApplication(models.Model):
+class CompetitionApplication(OrgOwned):
     """Заявка пользователя на соревнование."""
 
     competition = models.ForeignKey(
@@ -688,7 +695,7 @@ class CompetitionApplication(models.Model):
         return f"{self.competition.name} ← {self.user.display_name()}"
 
 
-class CompetitionEntry(models.Model):
+class CompetitionEntry(OrgOwned):
     """Модель «Участие в соревнованиях»"""
 
     athlete = models.ForeignKey(
@@ -740,7 +747,7 @@ class DocumentType(models.TextChoices):
     OTHER = "other", "Прочее"
 
 
-class Document(models.Model):
+class Document(OrgOwned):
     """Базовый загружаемый файл."""
 
     file = models.FileField(upload_to="documents/%Y/%m/", max_length=255, verbose_name="Файл")
@@ -787,7 +794,7 @@ class Document(models.Model):
         ]
 
 
-class CompetitionDocument(models.Model):
+class CompetitionDocument(OrgOwned):
     """Файлы, относящиеся к соревнованию в целом."""
 
     competition = models.ForeignKey(
@@ -829,7 +836,7 @@ class CompetitionDocument(models.Model):
         ]
 
 
-class AthleteDocument(models.Model):
+class AthleteDocument(OrgOwned):
     """Личные документы спортсмена (база для будущего использования)."""
 
     athlete = models.ForeignKey(
@@ -882,7 +889,7 @@ class AthleteDocument(models.Model):
         ]
 
 
-class DocumentAIAnalysis(models.Model):
+class DocumentAIAnalysis(OrgOwned):
     class Status(models.TextChoices):
         PENDING = "pending", "Ожидает"
         OK = "ok", "Успешно"
@@ -978,7 +985,7 @@ class DocumentAIAnalysis(models.Model):
         ]
 
 
-class DocumentAIJob(models.Model):
+class DocumentAIJob(OrgOwned):
     class Status(models.TextChoices):
         PENDING = "pending", "Ожидает"
         IN_PROGRESS = "in_progress", "В процессе"
@@ -1021,7 +1028,7 @@ class DocumentAIJob(models.Model):
         ]
 
 
-class DocumentAIJobItem(models.Model):
+class DocumentAIJobItem(OrgOwned):
     class Status(models.TextChoices):
         PENDING = "pending", "Ожидает"
         IN_PROGRESS = "in_progress", "В процессе"
@@ -1088,7 +1095,7 @@ class Club(models.Model):
         verbose_name_plural = "Клубы"
 
 
-class Family(models.Model):
+class Family(OrgOwned):
     """Модель «Семья»"""
 
     STATUS_ACTIVE = "active"
@@ -1136,7 +1143,7 @@ class Family(models.Model):
         ordering = ["family_name"]
 
 
-class FamilyMember(models.Model):
+class FamilyMember(OrgOwned):
     """Модель «Член семьи»"""
 
     FAMILY_RELATION = [
@@ -1171,7 +1178,7 @@ class FamilyMember(models.Model):
         verbose_name_plural = "Члены семьи"
 
 
-class FamilyAthleteProfile(models.Model):
+class FamilyAthleteProfile(OrgOwned):
     """Дополнительные настройки спортсмена внутри семьи."""
 
     family = models.ForeignKey(
@@ -1219,7 +1226,7 @@ class FamilyAthleteProfile(models.Model):
         return f"{self.family}: {self.athlete.person}"
 
 
-class AthleteContract(models.Model):
+class AthleteContract(OrgOwned):
     profile = models.ForeignKey(
         FamilyAthleteProfile,
         on_delete=models.CASCADE,
@@ -1276,7 +1283,7 @@ class AthleteContract(models.Model):
         return f"Договор {self.number} ({self.profile.athlete.person})"
 
 
-class FamilyService(models.Model):
+class FamilyService(OrgOwned):
     """Услуги и начисления для семьи."""
 
     family = models.ForeignKey(
@@ -1338,7 +1345,7 @@ class FamilyService(models.Model):
         return f"{self.name} ({self.family})"
 
 
-class FamilyPayment(models.Model):
+class FamilyPayment(OrgOwned):
     """Оплаты по услугам семьи."""
 
     service = models.ForeignKey(

@@ -11,3 +11,7 @@ class OrganizationsConfig(AppConfig):
         from .context import connect_celery_signals
 
         connect_celery_signals()
+
+        from .externals import _connect_signals
+
+        _connect_signals()

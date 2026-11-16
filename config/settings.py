@@ -89,6 +89,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "organizations.context.OrganizationMiddleware",
+    "organizations.alumni.HistoryReadOnlyMiddleware",  # выпускники: только просмотр истории (R2-5)
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -562,6 +563,7 @@ ORGS_DEFAULT_ORGANIZATION_SLUG = os.getenv(
 )  # хост без домена → эта организация
 ORGS_LEGACY_SYNC = env_bool("ORGS_LEGACY_SYNC", True)  # двойная запись членство/роли ↔ is_approved/группы
 ORGS_ROLES_SOURCE = os.getenv("ORGS_ROLES_SOURCE", "legacy")  # откуда читать роли: legacy | memberships (R2)
+ORGS_ENFORCE_SCOPING = env_bool("ORGS_ENFORCE_SCOPING", False)  # фильтрация данных по организации (R2-4)
 
 # Онлайн-результаты (приложение results)
 RESULTS_GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(

@@ -12,6 +12,9 @@ from telegram.error import TelegramError
 from classes.services import ensure_week_ahead_schedule
 from classes.telegram import build_main_actions_keyboard, format_class_summary
 from config.settings import BOT_TOKEN
+from organizations.context import for_each_organization
+from organizations.externals import mailing_recipients
+from organizations.scoping import users_in_organization
 from school.choices import ClassCoachStatus
 from school.models import Class
 from tg_bot.services.notifications import notify_coaches_bot
@@ -39,6 +42,7 @@ def _send_classes_to_coaches(bot: Bot, classes: list[Class], heading: str | None
 
 
 @shared_task
+@for_each_organization
 def ensure_weekly_schedule_task() -> int:
     created_classes = ensure_week_ahead_schedule()
     if not created_classes or not BOT_TOKEN:
@@ -55,6 +59,7 @@ def ensure_weekly_schedule_task() -> int:
 
 
 @shared_task
+@for_each_organization
 def notify_today_trainings_task() -> int:
     if not BOT_TOKEN:
         return 0
@@ -77,6 +82,7 @@ def notify_today_trainings_task() -> int:
 
 
 @shared_task
+@for_each_organization
 def notify_tomorrow_trainings_task() -> int:
     if not BOT_TOKEN:
         return 0
@@ -99,6 +105,7 @@ def notify_tomorrow_trainings_task() -> int:
 
 
 @shared_task
+@for_each_organization
 def send_training_reminders_task() -> int:
     if not BOT_TOKEN:
         return 0
@@ -108,12 +115,16 @@ def send_training_reminders_task() -> int:
     bot = Bot(token=BOT_TOKEN)
     sent_messages = 0
 
-    users = User.objects.filter(
-        is_active=True,
-        is_approved=True,
-        training_reminders_enabled=True,
-        tg_id__isnull=False,
-    ).order_by("id")
+    users = mailing_recipients(
+        users_in_organization(
+            User.objects.filter(
+                is_active=True,
+                is_approved=True,
+                training_reminders_enabled=True,
+                tg_id__isnull=False,
+            ).order_by("id")
+        )
+    )
 
     for user in users:
         trainings = get_upcoming_trainings_for_user(user, until=end_of_day)

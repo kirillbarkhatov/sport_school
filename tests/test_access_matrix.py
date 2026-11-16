@@ -28,8 +28,17 @@ def _kwargs(name, data):
     return DETAIL_KWARGS[name](data) if name in DETAIL_KWARGS else {}
 
 
-@pytest.fixture
-def world():
+MODES = [
+    ("legacy", False),
+    ("memberships", False),
+    ("legacy", True),
+    ("memberships", True),
+]
+
+
+@pytest.fixture(params=MODES, ids=[f"{source}-scoping_{'on' if on else 'off'}" for source, on in MODES])
+def world(request, settings):
+    source, scoping = request.param
     family = FamilyFactory()
     data = {
         "person": PersonFactory(),
@@ -41,7 +50,28 @@ def world():
         "competition": CompetitionFactory(),
         "notification": NotificationFactory(),
     }
-    return data, {role: _make_user(role) for role in ROLES}
+    settings.ORGS_ROLES_SOURCE = "legacy"
+    settings.ORGS_ENFORCE_SCOPING = scoping
+    if scoping:
+        # вторая организация с полным набором данных: матрица ksclub не должна измениться
+        from organizations.context import organization_context
+        from organizations.models import Organization
+
+        other = Organization.objects.create(slug="matrix-other", name="Другая организация")
+        with organization_context(other):
+            other_family = FamilyFactory()
+            for factory in (PersonFactory, AthleteFactory, GroupFactory, ClassFactory, CompetitionFactory):
+                factory()
+            NotificationFactory()
+            FamilyServiceFactory(family=other_family)
+    users = {role: _make_user(role) for role in ROLES}
+    if source == "memberships":
+        # Ровно как при переключении на проде: перенос из старых полей, затем смена источника ролей.
+        from organizations.legacy import import_legacy
+
+        import_legacy()
+        settings.ORGS_ROLES_SOURCE = "memberships"
+    return data, users
 
 
 def test_matrix_covers_every_smoke_page():

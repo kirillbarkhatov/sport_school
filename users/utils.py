@@ -2,13 +2,14 @@ from django.db import models
 from django.db.models import QuerySet
 
 from members.models import PersonMergeRedirect
+from organizations.permissions import authorize, is_privileged  # noqa: F401
 from school.models import Athlete, Class, Coach, FamilyMember, Group, Person
 from users.models import UserAthleteLink
 
 
 def get_person_queryset_for_user(user) -> QuerySet:
     redirected_sources = PersonMergeRedirect.objects.filter(is_active=True).values_list("source_person_id", flat=True)
-    if user.is_staff or user.is_superuser:
+    if is_privileged(user):
         return Person.objects.exclude(id__in=redirected_sources)
 
     family_ids = user.get_accessible_family_ids()
@@ -24,7 +25,7 @@ def get_person_queryset_for_user(user) -> QuerySet:
 
 
 def get_athlete_queryset_for_user(user) -> QuerySet:
-    if user.is_staff or user.is_superuser:
+    if is_privileged(user):
         return Athlete.objects.all()
 
     people = get_person_queryset_for_user(user).values_list("id", flat=True)
@@ -32,7 +33,7 @@ def get_athlete_queryset_for_user(user) -> QuerySet:
 
 
 def get_group_queryset_for_user(user) -> QuerySet:
-    if user.is_staff or user.is_superuser:
+    if is_privileged(user):
         return Group.objects.all()
 
     athlete_ids = get_athlete_queryset_for_user(user).values_list("id", flat=True)
@@ -40,7 +41,7 @@ def get_group_queryset_for_user(user) -> QuerySet:
 
 
 def get_class_queryset_for_user(user) -> QuerySet:
-    if user.is_staff or user.is_superuser:
+    if is_privileged(user):
         return Class.objects.all()
 
     athlete_ids = get_athlete_queryset_for_user(user).values_list("id", flat=True)
@@ -80,7 +81,7 @@ def ensure_user_athlete_links(user, athletes: QuerySet, *, source: str = "family
 
 
 def get_available_athlete_queryset_for_user(user, *, ensure_family_links: bool = False) -> QuerySet:
-    if user.is_staff or user.is_superuser:
+    if is_privileged(user):
         return Athlete.objects.all()
 
     coach_club_ids = get_coach_club_ids_for_user(user)

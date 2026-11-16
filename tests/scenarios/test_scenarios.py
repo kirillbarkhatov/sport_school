@@ -1,16 +1,25 @@
 """Сквозные сценарии этапа 4 (docs/organizations-intro.md, «Сквозные сценарии»), применимые к R1.
 
 Автоматизированы 1, 3, 4, 5, 8, 9, 13, 14. Остальные — ручная проверка (tests/scenarios/MANUAL.md).
-Для будущих возможностей указан этап и проверяемая сейчас часть.
+Для будущих возможностей указан этап и проверяемая сейчас часть. Сценарий 14 — сквозной, на фикстурах
+organizations/tests/test_scoping.py.
 """
 
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from organizations.tests.test_scoping import (  # noqa: F401 — фикстуры набора изоляции для сценария 14
+    OTHER,
+    accounts,
+    client_for,
+    enforced,
+    two_orgs,
+)
 from results import services as results_services
 from results.models import ResultsEvent
 from results.tests.fixtures import protocols
@@ -145,8 +154,10 @@ def test_s13_access_matrix_exists():
     assert len(ROLES) == 7 and len(EXPECTED) >= 60
 
 
-# 14. Изоляция организаций — появится в R2-4 (фильтрация по организации).
-# Сейчас проверяемая часть: публичные ссылки трансляций не раскрывают чужие трансляции.
+# 14. Изоляция организаций (R2-4). Сквозной проход по фикстурам набора изоляции
+# organizations/tests/test_scoping.py (без дублирования данных): владелец каждой из двух организаций на своём
+# домене видит только свою организацию в списке, API, выгрузке, задаче и публичной ссылке; чужое — 404/403.
+# Подробные проверки по каждому слою — в test_scoping.py.
 def test_s14_now_public_tokens_are_isolated(client):
     first = ResultsEvent.objects.create(title="Первый", source_kind="manual", status="running")
     ResultsEvent.objects.create(title="Второй старт", source_kind="manual", status="running")
@@ -154,9 +165,42 @@ def test_s14_now_public_tokens_are_isolated(client):
     assert "Первый" in page and "Второй старт" not in page
 
 
-@pytest.mark.skip(reason="R2-4: изоляция данных двух организаций — после появления поля organization")
-def test_s14_organizations_isolated():
-    pass
+@pytest.mark.parametrize("tag", ["KS", "OT"])
+def test_s14_organizations_isolated(accounts, tag):  # noqa: F811 — фикстура из test_scoping
+    from organizations import context
+    from school.models import Group
+
+    other = OTHER[tag]
+    own, foreign = accounts.data[tag], accounts.data[other]
+    owner = client_for(accounts.users[f"owner_{tag}"], tag)
+
+    # страница списка и detail
+    page = owner.get(reverse("groups:group_list")).content.decode()
+    assert f"Группа{tag}" in page and f"Группа{other}" not in page
+    assert owner.get(reverse("groups:group_detail", kwargs={"pk": own.group.pk})).status_code == 200
+    assert owner.get(reverse("groups:group_detail", kwargs={"pk": foreign.group.pk})).status_code == 404
+    # API: люди и учётные записи (D13)
+    people = owner.get(reverse("api:person-list")).content.decode()
+    assert f"Фамилия{tag}" in people and f"Фамилия{other}" not in people
+    users = owner.get(reverse("api:user-list")).content.decode()
+    assert accounts.users[f"owner_{tag}"].email in users and accounts.users[f"owner_{other}"].email not in users
+    # выгрузка
+    assert owner.get(reverse("school:competition_export", kwargs={"pk": own.competition.pk})).status_code == 200
+    assert owner.get(reverse("school:competition_export", kwargs={"pk": foreign.competition.pk})).status_code == 404
+    # публичная ссылка работает только на своём домене
+    url = reverse("results:public_live", kwargs={"token": own.event.public_token})
+    assert client_for(None, tag).get(url).status_code != 404
+    assert client_for(None, other).get(url).status_code == 404
+    # задача Celery с заголовком организации
+    task = SimpleNamespace(request=SimpleNamespace(organization_id=accounts.orgs[tag].pk))
+    context._task_prerun(task_id="s14", task=task, kwargs={})
+    try:
+        names = set(Group.objects.values_list("name", flat=True))
+        assert f"Группа{tag}" in names and f"Группа{other}" not in names
+    finally:
+        context._task_postrun(task_id="s14")
+    # владелец в чужой организации прав не имеет
+    assert client_for(accounts.users[f"owner_{tag}"], other).get(reverse("api:person-list")).status_code == 403
 
 
 def test_family_member_person_factory_smoke():
