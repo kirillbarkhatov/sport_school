@@ -3,7 +3,8 @@
 Данные создаются в контексте организации «demo» (изоляция OrgOwned): две семьи (родитель и ребёнок-спортсмен),
 группа, занятие, соревнование со ссылкой заявки, трансляция результатов с публичной ссылкой. Внешние каналы
 выключены (Telegram-публикация трансляции — нет), производственных ключей нет; метаданные — в настройках
-организации (demo, synthetic).
+организации (demo, synthetic): по ним демо исключается из расписания и внешних задач (for_each_organization).
+Работает только при ORGS_ENFORCE_SCOPING=True; все выборки — в контексте demo, данные ksclub не затрагиваются.
 
 QA-учётки (владелец и родители, qa-demo-*@staging.invalid) — только с --qa-accounts и только при STAGING_MODE.
 """
@@ -37,6 +38,11 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, host, qa_accounts, **options):
+        from organizations.scoping import scoping_enabled
+
+        if not scoping_enabled():
+            # без изоляции менеджеры видят данные всех организаций — демо создаётся только при включённой изоляции
+            raise CommandError("Демо создаётся только при ORGS_ENFORCE_SCOPING=True.")
         if qa_accounts and not getattr(settings, "STAGING_MODE", False):
             raise CommandError("QA-учётки демо создаются только на staging (STAGING_MODE=True).")
         org, created = Organization.objects.get_or_create(

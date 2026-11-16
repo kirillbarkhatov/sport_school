@@ -63,7 +63,42 @@ def test_demo_command_idempotent(demo):
     assert not ResultsEvent.all_objects.filter(organization=demo["demo"], telegram_enabled=True).exists()
 
 
+def test_demo_refused_without_scoping(settings):
+    settings.ORGS_ENFORCE_SCOPING = False
+    with pytest.raises(CommandError):
+        call_command("orgs_create_demo", stdout=StringIO())
+    assert not Organization.objects.filter(slug="demo").exists()
+
+
+def test_rerun_does_not_touch_ksclub_data(demo):
+    ks_before = {m._meta.label: m.all_objects.filter(organization=demo["ks"]).count() for m in org_owned_models()}
+    call_command("orgs_create_demo", "--host", DEMO_HOST, stdout=StringIO())
+    ks_after = {m._meta.label: m.all_objects.filter(organization=demo["ks"]).count() for m in org_owned_models()}
+    assert ks_before == ks_after
+
+
+def test_demo_excluded_from_periodic_and_external_tasks(demo):
+    from unittest.mock import patch
+
+    from assistant.tasks import send_members_snapshot_task
+    from classes.tasks import ensure_weekly_schedule_task
+    from organizations import context
+
+    for task in (ensure_weekly_schedule_task, send_members_snapshot_task):
+        with patch.object(task, "apply_async") as apply_async:
+            result = task.apply().get()
+        sent = [call.kwargs["headers"][context.ORG_HEADER] for call in apply_async.call_args_list]
+        assert demo["demo"].pk not in sent and demo["ks"].pk in sent, task.name
+        assert "demo" not in result["per_organization"]
+    # явный заголовок демо (поставлено вручную) — задача пропускается, наружу ничего не уходит
+    with patch("assistant.tasks._prepare_client") as external:
+        result = send_members_snapshot_task.apply(headers={context.ORG_HEADER: demo["demo"].pk}).get()
+    external.assert_not_called()
+    assert result == {"skipped": "synthetic", "organization": "demo"}
+
+
 def test_qa_accounts_only_on_staging(settings):
+    settings.ORGS_ENFORCE_SCOPING = True
     settings.STAGING_MODE = False
     with pytest.raises(CommandError):
         call_command("orgs_create_demo", "--qa-accounts", stdout=StringIO())
