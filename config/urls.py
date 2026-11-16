@@ -35,6 +35,7 @@ from config.health import healthz
 urlpatterns = [
     path("healthz/", healthz, name="healthz"),
     path("admin/", admin.site.urls),
+    path("", include("organizations.urls", namespace="organizations")),  # R3: /platform/, /org/, /join/
     path("results/", include("results.urls", namespace="results")),
     path("", include("school.urls", namespace="school")),
     path("", include("users.urls", namespace="users")),

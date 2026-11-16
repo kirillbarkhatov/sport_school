@@ -77,11 +77,16 @@ class User(AbstractUser):
 
             return list(Family.objects.values_list("id", flat=True))
 
+        from organizations.auth import person_for
+        from organizations.scoping import scope_organization
+
         ids = set()
-        if self.person_id:
+        # R3: человек этой организации (Membership.person во второй организации, иначе User.person)
+        person = person_for(self, scope_organization()) or (self.person if self.person_id else None)
+        if person is not None:
             from school.models import FamilyMember
 
-            linked = FamilyMember.objects.filter(person_id=self.person_id).values_list("family_id", flat=True)
+            linked = FamilyMember.objects.filter(person_id=person.pk).values_list("family_id", flat=True)
             ids.update(linked)
         return list(ids)
 

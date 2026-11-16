@@ -36,3 +36,13 @@ def user_groups_changed(sender, instance, action, reverse, **kwargs):
     if reverse or action not in {"post_add", "post_remove", "post_clear"}:
         return
     legacy.pull_groups_to_roles(instance)
+
+
+@receiver(post_save, sender=User, dispatch_uid="orgs_user_identities")
+def _user_identities(sender, instance, raw=False, update_fields=None, **_):
+    """R3-1: Telegram ID и email учётной записи → способы входа AuthIdentity."""
+    if raw or (update_fields is not None and not {"tg_id", "email"} & set(update_fields)):
+        return
+    from .auth import sync_identities
+
+    sync_identities(instance)

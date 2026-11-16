@@ -2,11 +2,13 @@ import json
 import secrets
 from datetime import date, timedelta
 from io import BytesIO
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.views import redirect_to_login
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -1788,8 +1790,12 @@ def _get_or_create_athlete_from_form(form: CompetitionApplyAthleteForm) -> Athle
     return athlete
 
 
-class CompetitionApplyView(LoginRequiredMixin, View):
+class CompetitionApplyView(View):
+    """Заявка по ссылке. Вошедшим — прежняя подача со своими спортсменами; гостю (R3-4) — только общая
+    информация о соревновании и вход. Ссылка ищется в организации адреса: на чужом хосте — 404."""
+
     template_name = "competitions/competition_apply.html"
+    guest_template_name = "competitions/competition_apply_guest.html"
 
     def _get_competition_link(self, competition: Competition, token: str) -> CompetitionApplicationLink:
         return get_object_or_404(
@@ -1833,10 +1839,19 @@ class CompetitionApplyView(LoginRequiredMixin, View):
     def get(self, request, pk, token):
         competition = get_object_or_404(Competition, pk=pk)
         link = self._get_competition_link(competition, token)
+        if not request.user.is_authenticated:
+            login_url = f"{reverse('users:login_page')}?{urlencode({'next': request.get_full_path()})}"
+            return render(
+                request,
+                self.guest_template_name,
+                {"competition": competition, "deadline": link.expires_at, "login_url": login_url},
+            )
         context = self._build_context(request, competition, link)
         return render(request, self.template_name, context)
 
     def post(self, request, pk, token):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
         competition = get_object_or_404(Competition, pk=pk)
         link = self._get_competition_link(competition, token)
         now = timezone.now()

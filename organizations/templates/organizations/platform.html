@@ -1,0 +1,39 @@
+{% extends 'school/base.html' %}
+{% block title %}Консоль платформы{% endblock %}
+{% block content %}
+<div class="container py-3">
+  <h2 class="mb-3">Консоль платформы</h2>
+  {% if invite_url %}<div class="alert alert-warning">Ссылка-приглашение владельца (показывается один раз): <code>{{ invite_url }}</code></div>{% endif %}
+  <div class="card mb-4"><div class="card-body">
+    <h5>Новая организация</h5>
+    <form method="post" action="{% url 'organizations:platform_org_create' %}" class="row g-2">{% csrf_token %}
+      <div class="col-md-3"><input name="slug" class="form-control" placeholder="код (латиница)" required></div>
+      <div class="col-md-4"><input name="name" class="form-control" placeholder="название" required></div>
+      <div class="col-md-3"><select name="kind" class="form-select">{% for v, l in kinds %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><button class="btn btn-primary w-100">Создать</button></div>
+    </form>
+  </div></div>
+  <table class="table table-sm align-middle" data-testid="platform-orgs">
+    <thead><tr><th>Организация</th><th>Код</th><th>Статус</th><th>Активных членств</th><th></th></tr></thead>
+    <tbody>
+    {% for org, active in organizations %}
+      <tr>
+        <td>{{ org.name }}</td><td>{{ org.slug }}</td><td>{{ org.get_status_display }}</td><td>{{ active }}</td>
+        <td class="text-end">
+          <form method="post" action="{% url 'organizations:platform_org_status' org.pk %}" class="d-inline">{% csrf_token %}
+            {% if org.status == 'active' %}<input type="hidden" name="status" value="suspended"><button class="btn btn-sm btn-outline-danger">Приостановить</button>
+            {% else %}<input type="hidden" name="status" value="active"><button class="btn btn-sm btn-outline-success">Возобновить</button>{% endif %}
+          </form>
+          {% if org.status == 'active' %}
+          <form method="post" action="{% url 'organizations:platform_owner_invite' org.pk %}" class="d-inline">{% csrf_token %}
+            <button class="btn btn-sm btn-outline-primary">Пригласить владельца</button>
+          </form>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <h5 class="mt-4">Журнал</h5>
+  <ul class="list-unstyled small">{% for e in audit %}<li>{{ e.created_at|date:"d.m.Y H:i" }} — {{ e.organization.slug|default:"платформа" }} — {{ e.action }}{% if e.actor %} ({{ e.actor }}){% endif %}</li>{% empty %}<li>Пусто</li>{% endfor %}</ul>
+</div>
+{% endblock %}

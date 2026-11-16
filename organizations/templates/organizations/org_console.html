@@ -1,0 +1,45 @@
+{% extends 'school/base.html' %}
+{% block title %}Организация — {{ organization.name }}{% endblock %}
+{% block content %}
+<div class="container py-3">
+  <h2 class="mb-3">{{ organization.name }}: сотрудники и заявки</h2>
+  {% if invite_url %}<div class="alert alert-warning">Ссылка-приглашение (показывается один раз): <code>{{ invite_url }}</code></div>{% endif %}
+  <h5>Очередь заявок</h5>
+  <table class="table table-sm" data-testid="queue"><tbody>
+  {% for m in queue %}
+    <tr><td>{{ m.user.get_full_name|default:m.user.email }}</td><td>{{ m.created_at|date:"d.m.Y" }}</td>
+      <td class="text-end">
+        <form method="post" action="{% url 'organizations:org_member_status' m.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="approve"><button class="btn btn-sm btn-success">Подтвердить</button></form>
+        <form method="post" action="{% url 'organizations:org_member_status' m.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="reject"><button class="btn btn-sm btn-outline-danger">Отклонить</button></form>
+      </td></tr>
+  {% empty %}<tr><td class="text-muted">Заявок нет</td></tr>{% endfor %}
+  </tbody></table>
+  <h5 class="mt-4">Участники и роли</h5>
+  <table class="table table-sm align-middle" data-testid="members"><tbody>
+  {% for m in members %}
+    <tr><td>{{ m.user.get_full_name|default:m.user.email }}</td><td>{{ m.get_status_display }}</td>
+      <td>{% for ra in m.role_assignments.all %}<span class="badge text-bg-secondary">{{ ra.role.name }}</span> {% endfor %}</td>
+      <td class="text-end">
+        <form method="post" action="{% url 'organizations:org_member_role' m.pk %}" class="d-inline">{% csrf_token %}
+          <select name="role" class="form-select form-select-sm d-inline w-auto">{% for r in roles %}<option value="{{ r.code }}">{{ r.name }}</option>{% endfor %}</select>
+          <button name="action" value="add" class="btn btn-sm btn-outline-primary">Добавить</button>
+          <button name="action" value="remove" class="btn btn-sm btn-outline-secondary">Снять</button>
+        </form>
+        <form method="post" action="{% url 'organizations:org_member_status' m.pk %}" class="d-inline">{% csrf_token %}
+          {% if m.status == 'active' %}<input type="hidden" name="action" value="suspend"><button class="btn btn-sm btn-outline-danger">Приостановить</button>
+          {% else %}<input type="hidden" name="action" value="activate"><button class="btn btn-sm btn-outline-success">Активировать</button>{% endif %}
+        </form>
+      </td></tr>
+  {% endfor %}
+  </tbody></table>
+  <h5 class="mt-4">Приглашения</h5>
+  <form method="post" action="{% url 'organizations:org_invitation_create' %}" class="row g-2 mb-2">{% csrf_token %}
+    <div class="col-auto"><select name="role" class="form-select"><option value="">Без роли (участник)</option>{% for r in roles %}<option value="{{ r.code }}">{{ r.name }}</option>{% endfor %}</select></div>
+    <div class="col-auto"><button class="btn btn-primary">Создать ссылку</button></div>
+  </form>
+  <ul class="list-unstyled small">{% for i in invitations %}<li>{{ i.role.name|default:"участник" }}, до {{ i.expires_at|date:"d.m.Y" }}
+    <form method="post" action="{% url 'organizations:org_invitation_revoke' i.pk %}" class="d-inline">{% csrf_token %}<button class="btn btn-link btn-sm p-0">отозвать</button></form></li>{% empty %}<li class="text-muted">Активных приглашений нет</li>{% endfor %}</ul>
+  <h5 class="mt-4">Журнал организации</h5>
+  <ul class="list-unstyled small">{% for e in audit %}<li>{{ e.created_at|date:"d.m.Y H:i" }} — {{ e.action }}{% if e.actor %} ({{ e.actor }}){% endif %}</li>{% empty %}<li class="text-muted">Пусто</li>{% endfor %}</ul>
+</div>
+{% endblock %}
