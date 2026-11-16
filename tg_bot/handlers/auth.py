@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from tg_bot.handlers.onboarding import maybe_start_group_onboarding
+from tg_bot.handlers.organization import parse_org_payload, select_organization
 from tg_bot.services.notifications import (
     notify_admins_context,
     user_is_admin,
@@ -125,12 +126,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     raw_arg = context.args[0] if context.args else None
     start_kind, token, comp_id = _parse_start_payload(raw_arg)
     tg_user = update.effective_user
+    # R3-1: /start org_<slug> или /start <slug> — выбор организации (вход по токену не затрагивается)
+    if start_kind == START_KIND_DEFAULT and (slug := parse_org_payload(raw_arg)):
+        if await select_organization(update, context, slug):
+            return
 
-    logger.info(
-        "Получена команда /start от tg_id=%s (token=%s)",
-        tg_user.id,
-        token[-6:] if token else "нет",
-    )
+    logger.info("Получена команда /start от tg_id=%s (токен %s)", tg_user.id, "есть" if token else "нет")
     try:
         user, created, link = await ensure_user_for_start_async(tg_user, token)
     except Exception as exc:  # noqa: BLE001

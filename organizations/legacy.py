@@ -210,7 +210,7 @@ def push_membership_to_legacy(membership: Membership) -> None:
     approved = membership.status == Membership.Status.ACTIVE
     if user.is_approved != approved:
         with _sync_guard():
-            type(user).objects.filter(pk=user.pk).update(is_approved=approved)
+            get_user_model().objects.filter(pk=user.pk).update(is_approved=approved)
             user.is_approved = approved
 
 

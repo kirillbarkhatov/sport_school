@@ -1,0 +1,9 @@
+{% extends 'school/base.html' %}
+{% block title %}Приглашение{% endblock %}
+{% block content %}
+<div class="container py-5" style="max-width: 32rem">
+  <h2 class="h4">Приглашение в организацию</h2>
+  <p>Нажмите, чтобы принять приглашение. Ссылка одноразовая.</p>
+  <form method="post">{% csrf_token %}<button class="btn btn-primary w-100">Принять приглашение</button></form>
+</div>
+{% endblock %}

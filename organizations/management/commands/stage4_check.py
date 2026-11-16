@@ -13,7 +13,7 @@ class Command(BaseCommand):
     help = "Проверка готовности релиза этапа 4 (docs/stage4-releases.md). Ненулевой код выхода при ошибках."
 
     def add_arguments(self, parser):
-        parser.add_argument("--release", required=True, choices=["r1", "r2"])
+        parser.add_argument("--release", required=True, choices=["r1", "r2", "r3"])
 
     def handle(self, *args, release, **options):
         errors, notes = [], []
@@ -53,8 +53,10 @@ class Command(BaseCommand):
         flags = (settings.ORGS_DEFAULT_ORGANIZATION_SLUG, settings.ORGS_LEGACY_SYNC, settings.ORGS_ROLES_SOURCE)
         if release == "r1" and flags != ("ksclub", True, "legacy"):
             errors.append(f"флаги R1 не совпадают с планом: {flags}")
-        if release == "r2":
+        if release in ("r2", "r3"):
             self._check_r2(errors, notes)
+        if release == "r3":
+            self._check_r3(errors, notes)
         for note in notes:
             self.stdout.write(f"· {note}")
         if errors:
@@ -62,6 +64,9 @@ class Command(BaseCommand):
                 self.stderr.write(f"✗ {error}")
             raise CommandError(f"stage4_check {release}: ошибок {len(errors)}")
         self.stdout.write(f"✓ stage4_check {release}: всё в порядке")
+
+    def _check_r3(self, errors, notes):
+        _check_r3_impl(errors, notes)
 
     def _check_r2(self, errors, notes):
         """R2-7: флаги, заполнение, внешние, выпускники, реестр фильтров. Права и изоляция по сценариям —
@@ -141,3 +146,37 @@ def _required_organization_columns(models) -> int:
             [tables],
         )
         return cursor.fetchone()[0]
+
+
+def _check_r3_impl(errors, notes):
+    """R3-5: способы входа, закрытая админка, очередь заявок."""
+    from django.contrib import admin
+    from django.contrib.auth import get_user_model
+
+    from organizations.apps import admin_has_permission
+    from organizations.models import AuthIdentity, Membership, PlatformRole
+
+    User = get_user_model()
+    with_tg = User.objects.filter(tg_id__isnull=False)
+    identities = set(AuthIdentity.objects.filter(kind="telegram").values_list("user_id", flat=True))
+    missing = with_tg.exclude(pk__in=identities).count()
+    notes.append(f"пользователей с Telegram: {with_tg.count()}, без способа входа: {missing}")
+    if missing:
+        errors.append(f"у {missing} пользователей с tg_id нет AuthIdentity")
+    if admin.site.has_permission is not admin_has_permission:
+        errors.append("Django-админка не ограничена глобальными администраторами")
+    admins = User.objects.filter(
+        is_active=True, is_staff=True, pk__in=PlatformRole.objects.filter(role="global_admin").values("user_id")
+    ).count()
+    notes.append(f"глобальных администраторов с доступом в админку: {admins}")
+    if not admins:
+        errors.append("нет ни одного глобального администратора с is_staff — админка будет недоступна всем")
+    awaiting = User.objects.filter(is_active=True, is_approved=False, is_staff=False, is_superuser=False)
+    outside_queue = awaiting.exclude(memberships__status=Membership.Status.PENDING).count()
+    notes.append(f"ожидающих подтверждения: {awaiting.count()}, вне очереди заявок: {outside_queue}")
+    if outside_queue:
+        errors.append(f"{outside_queue} ожидающих пользователей не в очереди заявок организации")
+    notes.append(
+        f"ORGS_LEGACY_APPROVAL_PAGE={settings.ORGS_LEGACY_APPROVAL_PAGE}, "
+        f"ORGS_CENTRAL_LOGIN_HOST={settings.ORGS_CENTRAL_LOGIN_HOST or '(пусто: вход на адресе организации)'}"
+    )
